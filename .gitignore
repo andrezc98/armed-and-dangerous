@@ -1,0 +1,21 @@
+# terraform / opentofu
+.terraform/
+*.tfstate
+*.tfstate.backup
+terraform.tfvars
+infra/outputs.json
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# results: committed JSONs live in results/<fecha>/; huge raw exports do not
+results/raw-large/
+
+# secrets / local
+.env
+.DS_Store
+
+# slides working files
+slides/assets/raw/
