@@ -198,18 +198,19 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
   # Every write action is already scoped to resources the driver tags itself
   # (ebs.csi.aws.com/cluster, CSIVolumeName, kubernetes.io/created-for/pvc/name),
   # which is everything it provisions dynamically. ARN, type and version from
-  # https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicy.html
-  # (read 2026-09-04): "Type: Service role policy", "ARN:
-  # arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy", "Policy
-  # version: v15 (default)".
+  # https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html
+  # (read 2026-09-04): "Type: AWS managed policy", "ARN:
+  # arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2", "Policy version: v1
+  # (default)", created 2026-04-16 — NO service-role/ path segment.
   #
-  # This used to say .../service-role/AmazonEBSCSIDriverPolicyV2 and the
-  # 2026-09-04 apply died on it with NoSuchEntity. V2 does exist (created
-  # 2026-04-16) but it is a plain "AWS managed policy", so its ARN carries NO
-  # service-role/ path segment: arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2
-  # (https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html).
-  # The old value was the two spliced together and named nothing.
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  # The 2026-09-04 apply died with NoSuchEntity on
+  # arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2: that ARN
+  # spliced the service-role/ path of the older AmazonEBSCSIDriverPolicy onto
+  # the V2 name, and named nothing that exists. The two real policies are
+  # arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy (v1 name, has
+  # the path) and arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2 (v2 name,
+  # no path) — this uses the latter.
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2"
 }
 
 ################################################################################

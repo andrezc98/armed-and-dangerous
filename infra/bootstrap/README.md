@@ -115,10 +115,30 @@ gh variable set CLUSTER_ADMIN_ARNS --body '["<ARN de la identidad que corre kube
 `ADMIN_CIDRS` cambia cada día de lab (`curl -s https://checkip.amazonaws.com`).
 `CLUSTER_ADMIN_ARNS` es el punto que se pasa por alto fácil: cuando el `apply` lo
 hace CI, el creador del clúster es el rol de CI, y la laptop que corre `kubectl`,
-las CRD de Karpenter y el runner todo el día **no es admin de nada**. Se saca con
-`aws sts get-caller-identity --query Arn --output text` y se deja ahí. La
-alternativa manual, si se prefiere no tenerlo en Terraform, son dos comandos por
-día de lab:
+las CRD de Karpenter y el runner todo el día **no es admin de nada**.
+
+Bajo IAM Identity Center, `aws sts get-caller-identity --query Arn --output
+text` a solas NO alcanza: devuelve un ARN de rol *asumido*
+(`arn:aws:sts::<cuenta>:assumed-role/<rol>/<sesión>`), que la `validation` de
+`cluster_admin_principal_arns` rechaza (exige `arn:aws...:iam::<cuenta>:role/…`
+o `:user/…`) y que tampoco sirve como principal de un access entry. Hay que
+resolverlo al ARN del rol:
+
+```bash
+ROLE=$(aws sts get-caller-identity --query Arn --output text | \
+  sed -E 's#^arn:aws:sts::([0-9]+):assumed-role/([^/]+)/.*#\2#')
+aws iam get-role --role-name "$ROLE" --query Role.Arn --output text
+```
+
+El resultado conserva el path del rol de SSO
+(`arn:aws:iam::<cuenta>:role/aws-reserved/sso.amazonaws.com/<rol>`), y eso es
+válido: la guía de EKS sobre access entries dice "If the ARN is for an IAM
+role, it can include a path"
+(https://docs.aws.amazon.com/eks/latest/userguide/creating-access-entries.html,
+leída 2026-09-04). Ese es el valor que va en `CLUSTER_ADMIN_ARNS`.
+
+La alternativa manual, si se prefiere no tenerlo en Terraform, son dos comandos
+por día de lab (con el mismo ARN de rol, no el de rol asumido):
 
 ```bash
 aws eks create-access-entry --cluster-name aws-aad-eks-lab --principal-arn <arn>

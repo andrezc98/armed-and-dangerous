@@ -68,7 +68,14 @@ gh variable set AWS_ROLE_ARN        --body "$(terraform output -raw gha_role_arn
 gh variable set TF_STATE_BUCKET     --body "$(terraform output -raw state_bucket)"
 gh variable set SANDBOX_ACCOUNT_ID  --body "<los 12 dígitos de la cuenta sandbox>"
 gh variable set ADMIN_CIDRS         --body "[\"$(curl -s https://checkip.amazonaws.com)/32\"]"
-gh variable set CLUSTER_ADMIN_ARNS  --body "[\"$(aws sts get-caller-identity --query Arn --output text)\"]"
+# CLUSTER_ADMIN_ARNS: bajo IAM Identity Center, get-caller-identity devuelve un
+# ARN de rol asumido (assumed-role/<rol>/<sesión>), que la validation de
+# Terraform rechaza y que tampoco sirve como principal de un access entry. Se
+# resuelve al ARN del rol (conserva el path /aws-reserved/sso.amazonaws.com/):
+ROLE=$(aws sts get-caller-identity --query Arn --output text | \
+  sed -E 's#^arn:aws:sts::([0-9]+):assumed-role/([^/]+)/.*#\2#')
+ROLE_ARN=$(aws iam get-role --role-name "$ROLE" --query Role.Arn --output text)
+gh variable set CLUSTER_ADMIN_ARNS  --body "[\"$ROLE_ARN\"]"
 
 # 3. Los cuatro repositorios ECR privados. Root de Terraform aparte, con estado
 #    propio, y NO se destruye entre días de lab.

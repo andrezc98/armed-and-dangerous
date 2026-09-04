@@ -68,6 +68,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Guard rails before touching AWS
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.root }}" = "ecr" ] && [ "${{ inputs.action }}" = "destroy" ]; then
+            echo "Refusing: infra/ecr is applied once and never destroyed by CI. The four image repositories are not a per-lab-day resource; destroying them takes every remaining talk down." >&2
+            exit 1
+          fi
+          if [ -z "${{ vars.AWS_ROLE_ARN }}" ] || [ -z "${{ vars.TF_STATE_BUCKET }}" ]; then
+            echo "Refusing: AWS_ROLE_ARN and/or TF_STATE_BUCKET repository variables are empty. Both come from infra/bootstrap/ terraform output (gha_role_arn, state_bucket) - set them per infra/bootstrap/README.md before dispatching this workflow." >&2
+            exit 1
+          fi
+
       - name: Assume the lab role through OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:

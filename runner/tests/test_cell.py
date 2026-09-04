@@ -26,9 +26,13 @@ COST_MD = """| instance | usd_per_hour | captured (date, source) |
 
 
 @pytest.fixture
-def plan(monkeypatch, capsys):
+def plan(tmp_path, monkeypatch, capsys):
     """The --dry-run command plan of one cell, as printed."""
     monkeypatch.setenv("AWS_PROFILE", "aad-sandbox-test")
+    # A real results/<today>/ on this machine must not leak into the plan: the
+    # fixture fallback this test suite exercises has to hold on any machine,
+    # any day, not just one where results/<today>/ happens to be empty.
+    monkeypatch.setattr(config, "RESULTS", tmp_path)
 
     def run(*argv):
         try:

@@ -179,8 +179,10 @@ y el commit `fix(infra)` del mismo día):
 
 - el rol del driver EBS adjuntaba
   `arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2`, que no
-  existe: V2 sí existe pero su ARN no lleva el tramo `service-role/`. Quedó la
-  política sin sufijo, que sí vive ahí;
+  existe: V2 sí existe pero su ARN no lleva el tramo `service-role/`. Quedó
+  `arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2`, la V2 sin ese tramo
+  (fix round 1, 2026-09-04: la primera corrección se había quedado con la V1,
+  que sí vive bajo `service-role/` pero no es la política que se quiere aquí);
 - la política del controlador de Karpenter pasaba los 6144 caracteres de una
   managed policy (cuota L-ED111B8C, no ajustable). El submódulo va ahora con
   `enable_inline_policy = true` y `enable_spot_termination = false`.

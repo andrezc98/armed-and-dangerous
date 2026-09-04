@@ -290,9 +290,9 @@ el lab necesita.
 **EBS CSI con Pod Identity, y sus etiquetas.** Sin el driver ningún PVC liga y el
 StatefulSet de MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
 `aws-aad-ebs-csi` confía en `pods.eks.amazonaws.com` y lleva
-`arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy` (tipo "Service
-role policy", versión v15, editada el 2026-05-13:
-https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicy.html),
+`arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2` (tipo "AWS managed
+policy", versión v1, creada el 2026-04-16, sin el tramo `service-role/`:
+https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html),
 que alcanza porque cada acción de escritura ya está acotada a recursos que el
 propio driver etiqueta (`ebs.csi.aws.com/cluster`, `CSIVolumeName`,
 `kubernetes.io/created-for/pvc/name`), es decir a todo lo que provisiona
@@ -412,8 +412,9 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
   pero es una "AWS managed policy" común y su ARN **no** lleva el tramo
   `service-role/`: es `arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2`
   (https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html).
-  El valor viejo era la mezcla de los dos y no nombraba nada. Se quedó con la
-  política sin sufijo, que sí vive bajo `service-role/`.
+  El valor viejo era la mezcla de los dos y no nombraba nada. Se quedó con
+  `arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2`, la política V2 sin el
+  tramo `service-role/`.
 - El apply del 2026-09-04 también cortó con `LimitExceeded: Cannot exceed quota
   for PolicySize: 6144` en la política del controlador de Karpenter. La cuota
   (L-ED111B8C, "Managed policy length") no es ajustable, así que no hay aumento
