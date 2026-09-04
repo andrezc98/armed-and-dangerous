@@ -68,6 +68,10 @@ def aperf_start(node, seconds, out_dir):
             f"--node={node}",
             f"--aperf_options=-i 1 -p {seconds}",
             f"--namespace={APERF_NAMESPACE}",
+            # Pinned image (public.ecr.aws tag v1.2.3 verified 2026-09-04) and no
+            # browser: the plugin defaults to :latest and --open-report=true.
+            "--aperf_image=public.ecr.aws/aperf/aperf:v1.2.3",
+            "--open-report=false",
         ],
         cwd=out_dir,
         log=None if config.DRY_RUN else out_dir / APERF_LOG,
