@@ -82,3 +82,27 @@ def test_parse_ycsb_reads_the_read_and_total_lines():
 def test_series_from_ycsb_is_threads_to_read_p99_in_ms():
     text = (FIXTURES / "ycsb-t64.txt").read_text()
     assert knee.series_from_ycsb([(64, text)]) == [(64, 1.3)]
+
+
+def test_a_step_with_no_samples_is_missing_not_passing():
+    # k6 materialises a sub-metric for every threshold, so a step where nothing
+    # answered comes back with every trend stat at zero. Reading that 0.0 as a
+    # p99 would report the empty step as the fastest one on the ladder.
+    summary = {
+        "metrics": {
+            "http_req_duration{rate:100}": {"values": {"p(99)": 5.0, "max": 30.0}},
+            "http_req_duration{rate:200}": {
+                "values": {"avg": 0, "min": 0, "med": 0, "p(90)": 0, "p(95)": 0,
+                           "p(99)": 0, "p(99.9)": 0, "max": 0}
+            },
+        }
+    }
+    assert knee.series_from_summary(summary) == [(100, 5.0), (200, None)]
+    assert knee.find(knee.series_from_summary(summary), 100) == 100
+
+
+def test_an_explicit_zero_count_is_also_a_missing_step():
+    values = {"count": 0, "max": 12.0, "p(99)": 0.0}
+    assert knee.series_from_summary({"metrics": {"http_req_duration{rate:400}": {"values": values}}}) == [
+        (400, None)
+    ]

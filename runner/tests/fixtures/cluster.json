@@ -1,0 +1,45 @@
+{
+ "cluster_name": {
+  "sensitive": false,
+  "type": "string",
+  "value": "aws-aad-eks-lab"
+ },
+ "karpenter_nodepool_names": {
+  "sensitive": false,
+  "type": [
+   "object",
+   {
+    "amd64": "string",
+    "arm64": "string"
+   }
+  ],
+  "value": {
+   "amd64": "aad-arc-amd64",
+   "arm64": "aad-arc-arm64"
+  }
+ },
+ "nodegroup_names": {
+  "sensitive": false,
+  "type": [
+   "object",
+   {
+    "arm-stock": "string",
+    "arm-tuned": "string",
+    "loader": "string",
+    "tools": "string",
+    "x86-smtoff": "string",
+    "x86-stock": "string",
+    "x86-tuned": "string"
+   }
+  ],
+  "value": {
+   "arm-stock": "aws-aad-mng-arm-stock",
+   "arm-tuned": "aws-aad-mng-arm-tuned",
+   "loader": "aws-aad-mng-loader",
+   "tools": "aws-aad-mng-tools",
+   "x86-smtoff": "aws-aad-mng-x86-smtoff",
+   "x86-stock": "aws-aad-mng-x86-stock",
+   "x86-tuned": "aws-aad-mng-x86-tuned"
+  }
+ }
+}

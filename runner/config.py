@@ -33,12 +33,16 @@ def require_sandbox() -> None:
         )
 
 
-def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False):
+def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, stderr=None):
     """The only place this runner spawns a process.
 
     One funnel so --dry-run can print the exact command plan, and so the AWS CLI
     keeps inheriting AWS_PROFILE instead of a second credential path existing in
     Python (that is also why there is no boto3 in pyproject.toml).
+
+    `stderr` is an optional list the child's stderr is appended to, for the
+    callers that have to put it in an error message (capture=True only; without
+    capture the child writes straight to the terminal).
     """
     line = "$ " + shlex.join(cmd)
     if stdin is not None:
@@ -58,8 +62,17 @@ def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False):
         input=stdin,
         text=True,
         capture_output=capture,
-        check=check,
+        check=False,
     )
+    if stderr is not None and out.stderr:
+        stderr.append(out.stderr)
+    if check and out.returncode:
+        # CalledProcessError prints the command and the exit code and swallows
+        # the captured stderr, which is the only part that says what went wrong.
+        raise RuntimeError(
+            f"{shlex.join(cmd)} exited {out.returncode}"
+            + (f"\n{out.stderr.strip()}" if out.stderr else "")
+        )
     return (out.stdout or "") if capture else ""
 
 

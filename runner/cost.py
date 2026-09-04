@@ -48,12 +48,34 @@ def rates(path=COST_MD):
     return read(path)["rates"]
 
 
-def ledger(results_dir, cost_md=COST_MD):
-    """Markdown ledger for one lab day (results/<date>/), cell by cell.
+def _cells(day, rate):
+    """[(cell.json, usd)] for one lab day.
 
     Each cell writes a cell.json with the minutes its node group actually spent
     above desired=0; that is the only thing being billed per cell.
     """
+    out = []
+    for cellfile in sorted(Path(day).glob("*/*/cell.json")):
+        c = json.loads(cellfile.read_text())
+        out.append((c, c["minutes"] * rate[c["instance_type"]] / 60 * c["nodes"]))
+    return out
+
+
+def day_total(results_dir, cost_md=COST_MD):
+    """(USD already committed today, the day's declared estimate).
+
+    What the budget gate in cell.py asks before it scales a node group up: the
+    cells already recorded plus the fixed line, which is running whether or not
+    another cell is measured.
+    """
+    book = read(cost_md)
+    total = sum(usd for _, usd in _cells(results_dir, book["rates"]))
+    total += book["fixed_hours_per_day"] * sum(book["rates"][i] for i in FIXED_PER_DAY)
+    return total, book["estimate_per_day_usd"]
+
+
+def ledger(results_dir, cost_md=COST_MD):
+    """Markdown ledger for one lab day (results/<date>/), cell by cell."""
     day = Path(results_dir)
     book = read(cost_md)
     rate = book["rates"]
@@ -65,9 +87,7 @@ def ledger(results_dir, cost_md=COST_MD):
         "|---|---|---|---|---|---|",
     ]
     total = 0.0
-    for cellfile in sorted(day.glob("*/*/cell.json")):
-        c = json.loads(cellfile.read_text())
-        usd = c["minutes"] * rate[c["instance_type"]] / 60 * c["nodes"]
+    for c, usd in _cells(day, rate):
         total += usd
         lines.append(
             f"| {c['workload']} | {c['cell']} | {c['instance_type']} | "

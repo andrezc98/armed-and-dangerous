@@ -24,11 +24,11 @@ caminos de credenciales sería un camino de más para auditar.
 | `kubectl` | v1.33.9 (cliente; el clúster es 1.36) | jobs, overlays, `top`, `exec`, `port-forward` |
 | `kubectl aperf` | plugin de aws/aperf v1.2.3 | grabación por corrida en el nodo SUT |
 | `aws` | aws-cli 2.36.32 | `eks update-nodegroup-config` y `ec2 describe-volumes` |
-| `terraform` | 1.15.2 | **solo lectura**: `terraform output -json` |
 
-`terraform apply` y `terraform destroy` los corre una persona (ver
-`infra/README.md`). El runner nunca aplica infraestructura; lo único que mueve es
-`desiredSize` de una managed node group.
+**Terraform no aparece en esa tabla a propósito: el runner no lo ejecuta nunca.**
+El `apply`, el `destroy` y el `terraform output` los corre una persona (ver
+`infra/README.md`); lo único que el runner mueve es `desiredSize` de una managed
+node group. De ahí el paso de `cluster.json` que sigue.
 
 Instalar el plugin de APerf (verbatim de `docs/README-EKS.md` de aws/aperf,
 leído 2026-09-04):
@@ -51,6 +51,9 @@ kubectl aperf --help
 | Reporte de APerf | `aperf report -r <RUN1> <RUN2> ... -n <NOMBRE>` | mismo README: un solo `-r` seguido de varias corridas, no `-r a -r b`. El runner no lo corre: el plugin ya genera el reporte de la corrida adentro del pod y se copia el tarball |
 | Render de Pyroscope | `GET /pyroscope/render?query=process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="<svc>"}&from=<unix>&until=<unix>&format=json` | https://grafana.com/docs/pyroscope/latest/reference-server-api/ — `query` y `from` son obligatorios; `format` solo acepta `json` y `dot`. **No hay PNG**: por eso el layout guarda `flamegraph.json` y las imágenes de los slides son capturas de la UI de Pyroscope |
 | Escalado de celdas | `aws eks update-nodegroup-config --cluster-name <c> --nodegroup-name <ng> --scaling-config desiredSize=<n>` | `aws eks update-nodegroup-config help` (aws-cli 2.36.32): la estructura `--scaling-config` acepta `minSize`, `maxSize`, `desiredSize` |
+| Esperar el borrado de un Job | `kubectl wait --for=delete job/<nombre> -n aad --timeout=60s` | https://kubernetes.io/docs/reference/kubectl/generated/kubectl_wait/ — `--for` acepta `[create\|delete\|condition=...\|jsonpath=...]`, y el ejemplo es literal: "Wait for the pod "busybox1" to be deleted, with a timeout of 60s, after having issued the "delete" command". Devuelve error si el objeto nunca existió, que es el caso normal, así que va con `check=False` |
+| Columnas de `kubectl top` | nodo: `NAME CPU(cores) CPU(%) MEMORY(bytes) MEMORY(%)`; pod: `NAME CPU(cores) MEMORY(bytes)` | kubectl 1.33, `staging/src/k8s.io/kubectl/pkg/metricsutil/metrics_printer.go`: `NodeColumns = []string{"NAME", "CPU(cores)", "CPU(%)", "MEMORY(bytes)", "MEMORY(%)"}` y `PodColumns = []string{"NAME", "CPU(cores)", "MEMORY(bytes)"}`, con la CPU impresa como `%vm` y la memoria como `%vMi`. **El listado de pods no trae porcentaje**: son dos parsers, no uno |
+| Nodo del pod de iperf3 | `kubectl -n aad get pod -l app=iperf3-server -o jsonpath='{.items[0].spec.nodeName}'` | https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/ — `nodeName` (string) en `PodSpec`: "NodeName is a request to schedule this pod onto a specific node" |
 
 `service_name` sale de la regla de reetiquetado del chart de Pyroscope
 (`labelmap process.executable.name → service_name`, en
@@ -71,6 +74,29 @@ uv run cell --workload java --cell arm-tuned --dry-run
 uv run cell --workload java --cell arm-tuned --runs 3
 ```
 
+Antes de la primera celda del día hacen falta dos archivos que escribe una
+persona, no el runner:
+
+1. **`results/<fecha>/cluster.json`**, con los nombres del clúster y de las node
+   groups. Es la salida cruda de `terraform output -json`, redirigida justo
+   después del `apply` (ver `infra/README.md`):
+
+   ```bash
+   mkdir -p results/$(date -u +%F)
+   terraform -chdir=infra output -json > results/$(date -u +%F)/cluster.json
+   ```
+
+   Si falta, o si no trae `cluster_name` y `nodegroup_names`, el runner corta con
+   ese mismo comando en el mensaje. En `--dry-run` cae en el fixture
+   `runner/tests/fixtures/cluster.json` y lo dice en la primera línea del plan,
+   así que el plan se puede leer sin clúster.
+
+2. **`results/cost.md` con las tarifas del día.** Antes de subir cualquier node
+   group el runner lee ese archivo y el ledger del día: si alguna tarifa sigue en
+   `TODO` se niega a escalar nada, y si el día ya superó `estimate_per_day_usd`
+   también, salvo que se pase `--override-budget` a propósito. `--dry-run` pasa
+   siempre, que es la forma de leer el plan antes de que existan las tarifas.
+
 Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 
 | Workload | Celdas | Carga |
@@ -87,18 +113,28 @@ celdas de un workload que corren sobre la node group tuned que les corresponde
 
 Todos los defaults viven en `config.WORKLOADS` y se pueden pisar desde la CLI:
 `--slo-ms`, `--rate-start`, `--rate-step`, `--rate-max`, `--stage-seconds`,
-`--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`, y `--env K=V`
-(repetible) para cualquier otra variable de los scripts de k6.
+`--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`, `--date`,
+`--override-budget`, y `--env K=V` (repetible) para cualquier otra variable de
+los scripts de k6. `--env` llega a las tres cargas de k6 de la celda —
+calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
 
 Al terminar el día de lab, antes de que la persona corra `terraform destroy`:
 
 ```bash
-uv run cell --teardown-day     # borra el StatefulSet de Mongo y sus PVC
+uv run cell --teardown-day     # borra el StatefulSet de Mongo y todos los PVC
 ```
+
+Eso borra también el PVC de 20 GiB de Pyroscope, que es la intención: es el
+almacén de perfiles de un día de lab, no una base de datos.
 
 El dataset de Mongo sobrevive **entre celdas del mismo día** a propósito: el
 `ycsb-load` de 20M registros corre una sola vez (cuando la colección está vacía)
-y cada celda solo recalienta la cache.
+y cada celda solo recalienta la cache. Por eso una celda de Mongo **no borra su
+overlay** al terminar: el StatefulSet tiene
+`persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`, así que borrarlo se
+llevaría el PVC y el dataset con él. El pod queda `Pending` cuando la node group
+baja a cero y vuelve a programarse sobre el nodo de la celda siguiente;
+`--teardown-day` es el único lugar que borra el StatefulSet y los PVC.
 
 ## Qué escribe
 
@@ -106,7 +142,7 @@ y cada celda solo recalienta la cache.
 results/
   cost.md                                  # tarifas, a mano el día del lab
   <fecha>/
-    cluster.json                           # terraform output, cacheado una vez
+    cluster.json                           # terraform output -json, escrito a mano
     ledger.md                              # costo del día, por celda
     <workload>/<celda>/
       cell.json                            # instancia, nodos, minutos, invalidaciones
@@ -114,7 +150,8 @@ results/
       knee-raw.json | knee-t<N>.txt        # la salida cruda de la búsqueda del knee
       run-<i>/
         k6.json | llama.json | ycsb.txt | iperf.json + iperf-reverse.json
-        top.json                           # muestra de kubectl top cada 10 s
+        top.json                           # kubectl top cada 10 s; `nodes` trae
+                                           # TODOS los nodos de la celda (red usa 2)
         meta.json                          # cpuset, aperf, flamegraph, invalidaciones
         aperf/aperf_record_<ts>.tar.gz
         flamegraph.json                    # render de Pyroscope (no hay PNG en la API)
@@ -142,18 +179,29 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   medido. Se esperan 15 vCPU (7 en `x86-smtoff`); si el cpuset es el nodo entero,
   la política `static` del CPU manager no quedó puesta y la celda se marca
   inválida y aborta. Es un control, no una perilla.
-- **guard del loader**: `kubectl top node` cada 10 s; si el nodo `loader` pasa de
-  70 % de CPU durante el knee, el knee es el del generador y no el del silicio:
-  se marca inválido y la celda aborta.
-- **corridas inválidas**: `http_req_failed.rate > 0.01` o
-  `dropped_iterations.count > 0` marcan la corrida, que queda guardada pero fuera
-  de las medianas.
+- **guard del loader**: `kubectl top node` cada 10 s alrededor de **las dos**
+  escaleras (k6 y go-ycsb); si el nodo `loader` pasa de 70 % de CPU durante el
+  knee, el knee es el del generador y no el del silicio: queda escrito en
+  `knee.json` y la celda aborta. En la celda de red el guard no aplica (el
+  generador es el segundo nodo de la celda, no el loader) y se saltea explícito.
+- **knee inservible**: si el knee trae `dropped_iterations`, peticiones fallidas
+  o el guard disparado, la celda **aborta antes de las corridas fijas** con el
+  remedio en el mensaje (subir `PREALLOC_VUS`/`MAX_VUS` con `--env`, o agrandar el
+  loader). Medir al 80 % de un knee inválido es medir el 80 % de nada.
+- **corridas inválidas**: `http_req_failed.rate > 0.01`,
+  `dropped_iterations.count > 0` o un Job que no imprimió resumen
+  (`no_summary`) marcan la corrida en `meta.json`. La corrida queda guardada,
+  `analysis.stats` la deja fuera de las medianas y la lista en `excluded`, y si
+  quedan menos de tres corridas válidas la celda sale con `insufficient_runs` y
+  los gráficos la saltean (el ledger igual la cobra).
 - **APerf**: `ok` o el motivo. Si el plugin no graba en Bottlerocket la corrida
   igual vale — el argumento se sostiene con el knee y los flame graphs.
 - **Pyroscope**: `ok` o el motivo, más el `flamegraph.json` de la corrida.
 - **Mongo**: cantidad de documentos al empezar y el delta de
-  `pages read into cache` de cada pasada de calentamiento (tiene que quedar
-  plano; si no, la corrida mide EBS y no memoria).
+  `pages read into cache` de cada pasada de calentamiento. El calentamiento
+  repite hasta que dos muestras seguidas se diferencien en menos de 1000 páginas,
+  con un tope de 20 minutos de reloj; si se llega al tope la celda se marca
+  `cache_not_warm` y aborta, porque esa corrida mediría EBS y no memoria.
 - **minutos por celda**: lo único que se factura por celda, y lo que consume el
   ledger.
 
@@ -171,8 +219,19 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   kubectl apply -f -`, así que editar un `.js` y volver a correr alcanza.
 - **Un nombre de Job por invocación**: el pod template de un Job es inmutable, y
   reaplicar un nombre existente falla con "field is immutable". El runner borra
-  el Job anterior con ese nombre antes de aplicar, para que una repetición del
-  mismo día no se choque consigo misma.
+  el Job anterior con ese nombre y **espera a que desaparezca**
+  (`kubectl wait --for=delete job/<n> --timeout=60s`) antes de aplicar: `delete`
+  vuelve antes de que el objeto se haya ido y la carrera contra su finalizer
+  aparece justo en la segunda repetición del día.
+- **`kubectl top` son dos tablas distintas**: la de nodos trae `CPU(%)` y la de
+  pods no. Con un solo parser que exigiera el porcentaje, `pod_cpu_millicores`
+  daba 0 en todas las corridas. Ver la tabla de fuentes de arriba.
+- **La bajada a cero se reintenta y se espera**: `desiredSize=0` con hasta tres
+  intentos (10 s de espera entre uno y otro) y después un `kubectl get nodes -l
+  aad/cell=<celda>` hasta que no quede ninguno (tope 10 min). Los minutos que va
+  al ledger son ese intervalo completo, de la subida a la desaparición del nodo,
+  porque es exactamente lo que factura EC2. Si se pasa el tope, avisa y sigue: lo
+  que no puede es dejar de escribir el ledger.
 - **`recordcount` no se parametriza**: está escrito en las dos plantillas de Job
   de YCSB (load y run) y tiene que coincidir, así que el runner **verifica** que
   el YAML renderizado lo traiga en vez de sustituirlo. `render()` además falla si
@@ -181,15 +240,24 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   (`kubectl apply -f manifests/base/net-tuned-daemonset.yaml` antes,
   `kubectl delete -f` después). En `manifests/base` retunearía también las celdas
   tuned de Java, Mongo e inferencia.
-- **Si `uv run cell` dice `ModuleNotFoundError: No module named 'cell'`**, correr
-  `uv sync` de nuevo. Es un choque conocido entre uv y CPython 3.13 en macOS: el
-  `.pth` del install editable a veces queda con el flag `UF_HIDDEN`, y desde
-  3.13 `site.addpackage` saltea los `.pth` ocultos, así que el script de consola
-  se queda sin poder importar `cell.py`. Se diagnostica con
-  `python3 -c "import os; print(hex(os.lstat('.venv/lib/python3.13/site-packages/_editable_impl_aad_runner.pth').st_flags))"`
-  (0x8000 = oculto) y se arregla con `uv sync` o `chflags nohidden` sobre ese
-  archivo. Los tests no dependen de esto: `[tool.pytest.ini_options] pythonpath`
-  ya pone `runner/` en el path.
+- **Si `uv run cell` dice `ModuleNotFoundError: No module named 'cell'`**, el
+  `.pth` del install editable quedó con el flag `UF_HIDDEN`, y desde CPython 3.13
+  `site.addpackage` saltea los `.pth` ocultos, así que el script de consola no
+  puede importar `cell.py`. Se diagnostica y se arregla así:
+
+  ```bash
+  P=.venv/lib/python3.13/site-packages/_editable_impl_aad_runner.pth
+  python3 -c "import os,sys; print(hex(os.lstat(sys.argv[1]).st_flags))" $P   # 0x8040 = oculto
+  chflags nohidden $P                                                        # 0x40 = listo
+  ```
+
+  `uv sync` lo arregla solo cuando además reinstala el paquete; con el entorno ya
+  auditado no reescribe el archivo y el flag sigue puesto, así que `chflags` es lo
+  que hay que correr. Variante peor del mismo problema: si el directorio del
+  proyecto se sincroniza y aparecen copias `... 2.dist-info` / `... 2.pth`,
+  `uv sync` falla con `Failed to read metadata from: .../aad_runner-0.1.0 2.dist-info`;
+  ahí lo que corresponde es `rm -rf .venv && uv sync`. Los tests no dependen de
+  nada de esto: `[tool.pytest.ini_options] pythonpath` ya pone `runner/` en el path.
 
 ## Tests
 
@@ -197,10 +265,14 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
 cd runner && uv sync && uv run pytest -q
 ```
 
-Sin red, sin AWS y sin clúster: los tests solo tocan `knee`, `analysis.stats`,
-`cost` y `analysis.charts` sobre fixtures. `tests/fixtures/` trae las salidas
+Sin red, sin AWS y sin clúster: los tests tocan `knee`, `analysis.stats`,
+`cost`, `analysis.charts`, los parsers de `capture` y los guards de `cell`
+(incluido el plan de `--dry-run`, que es una cadena de texto) sobre fixtures. `tests/fixtures/` trae las salidas
 reales del smoke local de k6 (`java-knee.json` con el SLO forzado a 2 ms para que
 ningún escalón pase, `java-fixed.json`, `go-fixed.json`) y de iperf3 3.20
-(`iperf3-forward.json`); `llama-fixed.json`, `top-net.json` y `ycsb-t64.txt` son
-sintéticos, escritos a mano con la forma exacta que producen k6 con
-`inference.js`, `kubectl top` y go-ycsb.
+(`iperf3-forward.json`); `llama-fixed.json`, `ycsb-t64.txt`, `top-node.txt`,
+`top-pod.txt` y `top-net.json` son sintéticos, escritos con la forma exacta que
+producen k6 con `inference.js`, go-ycsb y las dos tablas de `kubectl top`
+(`test_capture.py` verifica que `top-net.json` siga teniendo la forma que el
+parser produce). `cluster.json` es la salida de `terraform output -json` con su
+envoltorio `{"value": ...}`, que es lo que `--dry-run` lee cuando no hay clúster.

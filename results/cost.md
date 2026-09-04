@@ -41,6 +41,12 @@ nada (el plan dice ~$8 para el smoke gate). Si el ledger lo supera, marca
 `OVER_ESTIMATE`: no es un error del runner, es la señal de parar y mirar qué
 celda quedó encendida.
 
+Ese número además **frena**: antes de subir cualquier node group el runner suma
+lo que el día ya lleva comprometido (las `cell.json` escritas más la línea fija) y
+se niega a arrancar otra celda si eso ya pasó `estimate_per_day_usd`, salvo que se
+pase `--override-budget` a propósito. Una tarifa en `TODO` frena igual: sin
+precios no hay guard, y sin guard el presupuesto es una nota al pie.
+
 `fixed_hours_per_day` son las horas que el clúster estuvo vivo de punta a punta
 (del `terraform apply` al `terraform destroy`). Es lo que se le cobra al loader,
 al nodo de tools y al control plane, que nunca bajan a cero mientras el clúster

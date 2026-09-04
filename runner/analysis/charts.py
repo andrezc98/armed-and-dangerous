@@ -29,6 +29,13 @@ ARM = "#1b6ca8"
 X86 = "#b8562f"
 
 
+def _plottable(summaries, key):
+    """Cells with enough valid runs to draw. A bar over one run is a claim with
+    no spread behind it, and stats.summarize already flagged those."""
+    return [c for c, s in summaries.items()
+            if not s.get("insufficient_runs") and key(s)]
+
+
 def _colors(cells):
     return [ARM if c.startswith("arm") else X86 for c in cells]
 
@@ -61,7 +68,7 @@ def _bars(cells, values, ylabel, title, out, spreads=None):
 
 def knee_chart(summaries, out):
     """Highest offered load that still met the SLO, cell by cell."""
-    cells = [c for c, s in summaries.items() if s.get("knee", {}).get("knee")]
+    cells = _plottable(summaries, lambda s: s.get("knee", {}).get("knee"))
     if not cells:
         return None
     values = [summaries[c]["knee"]["knee"] for c in cells]
@@ -72,7 +79,7 @@ def knee_chart(summaries, out):
 
 def inference_chart(summaries, out):
     """tok/s on the left axis, $/Mtok on the right: throughput is only half the story."""
-    cells = [c for c, s in summaries.items() if "tok_s" in s]
+    cells = _plottable(summaries, lambda s: "tok_s" in s)
     if not cells:
         return None
     tok = [summaries[c]["tok_s"] for c in cells]
@@ -93,7 +100,7 @@ def inference_chart(summaries, out):
 
 def net_chart(summaries, out):
     """CPU per Gbps: on a pair of identical instances, Gbps alone reports the ENA."""
-    cells = [c for c, s in summaries.items() if "cpu_per_gbps" in s]
+    cells = _plottable(summaries, lambda s: "cpu_per_gbps" in s)
     if not cells:
         return None
     return _bars(cells, [summaries[c]["cpu_per_gbps"] for c in cells],

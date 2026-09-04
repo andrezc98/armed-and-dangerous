@@ -29,21 +29,35 @@ def find(series, slo_ms):
     have to. Returns None when the first step already breaks the SLO.
     """
     knee = None
-    for rate, p99 in sorted(series):
+    for rate, p99 in sorted(series, key=lambda pair: pair[0]):
         if p99 is None or p99 > slo_ms:
             break
         knee = rate
     return knee
 
 
+def _p99(values):
+    """p99 of one step, or None when the step held no samples.
+
+    k6 materialises a tagged sub-metric for every threshold it was given, so a
+    step where nothing answered is still in the summary with every trend stat at
+    zero (the ladder's summaryTrendStats carries no `count`, runner/k6/lib.js),
+    and `max` is the one of those that no real response can leave at zero. A p99
+    of 0 ms is not a step that met the SLO, it is a step that never ran.
+    """
+    if values.get("count") == 0 or values.get("max", 1) == 0:
+        return None
+    return values.get("p(99)")
+
+
 def series_from_summary(summary):
-    """(rate, p99_ms) out of a k6 MODE=knee summary."""
+    """(rate, p99_ms) out of a k6 MODE=knee summary; p99 is None for an empty step."""
     series = []
     for name, metric in summary.get("metrics", {}).items():
         m = _RATE_SUBMETRIC.match(name)
         if m:
-            series.append((int(m.group(1)), metric["values"]["p(99)"]))
-    return sorted(series)
+            series.append((int(m.group(1)), _p99(metric["values"])))
+    return sorted(series, key=lambda pair: pair[0])
 
 
 def invalid_reasons(summary):

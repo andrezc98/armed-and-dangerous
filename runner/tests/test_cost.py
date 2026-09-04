@@ -93,3 +93,10 @@ def test_ledger_of_a_day_with_no_cells_is_still_the_fixed_line(tmp_path):
     day.mkdir()
     out = cost.ledger(day, cost_md=_cost_md(tmp_path))
     assert "2.80" in out
+
+
+def test_day_total_is_what_the_budget_gate_reads(tmp_path):
+    # 1.00 (java) + 2.00 (net) + 2.80 (fixed) against the declared estimate
+    spent, estimate = cost.day_total(_day(tmp_path), cost_md=_cost_md(tmp_path))
+    assert round(spent, 2) == 5.80
+    assert estimate == 10.00

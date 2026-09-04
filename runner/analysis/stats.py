@@ -15,6 +15,11 @@ from statistics import median
 
 import knee  # one-way: the parsers live next to the knee search that first needs them
 
+# Below this many valid runs a median is one number with no spread behind it, so
+# the cell is flagged and the charts leave it out. Not an exception: the cell
+# still burned node minutes and the ledger still has to count them.
+MIN_RUNS = 3
+
 
 def _spread(values):
     return {"median": median(values), "min": min(values), "max": max(values)}
@@ -44,7 +49,7 @@ def summarize(cell_dir, usd_per_hour=None):
         "workload": cell_dir.parent.name,
         "cell": cell_dir.name,
         "runs": 0,
-        "invalid_runs": [],
+        "excluded": [],
     }
     kneefile = _read_json(cell_dir / "knee.json")
     if kneefile:
@@ -54,11 +59,19 @@ def summarize(cell_dir, usd_per_hour=None):
 
     p99, rps, tok_s, gbps, gbps_rev, cores = [], [], [], [], [], []
     for run in sorted(p for p in cell_dir.glob("run-*") if p.is_dir()):
+        # The runner already judged this run while it had the cluster in front of
+        # it: a saturated loader, a cpuset that was not exclusive, a Job that
+        # printed no summary. Re-deciding that from the output files alone is not
+        # possible, so meta.json is authoritative and the run is dropped here.
+        meta = _read_json(run / "meta.json") or {}
+        if meta.get("invalid"):
+            out["excluded"].append({"run": run.name, "reasons": meta["invalid"]})
+            continue
         summary = _read_json(run / "k6.json") or _read_json(run / "llama.json")
         if summary:
             reasons = knee.invalid_reasons(summary)
             if reasons:
-                out["invalid_runs"].append({"run": run.name, "reasons": reasons})
+                out["excluded"].append({"run": run.name, "reasons": reasons})
                 continue
             p99.append(summary["metrics"]["http_req_duration"]["values"]["p(99)"])
             rps.append(summary["metrics"]["http_reqs"]["values"]["rate"])
@@ -102,6 +115,8 @@ def summarize(cell_dir, usd_per_hour=None):
             # The number that means something on a 4xlarge pair: both sides are
             # the same instance type, so Gbps alone only reports the ENA.
             out["cpu_per_gbps"] = out["node_cpu_cores"]["median"] / out["gbps"]["median"]
+    if out["runs"] < MIN_RUNS:
+        out["insufficient_runs"] = True
     return out
 
 

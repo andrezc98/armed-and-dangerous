@@ -33,7 +33,19 @@ PYROSCOPE_PORT = 4040
 # process.executable.name onto (manifests/base/pyroscope-values.yaml).
 PYROSCOPE_QUERY = 'process_cpu:cpu:nanoseconds:cpu:nanoseconds{{service_name="{service}"}}'
 
-_TOP_CPU = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)%")
+# `kubectl top` prints different columns for nodes and for pods, and the pod form
+# has no percentage at all. From the printer that produces them (kubectl 1.33,
+# staging/src/k8s.io/kubectl/pkg/metricsutil/metrics_printer.go):
+#   NodeColumns = {"NAME", "CPU(cores)", "CPU(%)", "MEMORY(bytes)", "MEMORY(%)"}
+#   PodColumns  = {"NAME", "CPU(cores)", "MEMORY(bytes)"}
+# with CPU printed as "%vm" and memory as "%vMi". One regex for both would have
+# to make the percentage optional, and then every pod line would read its memory
+# as a CPU percentage; two regexes are the honest version.
+_TOP_NODE = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)%")
+_TOP_POD = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)Mi")
+
+# Pods of the load generators, which run on the loader node and are not the SUT.
+_LOADER_PODS = ("k6-", "ycsb-", "iperf3-client")
 
 
 def aperf_start(node, seconds, out_dir):
@@ -97,30 +109,46 @@ def flamegraph(service, start, end, out_path):
             forward.terminate()
 
 
-def _top(node, loader):
-    """One sample: SUT node CPU, loader node CPU, and the measured pod's CPU."""
-    nodes = config.sh(
-        ["kubectl", "top", "node", node, loader, "--no-headers"], capture=True, quiet=True, check=False
-    )
-    pods = config.sh(
-        ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers"],
-        capture=True, quiet=True, check=False,
-    )
-    sample = {"ts": datetime.now(UTC).isoformat()}
-    for line in nodes.splitlines():
-        m = _TOP_CPU.match(line.strip())
+def parse_top(node_text, pod_text, sut, loader):
+    """One sample out of the two `kubectl top` outputs. Pure, so it is testable.
+
+    Every cell node lands in `nodes`, because the net cell runs on two of them
+    and only sampling the first would report the client's CPU as the server's
+    half the time. `node_cpu_*` stays the SUT's, which is what the medians and
+    cpu_per_gbps read.
+    """
+    sample = {"ts": datetime.now(UTC).isoformat(), "nodes": {}}
+    for line in node_text.splitlines():
+        m = _TOP_NODE.match(line.strip())
         if not m:
+            continue  # '<unknown>' when metrics-server has no sample for the node yet
+        name, millicores, percent = m.group(1), int(m.group(2)), int(m.group(3))
+        if name == loader:
+            sample["loader_cpu_millicores"], sample["loader_cpu_percent"] = millicores, percent
             continue
-        which = "node" if m.group(1) == node else "loader"
-        sample[f"{which}_cpu_millicores"] = int(m.group(2))
-        sample[f"{which}_cpu_percent"] = int(m.group(3))
+        sample["nodes"][name] = millicores
+        if name == sut:
+            sample["node_cpu_millicores"], sample["node_cpu_percent"] = millicores, percent
     pod_m = 0
-    for line in pods.splitlines():
-        m = _TOP_CPU.match(line.strip())
-        if m and not m.group(1).startswith(("k6-", "ycsb-", "iperf3-client")):
+    for line in pod_text.splitlines():
+        m = _TOP_POD.match(line.strip())
+        if m and not m.group(1).startswith(_LOADER_PODS):
             pod_m = max(pod_m, int(m.group(2)))
     sample["pod_cpu_millicores"] = pod_m
     return sample
+
+
+def _top(nodes, sut, loader):
+    """One sample: every cell node's CPU, the loader's, and the measured pod's."""
+    node_text = config.sh(
+        ["kubectl", "top", "node", *nodes, loader, "--no-headers"],
+        capture=True, quiet=True, check=False,
+    )
+    pod_text = config.sh(
+        ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers"],
+        capture=True, quiet=True, check=False,
+    )
+    return parse_top(node_text, pod_text, sut, loader)
 
 
 class TopSampler:
@@ -130,15 +158,17 @@ class TopSampler:
     on the slide is the SUT's limit or the generator's.
     """
 
-    def __init__(self, node, loader, interval=10):
-        self.node, self.loader, self.interval = node, loader, interval
+    def __init__(self, nodes, loader, sut=None, interval=10):
+        self.nodes = list(nodes)
+        self.sut = sut or self.nodes[0]
+        self.loader, self.interval = loader, interval
         self.samples = []
         self._stop = threading.Event()
         self._thread = None
 
     def __enter__(self):
         if config.DRY_RUN:
-            _top(self.node, self.loader)  # prints the command plan once
+            _top(self.nodes, self.sut, self.loader)  # prints the command plan once
             return self
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -147,7 +177,7 @@ class TopSampler:
     def _loop(self):
         while not self._stop.is_set():
             try:
-                self.samples.append(_top(self.node, self.loader))
+                self.samples.append(_top(self.nodes, self.sut, self.loader))
             except Exception as exc:  # a missing metrics-server must not kill a run
                 self.samples.append({"ts": datetime.now(UTC).isoformat(), "error": str(exc)})
             self._stop.wait(self.interval)

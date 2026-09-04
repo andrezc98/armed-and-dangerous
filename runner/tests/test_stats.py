@@ -29,7 +29,8 @@ def test_summarize_gives_median_and_spread_over_the_runs(tmp_path):
     assert s["workload"] == "java"
     assert s["cell"] == "arm-tuned"
     assert s["runs"] == 3
-    assert s["invalid_runs"] == []
+    assert s["excluded"] == []
+    assert "insufficient_runs" not in s
     assert s["rps"] == {"median": 200.0, "min": 190.0, "max": 210.0}
     assert round(s["p99_ms"]["median"], 6) == 4.573517
     assert round(s["p99_ms"]["min"], 6) == round(4.573517 * 0.9, 6)
@@ -59,9 +60,10 @@ def test_a_run_with_failures_is_reported_invalid_and_left_out_of_the_medians(tmp
     bad["metrics"]["http_req_failed"]["values"]["rate"] = 0.2
     (cell / "run-3" / "k6.json").write_text(json.dumps(bad))
     s = stats.summarize(cell)
-    assert s["invalid_runs"] == [{"run": "run-3", "reasons": ["http_req_failed rate 0.200 > 0.01"]}]
+    assert s["excluded"] == [{"run": "run-3", "reasons": ["http_req_failed rate 0.200 > 0.01"]}]
     assert s["runs"] == 2
     assert s["rps"]["max"] == 200.0
+    assert s["insufficient_runs"] is True
 
 
 def test_usd_per_mtok_from_the_llama_token_counter(tmp_path):
@@ -102,3 +104,35 @@ def test_an_empty_cell_directory_summarizes_to_zero_runs(tmp_path):
     s = stats.summarize(cell)
     assert s["runs"] == 0
     assert "p99_ms" not in s
+
+
+def test_a_run_the_runner_marked_invalid_is_excluded_from_the_medians(tmp_path):
+    """meta.json is authoritative: a saturated loader or a Job that printed
+    nothing is not visible in the output files the analysis reads."""
+    cell = _k6_cell(tmp_path)
+    (cell / "run-3" / "meta.json").write_text(
+        json.dumps({"invalid": ["loader node CPU 88% > 70%"]})
+    )
+    s = stats.summarize(cell)
+    assert s["excluded"] == [{"run": "run-3", "reasons": ["loader node CPU 88% > 70%"]}]
+    assert s["runs"] == 2
+    assert s["rps"]["max"] == 200.0
+
+
+def test_a_meta_json_without_invalidations_keeps_the_run(tmp_path):
+    cell = _k6_cell(tmp_path)
+    for i in (1, 2, 3):
+        (cell / f"run-{i}" / "meta.json").write_text(json.dumps({"aperf": "ok", "invalid": []}))
+    s = stats.summarize(cell)
+    assert s["runs"] == 3
+    assert s["excluded"] == []
+
+
+def test_fewer_than_three_valid_runs_flags_the_cell_without_raising(tmp_path):
+    cell = _k6_cell(tmp_path)
+    for i in (2, 3):
+        (cell / f"run-{i}" / "meta.json").write_text(json.dumps({"invalid": ["no_summary"]}))
+    s = stats.summarize(cell)
+    assert s["runs"] == 1
+    assert s["insufficient_runs"] is True
+    assert s["rps"]["median"] == 190.0  # still summarised, just flagged
