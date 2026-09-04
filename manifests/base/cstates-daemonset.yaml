@@ -1,4 +1,7 @@
-# C-states knob: PM QoS CPU latency request pinned at 0 us on the x86 tuned cells.
+# C-states knob: PM QoS CPU latency request pinned at the C1 exit latency of the
+# node, on the x86 tuned cells. The AWS recipe is "C1 as the deepest C-state" and
+# that is what this reproduces at runtime - NOT 0, which is a different and worse
+# setting.
 #
 # Why this and not the AWS recipe: AWS documents the boot-time sledgehammer
 # ("Edit the GRUB_CMDLINE_LINUX_DEFAULT line and add the intel_idle.max_cstate=1
@@ -11,15 +14,30 @@
 # (https://www.kernel.org/doc/html/latest/power/pm_qos_interface.html, latency
 # unit is microseconds). Both verified 2026-09-04.
 #
-# So: write a raw 4-byte s32 zero (a bare ASCII "0" is NOT one of the two
-# documented formats; the other one is the 10-char hex string "0x00000000") and
-# keep fd 3 open for the life of the pod. Deleting the DaemonSet closes the fd
-# and returns the node to stock, which is exactly what the runner wants between
-# cells.
+# Which value: the governor rule is a comparison against each idle state's exit
+# latency. "CPU idle time governors are expected to regard the minimum of the
+# global (effective) CPU latency limit and the effective resume latency
+# constraint for the given CPU as the upper limit for the exit latency of the
+# idle states that they are allowed to select for that CPU" and they "should
+# never select any idle states with exit latency beyond that limit"
+# (https://www.kernel.org/doc/html/latest/admin-guide/pm/cpuidle.html, read
+# 2026-09-04). So the limit to write is C1's own exit latency, read from
+# /sys/devices/system/cpu/cpu0/cpuidle/state1/latency ("Exit latency of the idle
+# state in microseconds", same page): C1 stays selectable, C1E/C6 and anything
+# deeper do not. A limit of 0 would exclude C1 too and leave only the POLL state,
+# which is the CPU spinning in a loop instead of idling - a different experiment,
+# and not the one the slide claims.
+#
+# The value goes in as the documented 10-character hex string ("Alternatively, it
+# can write a hex string for the value using the 10 char long format e.g.
+# '0x12345678'", pm_qos_interface.rst), which is the only one of the two formats
+# a POSIX shell can produce for an arbitrary number; fd 3 stays open for the life
+# of the pod. Deleting the DaemonSet closes the fd and returns the node to stock,
+# which is exactly what the runner wants between cells.
 #
 # PM QoS does not flip /sys/devices/system/cpu/cpu*/cpuidle/state*/disable, so
-# the readiness probe reads the device back instead: the aggregated target value
-# must be 0.
+# the readiness probe reads the device back instead and compares it with that
+# same state1/latency: the aggregated target value must equal it.
 #
 # Only x86: "AWS Graviton processors have built-in power saving modes and operate
 # at a fixed frequency. Therefore, they do not provide the ability for the
@@ -71,27 +89,39 @@ spec:
       containers:
         - name: pmqos
           image: alpine:3.24.1
+          env:
+            # Both paths are env vars so the script can be run against a
+            # synthetic tree outside a node (see manifests/base/README.md).
+            - name: PMQOS_DEV
+              value: /dev/cpu_dma_latency
+            - name: C1_LATENCY
+              value: /sys/devices/system/cpu/cpu0/cpuidle/state1/latency
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              # fd 3 stays open for the life of this shell; closing it drops the request.
-              exec 3>/dev/cpu_dma_latency
-              printf '\000\000\000\000' >&3
-              value=$(od -An -td4 -N4 /dev/cpu_dma_latency | tr -d ' ')
-              if [ "$value" != "0" ]; then
-                echo "PM QoS request did not take: /dev/cpu_dma_latency reads $value us"
+              if [ ! -r "${C1_LATENCY}" ]; then
+                echo "no ${C1_LATENCY}: this kernel exposes no C1 idle state to cap against"
                 exit 1
               fi
-              echo "cpu_dma_latency = 0 us on $(hostname)"
+              want=$(cat "${C1_LATENCY}")
+              # fd 3 stays open for the life of this shell; closing it drops the request.
+              exec 3>"${PMQOS_DEV}"
+              printf '0x%08x' "${want}" >&3
+              value=$(od -An -td4 -N4 "${PMQOS_DEV}" | tr -d ' ')
+              if [ "${value}" != "${want}" ]; then
+                echo "PM QoS request did not take: ${PMQOS_DEV} reads ${value} us, wanted ${want}"
+                exit 1
+              fi
+              echo "cpu_dma_latency = ${want} us (C1 exit latency) on $(hostname)"
               sleep infinity
           readinessProbe:
             exec:
               command:
                 - /bin/sh
                 - -c
-                - test "$(od -An -td4 -N4 /dev/cpu_dma_latency | tr -d ' ')" = "0"
+                - test "$(od -An -td4 -N4 "${PMQOS_DEV}" | tr -d ' ')" = "$(cat "${C1_LATENCY}")"
             # The command above has to open the device and write before the probe
             # can read a 0 back; probing at t=0 costs one guaranteed failure and
             # an extra restart-looking event in kubectl describe.

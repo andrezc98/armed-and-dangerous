@@ -8,6 +8,8 @@
 #   __OPERATIONCOUNT__  operations for this run
 #   __THREADS__         go-ycsb client threads
 #   __TARGET__          target ops/s, the throughput the run is pinned at
+#   __CELL__            the cell being measured; it labels the Job so the runner can
+#                       drop every Job of the cell at the end of it
 #
 # The name is a placeholder because a Job's pod template is immutable: re-applying
 # a Job whose name already exists fails with "field is immutable" instead of
@@ -21,6 +23,8 @@ kind: Job
 metadata:
   name: __NAME__
   namespace: aad
+  labels:
+    aad/cell: __CELL__
 spec:
   backoffLimit: 0
   template:

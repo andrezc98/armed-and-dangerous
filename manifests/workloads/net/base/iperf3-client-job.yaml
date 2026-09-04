@@ -5,7 +5,10 @@
 #   __NAME__  unique Job name per invocation (for example iperf3-fwd-arm-tuned-r2).
 #             A Job's pod template is immutable, so re-applying the same name
 #             fails instead of starting the next repetition.
-#   __CELL__  the cell being measured; both sides land on its node group.
+#   __CELL__  the cell being measured; both sides land on its node group, and it
+#             labels the Job so the runner can drop every Job of the cell at the
+#             end of it. For net and mongo the cell name and the node group name
+#             are the same string (runner/config.py CELL_MNG).
 #
 # -P 8 -t 60 -J: eight parallel streams (the image ships iperf3 3.20, where -P
 # spawns one thread per stream), sixty seconds, JSON on stdout for the runner.
@@ -14,6 +17,8 @@ kind: Job
 metadata:
   name: __NAME__
   namespace: aad
+  labels:
+    aad/cell: __CELL__
 spec:
   backoffLimit: 0
   template:

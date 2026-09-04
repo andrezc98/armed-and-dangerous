@@ -8,6 +8,9 @@ ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
+# GOAMD64 and GOARM64 are left at the toolchain defaults, v1 and v8.0: the x86
+# control is a baseline binary against a baseline binary, and raising either one
+# would measure the compiler flag rather than the silicon.
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/aad-go .
 

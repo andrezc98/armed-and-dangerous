@@ -83,16 +83,18 @@ spec:
             # Primary ENI of an EKS node with the VPC CNI.
             - name: IFACE
               value: eth0
-            # Alpine v3.24 main, both x86_64 and aarch64 (verified 2026-09-04,
-            # https://pkgs.alpinelinux.org/packages?name=ethtool&branch=v3.24).
-            - name: ETHTOOL_VERSION
-              value: 7.0-r0
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              apk add --no-cache "ethtool=${ETHTOOL_VERSION}"
+              # Unpinned on purpose. The base image IS pinned (alpine:3.24.1), so
+              # what apk resolves is whatever v3.24 main carries that day; pinning
+              # ethtool=7.0-r0 on top of it turns a routine Alpine point release
+              # into a DaemonSet that will not start on lab day. What version was
+              # really used is printed here and stays in the pod log.
+              apk add --no-cache ethtool
+              ethtool --version
 
               ncpu=$(grep -c '^processor' /host/proc/cpuinfo)
               i=0

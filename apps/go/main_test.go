@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 )
 
@@ -49,10 +50,21 @@ func TestEcho(t *testing.T) {
 	}
 }
 
+// The runner reads this endpoint through the API server service proxy as the
+// cpuset control of the go cell, so the count has to be the process's own
+// (15 vCPU on a 4xlarge with the static CPU manager, 7 on x86-smtoff), not a
+// constant and not the node's.
 func TestHealthz(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got healthResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CPUs != runtime.NumCPU() {
+		t.Fatalf("cpus = %d, want %d", got.CPUs, runtime.NumCPU())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 )
 
@@ -18,6 +19,17 @@ const maxN = 10_000_000
 type echoResponse struct {
 	N   int64 `json:"n"`
 	Sum int64 `json:"sum"`
+}
+
+// healthResponse doubles as the cpuset control for this cell. The image is
+// distroless, so the runner cannot `kubectl exec` a `cat
+// /sys/fs/cgroup/cpuset.cpus.effective` into it the way it does for the other
+// workloads; runtime.NumCPU() "returns the number of logical CPUs usable by the
+// current process", i.e. it honours the affinity mask the static CPU manager
+// set, so the server reports it itself and the runner reads it through the API
+// server service proxy (runner/cell.py check_cpuset).
+type healthResponse struct {
+	CPUs int `json:"cpus"`
 }
 
 // sumTo returns 1+2+...+n with an explicit loop on purpose: the point of the
@@ -43,8 +55,10 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(healthResponse{CPUs: runtime.NumCPU()}); err != nil {
+		log.Printf("encode: %v", err)
+	}
 }
 
 func newMux() *http.ServeMux {

@@ -4,7 +4,7 @@ Todo vive en el namespace `aad`. `manifests/base/` es lo que se instala una vez
 por día de lab (observabilidad, perillas y StorageClass); `manifests/workloads/`
 es lo que el runner aplica y borra celda por celda.
 
-Cada valor fijado acá fue verificado contra la documentación del día
+Cada valor fijado aquí fue verificado contra la documentación del día
 (2026-09-04); las fuentes están citadas en los comentarios de cada archivo.
 
 ## Orden de instalación
@@ -45,9 +45,56 @@ Comprobación rápida:
 
 ```
 kubectl -n aad get daemonset,pod -o wide
-kubectl -n aad get pods -l app=cstates      # Ready = /dev/cpu_dma_latency en 0 us
+kubectl -n aad get pods -l app=cstates      # Ready = /dev/cpu_dma_latency en la
+                                           #         latencia de salida de C1
 kubectl -n aad get pods -l app=net-tuned    # Ready = TODAS las IRQ pineadas, RPS en 0
 ```
+
+### El valor de la perilla de C-states es la latencia de C1, no 0
+
+El DaemonSet `cstates` abre `/dev/cpu_dma_latency` y escribe **la latencia de
+salida de C1 del nodo**
+(`/sys/devices/system/cpu/cpu0/cpuidle/state1/latency`), no 0. La regla del
+gobernador de cpuidle es una comparación contra la latencia de salida de cada
+estado: los gobernadores "should never select any idle states with exit latency
+beyond that limit"
+(https://www.kernel.org/doc/html/latest/admin-guide/pm/cpuidle.html, leído
+2026-09-04). Con ese límite C1 sigue disponible y C1E/C6 quedan afuera, que es
+exactamente lo que pide la receta de AWS ("set C1 as the deepest C-state").
+Con 0 quedaría afuera **también C1** y el único estado seleccionable sería POLL,
+o sea la CPU girando en un bucle en vez de estar idle: otro experimento, y no el
+que dice el slide.
+
+El valor se escribe con el formato hexadecimal de 10 caracteres que documenta
+`pm_qos_interface.rst` ("Alternatively, it can write a hex string for the value
+using the 10 char long format e.g. '0x12345678'"), que es el único de los dos
+formatos que un shell POSIX puede producir para un número cualquiera.
+
+Las dos rutas (`PMQOS_DEV`, `C1_LATENCY`) son variables de entorno del contenedor
+para poder correr el script contra un árbol sintético, sin nodo. Sacando el
+`command` y el `readinessProbe` del YAML a dos archivos:
+
+```bash
+# El script lee state1/latency y escribe el hex de 10 caracteres exacto.
+docker run --rm -v "$PWD/cstates-cmd.sh:/cmd.sh:ro" alpine:3.24.1 sh -c '
+  mkdir -p /fake/cpuidle/state1 && printf 2 > /fake/cpuidle/state1/latency && : > /fake/dev
+  PMQOS_DEV=/fake/dev C1_LATENCY=/fake/cpuidle/state1/latency sh /cmd.sh
+  cat /fake/dev'                                    # -> 0x00000002
+
+# La sonda, contra un "device" con el s32 que devolvería el kernel.
+docker run --rm -v "$PWD/cstates-probe.sh:/probe.sh:ro" alpine:3.24.1 sh -c '
+  mkdir -p /fake/cpuidle/state1 && printf 2 > /fake/cpuidle/state1/latency
+  export PMQOS_DEV=/fake/dev C1_LATENCY=/fake/cpuidle/state1/latency
+  printf "\002\000\000\000" > /fake/dev && sh /probe.sh; echo "match  -> $?"
+  printf "\000\000\000\000" > /fake/dev && sh /probe.sh; echo "cero   -> $?"'
+```
+
+Un archivo común no es el device: al releerlo vuelven los bytes ASCII que se
+escribieron, no el s32 agregado, así que el primer comando **falla a propósito**
+en la relectura (`PM QoS request did not take: ... reads 808482864 us, wanted 2`).
+Eso es justamente lo que se quiere ver: que el chequeo grita en vez de pasar de
+largo. Lo que el árbol sintético sí prueba entero es el cálculo (leer C1,
+formatear el hex) y la comparación de la sonda.
 
 Los dos DaemonSets de perillas usan el `readinessProbe` como verificación real:
 si la perilla no quedó puesta, el pod no pasa a Ready. No hay Service detrás, la
@@ -160,7 +207,7 @@ y en los cuatro archivos de Job) y se commitea.
 | llama.cpp server | `ghcr.io/ggml-org/llama.cpp:server-b10775` | API de GHCR, amd64 + arm64 + s390x |
 | Modelo | `unsloth/Llama-3.1-8B-Instruct-GGUF` / `Llama-3.1-8B-Instruct-Q4_0.gguf`, sha256 `88e2c600…ab0eaa` | cabeceras `x-linked-size` / `x-linked-etag` de Hugging Face |
 | curl (initContainer) | `curlimages/curl:8.22.0` | Docker Hub, amd64 + arm64 |
-| DaemonSets de perillas | `alpine:3.24.1` + `ethtool=7.0-r0` | Alpine v3.24 main, x86_64 y aarch64 |
+| DaemonSets de perillas | `alpine:3.24.1`; `ethtool` **sin pin** | La imagen base sí está pineada, así que `apk add --no-cache ethtool` resuelve lo que v3.24 main traiga ese día; pinear `=7.0-r0` encima convierte un point release de Alpine en un DaemonSet que no arranca el día del lab. La versión usada queda impresa en el log del pod (`ethtool --version`) |
 
 La versión de Pyroscope queda una menor atrás a propósito: el binario más nuevo
 es v2.3.0 (2026-08-24) pero todavía no hay chart que lo traiga, y forzar el tag
@@ -172,19 +219,11 @@ El dataset de Mongo sobrevive entre celdas a propósito: un solo `ycsb-load` de
 unos 15 minutos por día y el runner recalienta la cache en cada celda, en vez de
 cargar 20M registros cinco veces. Por eso el StatefulSet lleva
 `persistentVolumeClaimRetentionPolicy: {whenDeleted: Delete, whenScaled: Retain}`
-y por eso hay que borrarlo a mano al final:
+y por eso hay que borrarlo explícitamente al final.
 
-```bash
-kubectl delete -n aad sts mongo
-kubectl delete pvc -n aad --all
-
-# El volumen EBS lo provisionó el driver CSI, no Terraform: no está en el estado
-# y `terraform destroy` no lo ve. Esta lista tiene que quedar vacía ANTES del
-# destroy, o el volumen se factura solo hasta que alguien lo encuentre.
-aws ec2 describe-volumes \
-  --filters Name=tag:Project,Values=armed-and-dangerous \
-  --query 'Volumes[].VolumeId'
-```
+Eso lo hace `uv run cell --teardown-day`, y el orden completo del cierre (con el
+volumen EBS del driver CSI, que no está en el estado de Terraform) vive en un
+solo lugar: el README raíz, sección "Reproducir" → "Cierre del día de lab".
 
 ## Pendientes de verificar el día del gate
 
