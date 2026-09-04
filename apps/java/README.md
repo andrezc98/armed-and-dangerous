@@ -7,7 +7,7 @@ Workload Java de alta concurrencia (spec §4). Hechos verificados el
 
 | Elemento | Valor | Fuente |
 |---|---|---|
-| Código | `spring-petclinic/spring-petclinic-rest` master @ `4cd8e1b0cd42` (2026-09-01) | https://github.com/spring-petclinic/spring-petclinic-rest |
+| Código | `spring-petclinic/spring-petclinic-rest` master @ `4cd8e1b0cd42` (2026-09-01), tarball pinneado con `ADD --checksum=sha256:c0ebdc16...` (descargado dos veces, mismo hash) | https://github.com/spring-petclinic/spring-petclinic-rest |
 | Versión del proyecto | 4.0.2 (jar `target/spring-petclinic-rest-4.0.2.jar`) | `pom.xml` del commit |
 | Spring Boot | **4.1.1** en master; el tag `v4.0.2` aún apunta a Boot 4.0.2, por eso se pinnea el SHA y no el tag | `pom.xml` (`spring-boot-starter-parent`) |
 | Java de compilación | `--release 17` (heredado del parent de Boot; el pom no define `java.version`) | `spring-boot-starter-parent-4.1.1.pom` |

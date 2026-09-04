@@ -22,4 +22,8 @@ COPY --from=build /src/workloads /workloads
 # Usage (Task 5 Jobs):
 #   go-ycsb load mongodb -P /workloads/workloada -p mongodb.url=mongodb://mongo.aad.svc:27017/ycsb?w=1 -p recordcount=N --threads T
 #   go-ycsb run  mongodb -P /workloads/workloadb -p mongodb.url=...            -p operationcount=N --threads T --target OPS
+# Non-root (fix round 1, Important 1): go-ycsb only reads /workloads and talks
+# to the target DB over the network, so a bare numeric UID:GID is enough
+# (matches apps/go and apps/java, which already run non-root).
+USER 1000:1000
 ENTRYPOINT ["go-ycsb"]

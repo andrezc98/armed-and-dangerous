@@ -6,4 +6,8 @@
 FROM alpine:3.24.1
 RUN apk add --no-cache iperf3=3.20-r0
 EXPOSE 5201
+# Non-root (fix round 1, Important 1): iperf3 only needs network I/O, no
+# privileged port or filesystem writes, so a bare numeric UID:GID is enough
+# (matches apps/go and apps/java, which already run non-root).
+USER 1000:1000
 ENTRYPOINT ["iperf3"]
