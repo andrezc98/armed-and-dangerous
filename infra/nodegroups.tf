@@ -6,8 +6,14 @@
 locals {
   # Raw Bottlerocket TOML. With ami_type = BOTTLEROCKET_* and no custom AMI the
   # module ships bootstrap_extra_args as the whole user data and EKS merges it
-  # over its own settings, so the file carries its own [settings.*] headers.
-  thp_user_data = file("${path.module}/userdata/thp.toml")
+  # over its own settings, so the files carry their own [settings.*] headers.
+  #
+  # base.toml is the CPU manager CONTROL and goes on all five SUT cells; thp.toml
+  # is a KNOB and only goes on the tuned ones. The two files declare disjoint
+  # tables, so concatenating them is still one valid TOML document.
+  base_user_data      = file("${path.module}/userdata/base.toml")
+  thp_user_data       = file("${path.module}/userdata/thp.toml")
+  tuned_sut_user_data = join("\n", [local.base_user_data, local.thp_user_data])
 
   sut_common = {
     use_name_prefix = false
@@ -38,12 +44,16 @@ locals {
 
   node_group_defs = {
     # Bottlerocket as it ships: THP, C-states and SMT at their defaults. The
-    # runbook reads those values off the node instead of assuming them.
+    # runbook reads those values off the node instead of assuming them. The one
+    # thing stock does NOT mean is a floating cpuset: base.toml (static CPU
+    # manager) is on every SUT cell, stock included, because CPU exclusivity is
+    # the control that makes the cells comparable.
     "x86-stock" = merge(local.sut_common, {
-      name           = "aws-aad-mng-x86-stock"
-      ami_type       = "BOTTLEROCKET_x86_64"
-      instance_types = ["m8i.4xlarge"]
-      labels         = { "aad/cell" = "x86-stock" }
+      name                 = "aws-aad-mng-x86-stock"
+      ami_type             = "BOTTLEROCKET_x86_64"
+      instance_types       = ["m8i.4xlarge"]
+      labels               = { "aad/cell" = "x86-stock" }
+      bootstrap_extra_args = local.base_user_data
     })
 
     # THP always. C-states and network affinity are DaemonSets (Task 5).
@@ -52,7 +62,7 @@ locals {
       ami_type             = "BOTTLEROCKET_x86_64"
       instance_types       = ["m8i.4xlarge"]
       labels               = { "aad/cell" = "x86-tuned" }
-      bootstrap_extra_args = local.thp_user_data
+      bootstrap_extra_args = local.tuned_sut_user_data
     })
 
     # Everything x86-tuned has, plus SMT off: 8 real cores at the price of 16
@@ -64,7 +74,7 @@ locals {
       ami_type             = "BOTTLEROCKET_x86_64"
       instance_types       = ["m8i.4xlarge"]
       labels               = { "aad/cell" = "x86-smtoff" }
-      bootstrap_extra_args = local.thp_user_data
+      bootstrap_extra_args = local.tuned_sut_user_data
       cpu_options = {
         core_count       = 8
         threads_per_core = 1
@@ -73,10 +83,11 @@ locals {
     })
 
     "arm-stock" = merge(local.sut_common, {
-      name           = "aws-aad-mng-arm-stock"
-      ami_type       = "BOTTLEROCKET_ARM_64"
-      instance_types = ["m9g.4xlarge"]
-      labels         = { "aad/cell" = "arm-stock" }
+      name                 = "aws-aad-mng-arm-stock"
+      ami_type             = "BOTTLEROCKET_ARM_64"
+      instance_types       = ["m9g.4xlarge"]
+      labels               = { "aad/cell" = "arm-stock" }
+      bootstrap_extra_args = local.base_user_data
     })
 
     # THP always. There is no C-state or P-state knob on Graviton, and that
@@ -86,7 +97,7 @@ locals {
       ami_type             = "BOTTLEROCKET_ARM_64"
       instance_types       = ["m9g.4xlarge"]
       labels               = { "aad/cell" = "arm-tuned" }
-      bootstrap_extra_args = local.thp_user_data
+      bootstrap_extra_args = local.tuned_sut_user_data
     })
 
     # k6, go-ycsb and the llama client. Untainted and x86 on purpose: go-ycsb is

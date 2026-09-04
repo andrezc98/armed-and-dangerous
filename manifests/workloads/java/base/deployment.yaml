@@ -33,7 +33,10 @@ spec:
           effect: NoSchedule
       containers:
         - name: java
-          image: ghcr.io/andrezc98/aad-java
+          # The tag is written out even though kustomize rewrites it: applied
+          # raw with kubectl apply -f, an untagged image means :latest, and
+          # :latest does not exist in this registry.
+          image: ghcr.io/andrezc98/aad-java:PUSH_DATE
           ports:
             - name: http
               containerPort: 9966

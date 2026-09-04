@@ -29,6 +29,24 @@ metadata:
 spec:
   serviceName: mongo
   replicas: 1
+  # The dataset survives between cells on purpose: one 15-minute ycsb-load per lab
+  # day, and the runner re-warms the cache in each cell instead of reloading 20M
+  # records five times. So `kubectl delete -k` between cells must not drop the
+  # volume, and whenScaled stays Retain.
+  #
+  # whenDeleted: Delete is the end-of-day half. The PVC is dynamically
+  # provisioned, so its EBS volume is not in Terraform state and `terraform
+  # destroy` never sees it; deleting the StatefulSet now takes the volume with it.
+  # Field names and semantics from the StatefulSet v1 API reference (read
+  # 2026-09-04): "WhenDeleted specifies what happens to PVCs created from
+  # StatefulSet VolumeClaimTemplates when the StatefulSet is deleted. The default
+  # policy of `Retain` causes PVCs to not be affected by StatefulSet deletion. The
+  # `Delete` policy causes those PVCs to be deleted." / "WhenScaled specifies what
+  # happens to PVCs ... when the StatefulSet is scaled down."
+  # (https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/stateful-set-v1/)
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
   selector:
     matchLabels:
       app: mongo

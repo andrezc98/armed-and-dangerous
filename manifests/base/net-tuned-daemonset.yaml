@@ -29,6 +29,12 @@
 # for the talk: done deliberately, on two labelled cells, for the length of one
 # measurement.
 #
+# The round-robin puts one IRQ on every vCPU, the exclusive ones included. That
+# is deliberate and it is why this DaemonSet is applied to the net cell only: the
+# SUT there is iperf3, and spreading the ENA queues across cores is the knob
+# under measurement. On the other cells the pod owns cpu1-15 exclusively and the
+# reserved cpu0 keeps the DaemonSets (infra/userdata/base.toml).
+#
 # /proc and /sys are mounted under /host so the container keeps its own procfs.
 # hostNetwork puts the pod in the host's network namespace, which is what lets
 # ethtool address the node's eth0 directly.
@@ -116,6 +122,11 @@ spec:
 
               echo "${i} ${IFACE} IRQs pinned, adaptive-rx off, RPS clear on $(hostname)"
               sleep infinity
+          # The probe re-derives the same round-robin the command above applied
+          # and checks EVERY IRQ against the CPU it was given, plus every RPS
+          # mask. Checking only the first IRQ would have gone Ready with fifteen
+          # queues drifting back onto one core - the exact failure the knob
+          # exists to prevent, reported as healthy.
           readinessProbe:
             exec:
               command:
@@ -123,13 +134,28 @@ spec:
                 - -c
                 - |
                   set -eu
-                  irq=$(awk -F: '/'"${IFACE}"'-Tx-Rx/ { gsub(/ /, "", $1); print $1; exit }' /host/proc/interrupts)
-                  [ -n "${irq}" ]
-                  aff=$(cat "/host/proc/irq/${irq}/smp_affinity_list")
-                  # A pinned IRQ is one CPU: no range, no list.
-                  case "${aff}" in
-                    *,* | *-*) echo "irq ${irq} affinity is ${aff}"; exit 1 ;;
-                  esac
+                  ncpu=$(grep -c '^processor' /host/proc/cpuinfo)
+                  i=0
+                  for irq in $(awk -F: '/'"${IFACE}"'-Tx-Rx/ { gsub(/ /, "", $1); print $1 }' /host/proc/interrupts); do
+                    want=$((i % ncpu))
+                    got=$(cat "/host/proc/irq/${irq}/smp_affinity_list")
+                    if [ "${got}" != "${want}" ]; then
+                      echo "irq ${irq} affinity is ${got}, expected ${want}"
+                      exit 1
+                    fi
+                    i=$((i + 1))
+                  done
+                  if [ "${i}" -eq 0 ]; then
+                    echo "no ${IFACE}-Tx-Rx IRQ in /host/proc/interrupts"
+                    exit 1
+                  fi
+                  for f in /host/sys/class/net/"${IFACE}"/queues/rx-*/rps_cpus; do
+                    [ -e "${f}" ] || continue
+                    if [ -n "$(tr -d ',0\n' < "${f}")" ]; then
+                      echo "RPS is enabled at ${f}: $(cat "${f}")"
+                      exit 1
+                    fi
+                  done
                   ethtool -c "${IFACE}" | grep -q 'Adaptive RX: off'
             initialDelaySeconds: 15
             periodSeconds: 30

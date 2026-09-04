@@ -31,11 +31,11 @@ Las tres CRD de Karpenter (`infra/karpenter/`) usan `karpenter.sh/v1` y
 
 | Node group | Instancia | AMI | min/max/desired | Etiqueta | Distintivo |
 |---|---|---|---|---|---|
-| `aws-aad-mng-x86-stock` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-stock` | Bottlerocket tal cual |
-| `aws-aad-mng-x86-tuned` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-tuned` | THP `always` |
-| `aws-aad-mng-x86-smtoff` | `m8i.4xlarge` | x86_64 | 0/1/0 | `aad/cell=x86-smtoff` | THP `always` + `cpu_options` 8 núcleos, 1 hilo |
-| `aws-aad-mng-arm-stock` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-stock` | Bottlerocket tal cual |
-| `aws-aad-mng-arm-tuned` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-tuned` | THP `always` |
+| `aws-aad-mng-x86-stock` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-stock` | Bottlerocket tal cual (+ `base.toml`) |
+| `aws-aad-mng-x86-tuned` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-tuned` | `base.toml` + THP `always` |
+| `aws-aad-mng-x86-smtoff` | `m8i.4xlarge` | x86_64 | 0/1/0 | `aad/cell=x86-smtoff` | `base.toml` + THP `always` + `cpu_options` 8 núcleos, 1 hilo |
+| `aws-aad-mng-arm-stock` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-stock` | Bottlerocket tal cual (+ `base.toml`) |
+| `aws-aad-mng-arm-tuned` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-tuned` | `base.toml` + THP `always` |
 | `aws-aad-mng-loader` | `c7i.4xlarge` | x86_64 | 1/1/1 | `aad/role=loader` | k6, go-ycsb, cliente llama |
 | `aws-aad-mng-tools` | `m7g.large` | ARM_64 | 1/1/1 | `aad/role=tools` | Pyroscope y el controlador de Karpenter |
 
@@ -78,6 +78,15 @@ Al final del día de lab:
 kubectl delete nodepool aad-arc-amd64 aad-arc-arm64 --ignore-not-found
 kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 
+# Después el StatefulSet de Mongo y sus PVC. El volumen EBS lo provisionó
+# dinámicamente el driver CSI: tampoco está en el estado y el destroy no lo ve.
+kubectl delete -n aad sts mongo
+kubectl delete pvc -n aad --all
+aws ec2 describe-volumes \
+  --filters Name=tag:Project,Values=armed-and-dangerous \
+  --query 'Volumes[].VolumeId'
+# tiene que devolver [] ANTES del destroy
+
 terraform destroy                    # GATED igual que el apply
 aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous \
   Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId'
@@ -95,8 +104,52 @@ plane, así que hay una segunda subnet chica en otra AZ que se pasa únicamente 
 La VPC es preexistente (`var.vpc_id`), se reutiliza su IGW y se crea una route
 table propia para no tocar las del dueño.
 
+**CPU exclusiva es un control, no una perilla.** `infra/userdata/base.toml` va en
+las **cinco** celdas SUT, stock incluidas, y pone el CPU manager del kubelet en
+`static`. Sin eso `requests = limits` solo compra QoS Guaranteed: el kubelet
+aplica el límite con una cuota CFS y los hilos del pod siguen paseando por los 16
+vCPU junto a los DaemonSets y las IRQ. La regla es explícita: "Only containers
+that are both part of a Guaranteed pod and have integer CPU requests are assigned
+exclusive CPUs" y "The kubelet requires a CPU reservation greater than zero be
+made using either `--kube-reserved` and/or `--system-reserved` or
+`--reserved-cpus` when the static policy is enabled"
+(https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/,
+leído 2026-09-04). Los nombres de los ajustes son
+`settings.kubernetes.cpu-manager-policy` ("If you want to allow pods with certain
+resource characteristics to be granted increased CPU affinity and exclusivity on
+the node, you can set this setting to `static`") y
+`settings.kubernetes.kube-reserved` ("Resources reserved for node components. The
+following keys are valid: `cpu`: in millicores from the total number of vCPUs
+available on the instance"), los dos de
+https://bottlerocket.dev/en/os/1.64.x/api/settings/kubernetes/ (leído
+2026-09-04). Es user data de primer arranque, así que no aplica el "You should
+reboot if you change this setting after startup" de esa misma página.
+
+El valor reservado es `cpu = "250m"`, no `1000m`, y la diferencia son dos capas
+distintas de contabilidad:
+
+- **cpuset**: el kubelet redondea la reserva hacia arriba ("Take the ceiling of
+  the reservation, since fractional CPUs cannot be exclusively allocated",
+  `pkg/kubelet/cm/cpumanager/cpu_manager.go`, kubernetes release-1.36), así que
+  cualquier valor en (0, 1000m] aparta exactamente **un** vCPU como pool
+  compartido: cpu0 se queda con los DaemonSets y cpu1-15 quedan asignables en
+  exclusiva.
+- **scheduler**: `Allocatable = Capacity - kube-reserved`. Con `1000m` el nodo
+  publicaría 15000m, el pod SUT pide 15000m él solo, y kube-proxy + aws-node +
+  ebs-csi-node + el profiler (unos 450m juntos) no entrarían nunca: el pod
+  medido quedaría Pending para siempre. Con `250m` el nodo publica 15750m y
+  entra todo. Misma cuenta en `x86-smtoff`: 8000m − 250m = 7750m contra un pod
+  de 7000m.
+
+`cpu-manager-policy-options` queda sin fijar a propósito: `full-pcpus-only`
+rechazaría un pedido de 15 vCPU (15 no es un número entero de pares SMT) y el pod
+SUT es 15 de 16 por diseño. Y en x86 con SMT el vCPU reservado comparte core
+físico con uno de los 15 hilos del pod; es inherente a medir 15 de 16 y va dicho
+en el slide, no escondido.
+
 **THP sin reboot.** `infra/userdata/thp.toml` es el user data de las tres celdas
-tuned. Con `ami_type = BOTTLEROCKET_*` y sin AMI propia, `bootstrap_extra_args`
+tuned, concatenado con `base.toml` (las dos declaran tablas TOML distintas, así
+que la suma sigue siendo un documento válido). Con `ami_type = BOTTLEROCKET_*` y sin AMI propia, `bootstrap_extra_args`
 es el user data completo (TOML crudo con sus propios encabezados `[settings.*]`)
 y EKS lo mergea sobre el suyo. `settings.kernel.hugepages.transparent.enabled`
 existe desde Bottlerocket 1.64.0 ("Add support for static and transparent
@@ -222,6 +275,14 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
   kubectl debug node/<nodo-tuned> -it --image=busybox -- \
     cat /host/sys/kernel/mm/transparent_hugepage/enabled
   # tiene que decir [always]; con [madvise] la celda tuned no está tuneada
+  ```
+- Que la política `static` del CPU manager quede efectivamente puesta. Igual que
+  con THP, el gate prueba que el ajuste existe, no que el nodo lo tenga aplicado:
+
+  ```bash
+  kubectl -n aad exec deploy/java -- cat /sys/fs/cgroup/cpuset.cpus.effective
+  # tiene que listar 15 vCPU (por ejemplo 1-15); con 0-15 el pod no tiene cpuset
+  # exclusivo y la celda no vale
   ```
 - Que `CpuOptions` sea aceptado en el launch template de una managed node group.
   La documentación de EKS solo enumera lo prohibido y `CpuOptions` no aparece;

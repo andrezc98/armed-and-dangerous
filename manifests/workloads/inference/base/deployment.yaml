@@ -77,6 +77,29 @@ spec:
               cd /models
               curl -fsSL --retry 3 -o "${MODEL_FILE}" "${MODEL_URL}"
               echo "${MODEL_SHA256}  ${MODEL_FILE}" | sha256sum -c -
+          resources:
+            # requests = limits here too, and not because this container needs
+            # the guarantee: QoS is computed over the app containers AND the init
+            # containers ("allContainers = append(allContainers,
+            # pod.Spec.Containers...); allContainers = append(allContainers,
+            # pod.Spec.InitContainers...)", kubernetes release-1.36
+            # pkg/apis/core/v1/helper/qos/qos.go). One init container without
+            # limits makes the whole pod Burstable, and the static CPU manager
+            # skips it - "Exclusive CPU allocation skipped, pod QoS is not
+            # guaranteed" (pkg/kubelet/cm/cpumanager/policy_static.go). The
+            # inference cells would have been the only ones without exclusive
+            # CPUs, which is exactly the bias the control exists to remove.
+            #
+            # 500m on purpose: a fractional request keeps this container in the
+            # shared pool (the download is network bound) while the llama
+            # container below still gets its 15 exclusive vCPUs. Pod scheduling
+            # is unaffected - the effective pod request is max(init, sum(app)).
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 500m
+              memory: 1Gi
           volumeMounts:
             - name: models
               mountPath: /models
@@ -99,12 +122,18 @@ spec:
             - name: http
               containerPort: 8080
           resources:
+            # ephemeral-storage matches the emptyDir sizeLimit: the 4.4 GiB GGUF
+            # lands on the node's data volume, and a node too small for it should
+            # leave the pod Pending at scheduling time instead of evicting it
+            # halfway through a measured run.
             requests:
               cpu: "15"
               memory: 48Gi
+              ephemeral-storage: 8Gi
             limits:
               cpu: "15"
               memory: 48Gi
+              ephemeral-storage: 8Gi
           readinessProbe:
             httpGet:
               path: /health

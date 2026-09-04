@@ -37,13 +37,24 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: iperf3
-          image: ghcr.io/andrezc98/aad-iperf3
+          # The tag is written out even though kustomize rewrites it: applied
+          # raw with kubectl apply -f, an untagged image means :latest, and
+          # :latest does not exist in this registry.
+          image: ghcr.io/andrezc98/aad-iperf3:PUSH_DATE
           # The image ENTRYPOINT is iperf3 (apps/iperf3/Dockerfile).
           args:
             - -s
           ports:
             - name: iperf3
               containerPort: 5201
+          # iperf3 -s is listening or it is not; there is no HTTP to ask. Without
+          # this the client Job can be created while the server pod is still
+          # starting and the run dies on "unable to connect to server".
+          readinessProbe:
+            tcpSocket:
+              port: iperf3
+            initialDelaySeconds: 2
+            periodSeconds: 5
           resources:
             # This pod is the system under test, so its CPU is the measurement:
             # Guaranteed QoS, 15 of 16 cores, one left for the profiler and the

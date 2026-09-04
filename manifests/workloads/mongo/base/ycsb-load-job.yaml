@@ -7,10 +7,18 @@
 #
 # Applied by the runner, not by kustomize. Image tag PUSH_DATE is the same
 # placeholder as every other own image; substituted after the gated GHCR push.
+#
+#   __NAME__  unique Job name per invocation, rendered by the runner
+#             (for example ycsb-load-2026-09-11).
+#
+# The name is a placeholder because a Job's pod template is immutable: re-applying
+# a Job whose name already exists fails with "field is immutable" instead of
+# starting a new run. One name per invocation is the only thing that makes the
+# template re-appliable.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ycsb-load
+  name: __NAME__
   namespace: aad
 spec:
   backoffLimit: 0

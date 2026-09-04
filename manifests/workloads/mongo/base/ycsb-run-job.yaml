@@ -2,16 +2,24 @@
 # applies one Job per repetition (knee search first, then the fixed run at 80% of
 # the knee, n times).
 #
+#   __NAME__            unique Job name per invocation, rendered by the runner
+#                       (for example ycsb-run-arm-tuned-t64-r2)
 #   __WORKLOAD__        workloada (50/50) or workloadb (95/5)
 #   __OPERATIONCOUNT__  operations for this run
 #   __THREADS__         go-ycsb client threads
 #   __TARGET__          target ops/s, the throughput the run is pinned at
 #
+# The name is a placeholder because a Job's pod template is immutable: re-applying
+# a Job whose name already exists fails with "field is immutable" instead of
+# starting a new run with the new args. One name per invocation is the only thing
+# that makes the template re-appliable, and it is also what keeps the knee search
+# results apart in `kubectl get jobs`.
+#
 # Everything else is identical to ycsb-load-job.yaml on purpose.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ycsb-run
+  name: __NAME__
   namespace: aad
 spec:
   backoffLimit: 0
@@ -33,6 +41,14 @@ spec:
             - /workloads/__WORKLOAD__
             - -p
             - mongodb.url=mongodb://mongo.aad.svc:27017/ycsb?w=1
+            # Same 20000000 as ycsb-load-job.yaml, and not optional: -P only
+            # supplies the workload file's own recordcount=1000, so without this
+            # the run would read a 1000-key hot set out of a 20M-record
+            # collection - an L2/L3 benchmark wearing a DDR5 label, with the
+            # "pages read into cache" control looking perfectly flat while it
+            # happens. Change it here and in the load Job together.
+            - -p
+            - recordcount=20000000
             - -p
             - operationcount=__OPERATIONCOUNT__
             - --threads

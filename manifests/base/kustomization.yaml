@@ -8,7 +8,12 @@ resources:
   - storageclass-default.yaml
   - ebpf-profiler.yaml
   - cstates-daemonset.yaml
-  - net-tuned-daemonset.yaml
 
+# net-tuned-daemonset.yaml is NOT listed, on purpose. It is the network knob and
+# it belongs to one workload only: in the base it would also pin the ENA IRQs and
+# turn coalescing off under the Java, Mongo and inference tuned cells, biasing
+# them against their stock counterparts. The runner applies and deletes it around
+# the net cell (kubectl apply -f), like the YCSB and iperf3 Job templates.
+#
 # pyroscope-values.yaml is a Helm values file, not a Kubernetes resource, so it
 # is installed with helm (see README.md) and not listed above.

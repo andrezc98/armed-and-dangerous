@@ -1,14 +1,18 @@
-# iperf3 client, SUT to SUT, forward direction. Template applied by the runner,
-# which replaces __CELL__ with the cell it is measuring; it is not part of the
-# kustomization because the client must start after the server is ready and
-# because the two directions run one at a time.
+# iperf3 client, SUT to SUT, forward direction. Template applied by the runner;
+# it is not part of the kustomization because the client must start after the
+# server is ready and because the two directions run one at a time.
+#
+#   __NAME__  unique Job name per invocation (for example iperf3-fwd-arm-tuned-r2).
+#             A Job's pod template is immutable, so re-applying the same name
+#             fails instead of starting the next repetition.
+#   __CELL__  the cell being measured; both sides land on its node group.
 #
 # -P 8 -t 60 -J: eight parallel streams (the image ships iperf3 3.20, where -P
 # spawns one thread per stream), sixty seconds, JSON on stdout for the runner.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: iperf3-client
+  name: __NAME__
   namespace: aad
 spec:
   backoffLimit: 0

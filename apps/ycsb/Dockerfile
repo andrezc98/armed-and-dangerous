@@ -21,7 +21,10 @@ COPY --from=build /out/go-ycsb /usr/local/bin/go-ycsb
 COPY --from=build /src/workloads /workloads
 # Usage (Task 5 Jobs):
 #   go-ycsb load mongodb -P /workloads/workloada -p mongodb.url=mongodb://mongo.aad.svc:27017/ycsb?w=1 -p recordcount=N --threads T
-#   go-ycsb run  mongodb -P /workloads/workloadb -p mongodb.url=...            -p operationcount=N --threads T --target OPS
+#   go-ycsb run  mongodb -P /workloads/workloadb -p mongodb.url=...            -p recordcount=N -p operationcount=M --threads T --target OPS
+# recordcount is NOT optional on the run: -P only supplies the workload file's
+# own recordcount=1000, so leaving it out makes the run touch 1000 keys of the
+# loaded collection and measure cache, not the database.
 # Non-root (fix round 1, Important 1): go-ycsb only reads /workloads and talks
 # to the target DB over the network, so a bare numeric UID:GID is enough
 # (matches apps/go and apps/java, which already run non-root).

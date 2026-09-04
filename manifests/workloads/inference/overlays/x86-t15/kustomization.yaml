@@ -1,6 +1,12 @@
-# Same node group as x86-tuned (nodeSelector aad/cell: x86-tuned), 16 threads
+# Same node group as x86-tuned (nodeSelector aad/cell: x86-tuned), 15 threads
 # instead of 8: the cost of oversubscribing SMT, measured rather than argued.
 # This is a cell of the inference workload, not a node group.
+#
+# 15, not 16 (renamed 2026-09-04): with the static CPU manager policy the pod
+# owns exactly the 15 vCPUs it requests, so 16 threads would have been the
+# process oversubscribing itself on top of the SMT oversubscription and the two
+# effects would be impossible to tell apart. 15 threads on 8 physical cores is
+# still 2x SMT oversubscription, which is the thing being measured.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aad
@@ -31,4 +37,4 @@ patches:
         value: "-t"
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "16"
+        value: "15"

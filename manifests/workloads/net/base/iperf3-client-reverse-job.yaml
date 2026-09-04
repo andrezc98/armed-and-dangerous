@@ -1,5 +1,6 @@
 # iperf3 client, SUT to SUT, reverse direction: -R makes the SUT the sender.
-# Same template contract as iperf3-client-job.yaml - the runner replaces __CELL__
+# Same template contract as iperf3-client-job.yaml - the runner replaces __NAME__
+# (unique per invocation, because a Job's pod template is immutable) and __CELL__,
 # and applies it after the forward run has finished.
 #
 # -P 8 -t 60 -J: eight parallel streams (the image ships iperf3 3.20, where -P
@@ -7,7 +8,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: iperf3-client-reverse
+  name: __NAME__
   namespace: aad
 spec:
   backoffLimit: 0

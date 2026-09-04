@@ -92,6 +92,10 @@ spec:
                 - /bin/sh
                 - -c
                 - test "$(od -An -td4 -N4 /dev/cpu_dma_latency | tr -d ' ')" = "0"
+            # The command above has to open the device and write before the probe
+            # can read a 0 back; probing at t=0 costs one guaranteed failure and
+            # an extra restart-looking event in kubectl describe.
+            initialDelaySeconds: 5
             periodSeconds: 30
           resources:
             requests:

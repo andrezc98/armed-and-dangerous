@@ -1,4 +1,8 @@
-# Tuned Graviton: 16 threads for 16 physical cores. No SMT to oversubscribe.
+# Tuned Graviton: one thread per exclusive vCPU. m9g.4xlarge has 16 physical
+# cores and no SMT, but the pod only owns 15 of them: with the static CPU manager
+# policy (infra/userdata/base.toml) the 16th is the reserved vCPU where the
+# DaemonSets live. -t 16 would have put one llama.cpp thread on a core the pod
+# does not own, which is self-oversubscription, not tuning (fixed 2026-09-04).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aad
@@ -29,4 +33,4 @@ patches:
         value: "-t"
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "16"
+        value: "15"
