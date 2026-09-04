@@ -2,12 +2,20 @@
 # kubectl after `terraform apply`, because these CRDs do not exist until the
 # Karpenter chart is installed.
 #
-# The arc walks m5 -> m6i -> m7i -> m8i and m6g -> m7g -> m8g -> m9g by patching
-# the instance-family requirement one generation at a time, for example:
-#   kubectl patch nodepool aad-arc --type merge -p \
+# One NodePool per architecture, each pinned to its own EC2NodeClass. A single
+# multi-arch pool would launch the Graviton generations through the amd64 node
+# class: they boot (the bottlerocket@latest alias resolves the AMI per
+# architecture on its own) but they carry aad/arch: amd64, which is the very
+# tag the arc reads back.
+#
+# The arc walks m5 -> m6i -> m7i -> m8i on aad-arc-amd64 and m6g -> m7g -> m8g
+# -> m9g on aad-arc-arm64, patching instance-family on the matching pool one
+# generation at a time, for example:
+#   kubectl patch nodepool aad-arc-arm64 --type merge -p \
 #     '{"spec":{"template":{"spec":{"requirements":[
 #        {"key":"karpenter.k8s.aws/instance-family","operator":"In","values":["m7g"]},
 #        {"key":"karpenter.k8s.aws/instance-size","operator":"In","values":["4xlarge"]},
+#        {"key":"kubernetes.io/arch","operator":"In","values":["arm64"]},
 #        {"key":"karpenter.sh/capacity-type","operator":"In","values":["on-demand"]}]}}}}'
 #
 # Karpenter picks by price among the allowed types; it has no performance
@@ -16,7 +24,7 @@
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
-  name: aad-arc
+  name: aad-arc-amd64
 spec:
   template:
     metadata:
@@ -30,10 +38,13 @@ spec:
       requirements:
         - key: karpenter.k8s.aws/instance-family
           operator: In
-          values: ["m5", "m6i", "m7i", "m8i", "m6g", "m7g", "m8g", "m9g"]
+          values: ["m5", "m6i", "m7i", "m8i"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values: ["4xlarge"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
@@ -43,5 +54,39 @@ spec:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 1m
   limits:
-    # One .4xlarge is 16 vCPU, so this caps the arc at a single node at a time.
+    # One .4xlarge is 16 vCPU, so this caps the pool at a single node at a time.
+    cpu: "16"
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: aad-arc-arm64
+spec:
+  template:
+    metadata:
+      labels:
+        aad/role: arc
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: aad-bottlerocket-arm64
+      requirements:
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m6g", "m7g", "m8g", "m9g"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["4xlarge"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      expireAfter: 8h
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 1m
+  limits:
     cpu: "16"

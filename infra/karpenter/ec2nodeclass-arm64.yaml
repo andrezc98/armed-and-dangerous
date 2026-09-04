@@ -1,10 +1,11 @@
-# One EC2NodeClass per architecture. The bottlerocket@latest alias resolves the
-# AMI per architecture on its own, so either class can in fact provision either
-# silicon; they are kept apart so the ARM half of the arc can be pointed at its
-# own class and its instances carry the matching aad/arch tag in the bill.
+# One EC2NodeClass per architecture, referenced by the NodePool of the same
+# architecture in nodepool.yaml. The bottlerocket@latest alias resolves the AMI
+# per architecture on its own, so the split is not about booting: it is about
+# every arc node carrying the right aad/arch tag in the bill.
 #
 # The karpenter.sh/discovery value is var.cluster_name (default
-# aws-aad-eks-lab). Change one and change the other.
+# aws-aad-eks-lab), which is why variables.tf refuses any other cluster name
+# until these two files are edited.
 apiVersion: karpenter.k8s.aws/v1
 kind: EC2NodeClass
 metadata:

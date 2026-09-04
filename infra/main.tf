@@ -113,6 +113,48 @@ resource "terraform_data" "bottlerocket_supports_thp" {
 }
 
 ################################################################################
+# Availability zone gate: does this AZ offer the four instance types at all?
+################################################################################
+
+locals {
+  # Every instance type nodegroups.tf asks for. One AZ carries all of them or
+  # the lab moves AZ (spec plan B), it never changes instance size.
+  required_instance_types = ["m8i.4xlarge", "m9g.4xlarge", "c7i.4xlarge", "m7g.large"]
+}
+
+# location_type turns the "location" filter into an AZ name: "Location type.
+# Defaults to `region`. Valid values: `availability-zone`,
+# `availability-zone-id`, and `region`" and "The `location` filter depends on
+# the top-level `location_type` argument" (aws provider 6.63.0,
+# website/docs/d/ec2_instance_type_offerings.html.markdown).
+data "aws_ec2_instance_type_offerings" "nodes_az" {
+  location_type = "availability-zone"
+
+  filter {
+    name   = "location"
+    values = [var.availability_zone]
+  }
+
+  filter {
+    name   = "instance-type"
+    values = local.required_instance_types
+  }
+}
+
+# Offering is not capacity: this only proves the AZ sells the type. Whether
+# there is stock for it is answered on gate day, by the apply itself.
+resource "terraform_data" "instance_types_offered_in_az" {
+  input = sort(data.aws_ec2_instance_type_offerings.nodes_az.instance_types)
+
+  lifecycle {
+    precondition {
+      condition     = length(setsubtract(local.required_instance_types, data.aws_ec2_instance_type_offerings.nodes_az.instance_types)) == 0
+      error_message = "Availability zone ${var.availability_zone} does not offer ${jsonencode(setsubtract(local.required_instance_types, data.aws_ec2_instance_type_offerings.nodes_az.instance_types))}. Move the lab to an AZ that offers all of ${jsonencode(local.required_instance_types)}; do not change instance sizes."
+    }
+  }
+}
+
+################################################################################
 # EBS CSI driver: IAM role assumed through EKS Pod Identity
 ################################################################################
 
@@ -153,7 +195,12 @@ module "eks" {
   name               = var.cluster_name
   kubernetes_version = var.kubernetes_version
 
-  endpoint_public_access                   = true  # kubectl and the runner live on the Mac (default: false)
+  # endpoint_public_access_cidrs defaults to ["0.0.0.0/0"] in the module ("List
+  # of CIDR blocks which can access the Amazon EKS public API server endpoint",
+  # terraform-aws-eks v21.25.0 variables.tf). The lab endpoint is for the
+  # speaker's laptop and nothing else.
+  endpoint_public_access                   = true # kubectl and the runner live on the Mac (default: false)
+  endpoint_public_access_cidrs             = var.admin_cidrs
   authentication_mode                      = "API" # access entries; v21 dropped aws-auth
   enable_cluster_creator_admin_permissions = true  # without it you are not admin of your own cluster (default: false)
 

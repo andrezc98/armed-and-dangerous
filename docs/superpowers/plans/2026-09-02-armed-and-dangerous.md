@@ -79,7 +79,7 @@
 
 **Files:** `infra/{versions.tf,variables.tf,main.tf,nodegroups.tf,karpenter.tf,outputs.tf,example.tfvars}`, `infra/userdata/thp.toml`.
 
-**Interfaces (produce):** outputs `cluster_name`, `configure_kubectl`, `nodegroup_names` (map celda → nombre MNG), `karpenter_nodepool_name`; etiqueta de nodo `aad/cell=<celda>`; taint `aad/sut=true:NoSchedule` en SUT; label `aad/role=loader|tools`.
+**Interfaces (produce):** outputs `cluster_name`, `configure_kubectl`, `nodegroup_names` (map celda → nombre MNG), `karpenter_nodepool_names` (map arquitectura → NodePool); etiqueta de nodo `aad/cell=<celda>`; taint `aad/sut=true:NoSchedule` en SUT; label `aad/role=loader|tools`.
 
 - [x] **Step 1 (VERIFY):** contra docs del día: strings `ami_type` `BOTTLEROCKET_x86_64`/`BOTTLEROCKET_ARM_64` en el módulo 21.x; `kubernetes_version` disponible (kcd probó 1.36); nombre exacto del addon `metrics-server`; sintaxis de `cpu_options` y `bootstrap_extra_args` en `eks-managed-node-group`; tabla TOML exacta de Bottlerocket para parámetros de kernel (spec §9, discussion 1989) y si `reboot-to-reconcile` existe en la versión de Bottlerocket del AMI.
 - [x] **Step 2:** `main.tf`: patrón kcd `infra-eks/` (VPC existente vía `var.vpc_id`, **una** subnet pública propia en una AZ, route table propia, IGW existente); módulo `terraform-aws-modules/eks/aws` `~> 21.25`, provider `aws ~> 6.53`, `authentication_mode = "API"`, `enable_cluster_creator_admin_permissions = true`; addons coredns, kube-proxy, vpc-cni (`before_compute`), ebs-csi-driver, metrics-server. Sin pod identity (no hay Bedrock).

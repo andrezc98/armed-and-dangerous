@@ -54,7 +54,10 @@ nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 ```bash
 cd infra
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
-$EDITOR terraform.tfvars             # vpc_id, CIDRs y AZs reales del sandbox
+$EDITOR terraform.tfvars             # vpc_id, CIDRs, AZs y admin_cidrs reales
+# admin_cidrs es la lista que puede llegar al endpoint público de la API. En el
+# lab es el /32 de salida de la laptop y nada más:
+#   curl -s https://checkip.amazonaws.com
 
 export AWS_PROFILE=<perfil-sandbox>  # tiene que contener "sandbox"
 terraform init
@@ -72,7 +75,7 @@ Al final del día de lab:
 ```bash
 # Primero los nodos de Karpenter: no están en el estado de Terraform y el
 # destroy no los toca.
-kubectl delete nodepool aad-arc --ignore-not-found
+kubectl delete nodepool aad-arc-amd64 aad-arc-arm64 --ignore-not-found
 kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 
 terraform destroy                    # GATED igual que el apply
@@ -134,6 +137,27 @@ number of threads per core for ... instances based on the AWS Graviton
 processor" (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-optimize-cpu.html).
 Esa asimetría es material de slide, no una omisión.
 
+**El endpoint público solo para la laptop del speaker.** El módulo trae
+`endpoint_public_access_cidrs` en `["0.0.0.0/0"]` por default ("List of CIDR
+blocks which can access the Amazon EKS public API server endpoint",
+`variables.tf` de v21.25.0). Acá se pasa `var.admin_cidrs`, sin default, para
+que el `apply` falle si nadie decidió quién entra.
+
+**La AZ se verifica antes de crear nada.**
+`terraform_data.instance_types_offered_in_az` corta el plan si la AZ elegida no
+ofrece las cuatro instancias del lab (`m8i.4xlarge`, `m9g.4xlarge`,
+`c7i.4xlarge`, `m7g.large`), en vez de descubrirlo cuando el `loader` no
+arranca. Ofrecer no es tener: el gate prueba que la AZ vende el tipo, no que
+haya stock. La capacidad se confirma el día del gate, en el apply mismo, y el
+plan B de la spec es mover todas las node groups de AZ antes que cambiar de
+talla.
+
+**`cluster_name` está clavado.** El valor de `karpenter.sh/discovery` está
+escrito literalmente en las dos `EC2NodeClass`, así que `var.cluster_name` lleva
+un `validation` que solo acepta `aws-aad-eks-lab` y cuyo mensaje nombra los dos
+archivos. Renderizar los YAML con `templatefile` sería más maquinaria de la que
+el lab necesita.
+
 **EBS CSI con Pod Identity.** Sin el driver ningún PVC liga y el StatefulSet de
 MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
 `aws-aad-ebs-csi` confía en `pods.eks.amazonaws.com` y lleva
@@ -141,10 +165,28 @@ MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
 provisiona dinámicamente.
 
 **Karpenter no provisiona el benchmark.** Está para dos slides: el arco
-generacional (se parchea el requirement `instance-family` una generación por
-vez) y el clip de scale-from-zero. Elige por precio entre los tipos permitidos y
-no tiene señal de rendimiento; por eso la lista de familias está cerrada y
-`limits.cpu` vale 16, es decir un solo nodo `.4xlarge` a la vez.
+generacional y el clip de scale-from-zero. Elige por precio entre los tipos
+permitidos y no tiene señal de rendimiento; por eso la lista de familias está
+cerrada y `limits.cpu` vale 16 por pool, es decir un solo nodo `.4xlarge` a la
+vez.
+
+Son dos NodePool, una por arquitectura: `aad-arc-amd64` (familias `m5`, `m6i`,
+`m7i`, `m8i`, `kubernetes.io/arch = amd64`, `EC2NodeClass`
+`aad-bottlerocket-amd64`) y `aad-arc-arm64` (`m6g`, `m7g`, `m8g`, `m9g`,
+`arm64`, `aad-bottlerocket-arm64`). Con una sola pool multi-arquitectura las
+generaciones Graviton arrancarían por la clase amd64 —arrancan igual, porque el
+alias `bottlerocket@latest` resuelve la AMI por arquitectura— pero quedarían
+etiquetadas `aad/arch: amd64`, que es justo la etiqueta que lee el arco. El arco
+parchea `instance-family` en la pool que corresponde a la generación:
+
+```bash
+kubectl patch nodepool aad-arc-arm64 --type merge -p \
+  '{"spec":{"template":{"spec":{"requirements":[
+     {"key":"karpenter.k8s.aws/instance-family","operator":"In","values":["m7g"]},
+     {"key":"karpenter.k8s.aws/instance-size","operator":"In","values":["4xlarge"]},
+     {"key":"kubernetes.io/arch","operator":"In","values":["arm64"]},
+     {"key":"karpenter.sh/capacity-type","operator":"In","values":["on-demand"]}]}}}}'
+```
 
 ## Cosas con las que se tropezó
 
@@ -161,8 +203,8 @@ no tiene señal de rendimiento; por eso la lista de familias está cerrada y
 - No hay output con el nombre pelado de la node group: `node_group_id` es
   `<cluster>:<node group>`, así que `nodegroup_names` corta por el `:`.
 - El valor `karpenter.sh/discovery` de los YAML es el nombre del clúster escrito
-  literalmente. Si cambia `var.cluster_name` hay que cambiarlo en los tres
-  archivos de `infra/karpenter/`.
+  literalmente, en las dos `EC2NodeClass`. Por eso `var.cluster_name` lleva un
+  `validation` que no deja cambiarlo sin editar antes esos dos archivos.
 - `data.aws_ssm_parameter.value` viene marcado como sensible; para compararlo en
   una precondition se usa `insecure_value` (el parámetro es público).
 - `data.aws_ecrpublic_authorization_token` solo se emite en `us-east-1`, por eso
@@ -184,6 +226,8 @@ no tiene señal de rendimiento; por eso la lista de familias está cerrada y
 - Que `CpuOptions` sea aceptado en el launch template de una managed node group.
   La documentación de EKS solo enumera lo prohibido y `CpuOptions` no aparece;
   la conclusión es por ausencia y se confirma en el primer apply.
-- Capacidad de `m9g.4xlarge` y `m8i.4xlarge` en la AZ elegida. Con una sola AZ y
-  `max_size` chico, `InsufficientInstanceCapacity` es un riesgo real; el plan B
-  de la spec es mover todas las node groups de AZ antes que cambiar de talla.
+- Capacidad de `m9g.4xlarge` y `m8i.4xlarge` en la AZ elegida. El gate de
+  ofertas ya descarta la AZ que ni siquiera vende el tipo, pero ofrecer no es
+  tener: con una sola AZ y `max_size` chico, `InsufficientInstanceCapacity`
+  sigue siendo un riesgo real, y se confirma recién en el apply. El plan B de la
+  spec es mover todas las node groups de AZ antes que cambiar de talla.

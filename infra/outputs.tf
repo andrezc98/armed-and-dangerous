@@ -14,9 +14,12 @@ output "nodegroup_names" {
   value = { for cell, ng in module.eks.eks_managed_node_groups : cell => split(":", ng.node_group_id)[1] }
 }
 
-output "karpenter_nodepool_name" {
-  description = "NodePool defined in infra/karpenter/nodepool.yaml, patched per generation for the arc."
-  value       = "aad-arc"
+output "karpenter_nodepool_names" {
+  description = "Architecture to NodePool name (infra/karpenter/nodepool.yaml). The arc patches instance-family on the pool that matches the generation."
+  value = {
+    amd64 = "aad-arc-amd64"
+    arm64 = "aad-arc-arm64"
+  }
 }
 
 output "subnet_id" {

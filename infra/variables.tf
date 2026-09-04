@@ -8,6 +8,16 @@ variable "cluster_name" {
   description = "EKS cluster name. Also the value of the karpenter.sh/discovery tag."
   type        = string
   default     = "aws-aad-eks-lab"
+
+  validation {
+    condition     = var.cluster_name == "aws-aad-eks-lab"
+    error_message = "The karpenter.sh/discovery tag value is written out literally in infra/karpenter/ec2nodeclass-amd64.yaml and infra/karpenter/ec2nodeclass-arm64.yaml. Edit both files first, then relax this validation; otherwise Karpenter finds no subnet and no security group."
+  }
+}
+
+variable "admin_cidrs" {
+  description = "CIDRs allowed to reach the public EKS API endpoint. On lab day this is the speaker's egress /32 and nothing else."
+  type        = list(string)
 }
 
 variable "kubernetes_version" {
