@@ -161,6 +161,28 @@ def test_the_plan_waits_for_the_cell_nodes_to_disappear(plan):
     assert "wait for no node with aad/cell=arm-tuned" in out
 
 
+# --- the lab is us-east-1, the sandbox profile is not -------------------------
+
+def _aws_lines(out):
+    """Every rendered `aws` command of a plan, as printed by config.sh()."""
+    return [line for line in out.splitlines() if line.startswith("$ aws ")]
+
+
+@pytest.mark.parametrize("argv", [
+    ("--workload", "java", "--cell", "arm-tuned"),
+    ("--teardown-day",),
+])
+def test_every_aws_call_pins_the_lab_region(plan, argv):
+    """The sandbox profile's own default region is not the lab's. Without an
+    explicit --region, `update-nodegroup-config` looks for a node group that
+    does not exist there and `describe-volumes` reports an empty region as a
+    clean teardown."""
+    lines = _aws_lines(plan(*argv))
+    assert lines, "the plan made no aws call at all"
+    for line in lines:
+        assert "--region us-east-1" in line, line
+
+
 # --- S5: --env reaches the knee, not only the warmup and the fixed runs ------
 
 def test_env_overrides_reach_the_knee_job(monkeypatch):

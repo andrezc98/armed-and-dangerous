@@ -33,13 +33,15 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
 | m7g.large | TODO | TODO |
 | eks-control-plane | TODO | TODO |
 
-- estimate_per_day_usd: TODO
+- estimate_per_day_usd: 80
 - fixed_hours_per_day: TODO
 
 `estimate_per_day_usd` es el presupuesto del día declarado ANTES de encender
-nada (el plan dice ~$8 para el smoke gate). Si el ledger lo supera, marca
-`OVER_ESTIMATE`: no es un error del runner, es la señal de parar y mirar qué
-celda quedó encendida.
+nada. Está en 80 desde el 2026-09-04, cuando el speaker relajó el techo de $200
+del proyecto; el plan estimaba ~$8 para el día del smoke gate, así que un día
+normal queda holgado y el número sigue siendo un freno real para un día de
+corrida completa. Si el ledger lo supera, marca `OVER_ESTIMATE`: no es un error
+del runner, es la señal de parar y mirar qué celda quedó encendida.
 
 Ese número además **frena**: antes de subir cualquier node group el runner suma
 lo que el día ya lleva comprometido (las `cell.json` escritas más la línea fija) y

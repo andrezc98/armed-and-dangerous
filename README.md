@@ -54,13 +54,18 @@ cd infra/ecr && terraform init && terraform apply     # GATED
 # 2. Build multi-arch y push de las cuatro imágenes propias (GATED). Mergea en
 #    results/images.json un tag y un digest POR IMAGEN: ese archivo SÍ se
 #    commitea (no lleva datos de cuenta).
-cd ../../apps && AWS_PROFILE=<perfil-sandbox> PUSH=1 ./build-multiarch.sh
+cd ../../apps && AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1 PUSH=1 ./build-multiarch.sh
 git add ../results/images.json && git commit -m "build: push <fecha>"
 ```
 
 Por cada día de lab:
 
 ```bash
+# Primera línea del día, siempre: el perfil sandbox tiene us-west-2 por default y
+# el lab vive en us-east-1. Sin AWS_REGION, `aws` apunta a la región equivocada y
+# los chequeos de fuga del cierre devuelven vacío por el motivo equivocado.
+export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+
 cd infra && terraform apply                            # GATED
 mkdir -p ../results/$(date +%F)
 terraform output -json             > ../results/$(date +%F)/cluster.json
@@ -90,14 +95,15 @@ kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 # 2. Todo lo que el runner dejó vivo en el clúster: StatefulSet de Mongo, PVCs,
 #    Jobs de k6/YCSB/iperf3 y la perilla de red. Repite el paso 1 por las dudas
 #    e imprime este checklist al terminar.
-cd runner && AWS_PROFILE=<perfil-sandbox> uv run cell --teardown-day
+cd runner && uv run cell --teardown-day
 
 # 3. Esperar a que los volúmenes desaparezcan de verdad. Las DOS listas tienen
 #    que devolver [] ANTES del destroy (--teardown-day ya las corre una vez;
 #    repetirlas hasta que estén vacías):
-aws ec2 describe-volumes --filters Name=tag:Project,Values=armed-and-dangerous \
+aws ec2 describe-volumes --region us-east-1 \
+  --filters Name=tag:Project,Values=armed-and-dangerous \
   --query 'Volumes[].VolumeId'
-aws ec2 describe-volumes \
+aws ec2 describe-volumes --region us-east-1 \
   --filters Name=tag:kubernetes.io/created-for/pvc/namespace,Values=aad \
   --query 'Volumes[].VolumeId'
 
@@ -106,7 +112,8 @@ aws ec2 describe-volumes \
 cd infra && terraform destroy
 
 # 5. Verificación final: cero instancias.
-aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous \
+aws ec2 describe-instances --region us-east-1 \
+  --filters Name=tag:Project,Values=armed-and-dangerous \
   Name=instance-state-name,Values=running \
   --query 'Reservations[].Instances[].InstanceId'
 ```
@@ -142,7 +149,7 @@ realiza sin attestations de provenance ni SBOM (el script pasa
 attestations.
 
 ```
-AWS_PROFILE=<perfil-sandbox> PUSH=1 apps/build-multiarch.sh
+AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1 PUSH=1 apps/build-multiarch.sh
 ```
 
 El script mergea el resultado (un tag y un digest **por imagen**) en

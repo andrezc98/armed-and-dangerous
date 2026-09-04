@@ -72,6 +72,9 @@ if [ "$PUSH" = "1" ]; then
            exit 1 ;;
       esac
       if [ -z "$REGISTRY" ]; then
+        # No --region here on purpose: sts is a global endpoint, and the region
+        # that matters is the one baked into the registry host below, which is
+        # $REGION (us-east-1, the lab's region) and never the profile's default.
         ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
         REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
       fi

@@ -23,7 +23,7 @@ caminos de credenciales sería un camino de más para auditar.
 | CPython | 3.13.12 (`.python-version` fija 3.13) | intérprete |
 | `kubectl` | v1.33.9 (cliente; el clúster es 1.36) | jobs, overlays, `top`, `exec`, `port-forward` |
 | `kubectl aperf` | plugin de aws/aperf v1.2.3 | grabación por corrida en el nodo SUT |
-| `aws` | aws-cli 2.36.32 | `eks update-nodegroup-config` y `ec2 describe-volumes` |
+| `aws` | aws-cli 2.36.32 | `eks update-nodegroup-config` y `ec2 describe-volumes`, siempre con `--region us-east-1` (`config.REGION`) |
 
 **Terraform no aparece en esa tabla a propósito: el runner no lo ejecuta nunca.**
 El `apply`, el `destroy` y el `terraform output` los corre una persona (ver
@@ -65,9 +65,12 @@ kubectl aperf --help
 ## Correr una celda
 
 ```bash
+# Primera línea del día de lab, siempre: el perfil sandbox tiene us-west-2 por
+# default y el lab vive en us-east-1.
+export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+
 cd runner
 uv sync
-export AWS_PROFILE=<perfil-sandbox>       # tiene que contener "sandbox"
 
 # El plan completo, sin tocar nada:
 uv run cell --workload java --cell arm-tuned --dry-run

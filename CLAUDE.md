@@ -13,8 +13,9 @@ The default credentials on this machine belong to a client. Every script that
 touches AWS calls `require_sandbox()` first (AWS_PROFILE must contain
 "sandbox"). Never run `terraform apply`/`destroy`, push images, or start benchmark
 phases without the speaker saying go. Scaling a SUT node group from 0 is gated
-like `terraform apply`. Budget ceiling: $200 total (v2 estimate $40-70). The cluster
-is DOWN between lab days; between cells only the SUT node groups scale to 0.
+like `terraform apply`. Budget: the $200 ceiling was relaxed by the speaker on
+2026-09-04; the per-day estimate in `results/cost.md` still gates the runner and
+the ledger stays. The cluster is DOWN between lab days; between cells only the SUT node groups scale to 0.
 Verify (describe-instances by project tag = 0 running) before leaving it
 unattended. The runner never runs terraform.
 

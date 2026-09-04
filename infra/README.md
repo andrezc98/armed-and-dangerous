@@ -22,6 +22,7 @@ el de este directorio y solamente el de este directorio.
 | Provider `hashicorp/aws` | `~> 6.63` (6.63.0, 2026-09-03) | el mismo `versions.tf` exige `>= 6.59` |
 | Provider `hashicorp/helm` | `~> 3.3` (3.3.0) | https://registry.terraform.io/v1/providers/hashicorp/helm |
 | `terraform-aws-modules/eks/aws` | `~> 21.25` (21.25.0, 2026-08-14) | https://github.com/terraform-aws-modules/terraform-aws-eks/releases |
+| `terraform-aws-modules/vpc/aws` | `~> 6.7` (6.7.2, 2026-08-28; resuelve a 6.7.2) | https://api.github.com/repos/terraform-aws-modules/terraform-aws-vpc/releases/latest y https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-vpc/v6.7.2/variables.tf (pide `aws >= 6.28`, que el pin `~> 6.63` cumple) |
 | `kubernetes_version` | `1.36` (EKS 2026-06-02, soporte estándar hasta 2027-08-02) | https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html |
 | Karpenter (chart OCI) | `1.14.1` (2026-08-21) | `helm show chart oci://public.ecr.aws/karpenter/karpenter --version 1.14.1` |
 | Bottlerocket | variante `aws-k8s-1.36`, mínimo **1.64.0** para THP | https://bottlerocket.dev/en/os/1.64.x/api/settings/kernel/ |
@@ -59,15 +60,19 @@ nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 ## Reproducir
 
 ```bash
+# Primera línea del día de lab, siempre. El perfil sandbox tiene us-west-2 por
+# default y el lab vive en us-east-1: sin AWS_REGION, cada comando de la CLI
+# apunta a la región equivocada.
+export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+
 cd infra
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
-$EDITOR terraform.tfvars             # vpc_id, CIDRs, AZs, admin_cidrs y
-                                     # sandbox_account_id reales
+$EDITOR terraform.tfvars             # admin_cidrs y sandbox_account_id reales;
+                                     # los CIDRs y las AZs ya vienen por default
 # admin_cidrs es la lista que puede llegar al endpoint público de la API. En el
 # lab es el /32 de salida de la laptop y nada más:
 #   curl -s https://checkip.amazonaws.com
 
-export AWS_PROFILE=<perfil-sandbox>  # tiene que contener "sandbox"
 terraform init
 terraform apply                      # GATED: solo con autorización explícita
 # Si el plan corta con "These credentials belong to an account other than the
@@ -129,14 +134,37 @@ sobre `"Resource": "*"`
 Alcanza para bajar las cuatro imágenes de `infra/ecr` sin política de repositorio
 y sin ningún secreto de registro en el clúster.
 
-**Una sola AZ para todo lo que mide.** Se crea una subnet pública en `var.availability_zone`
-y ahí viven las siete node groups y los nodos de Karpenter: loader y SUT siempre
-en la misma AZ (requisito del runbook de performance de Graviton). EKS exige
-"at least two subnets that are in different Availability Zones" para el control
-plane, así que hay una segunda subnet chica en otra AZ que se pasa únicamente en
+**La VPC la crea Terraform, y una sola AZ mide.** El lab arma su propia red con
+el módulo oficial `terraform-aws-modules/vpc/aws` (`module "vpc"` en `main.tf`):
+una VPC `var.vpc_cidr` (default `10.42.0.0/16`) con dos subnets públicas y nada
+más. La primera, `var.nodes_subnet_cidr` en `var.availability_zone`, es donde
+viven las siete node groups y los nodos de Karpenter: loader y SUT siempre en la
+misma AZ (requisito del runbook de performance de Graviton). EKS exige "at least
+two subnets that are in different Availability Zones" para el control plane, así
+que la segunda, `var.control_plane_subnet_cidr` en otra AZ, se pasa únicamente en
 `control_plane_subnet_ids` y nunca en `subnet_ids`: ningún nodo puede caer ahí.
-La VPC es preexistente (`var.vpc_id`), se reutiliza su IGW y se crea una route
-table propia para no tocar las del dueño.
+
+Ya no hay VPC preexistente ni `var.vpc_id`: el `destroy` del cierre se lleva
+también la red, y no queda nada que pueda chocar con la de otra persona. El
+módulo crea por su cuenta el internet gateway, la route table pública, su ruta
+por default y las asociaciones (`create_igw` es "Controls if an Internet Gateway
+is created for public subnets and the related routes that connect them" y viene
+en `true`). **Sin NAT gateway**: `enable_nat_gateway = false` y
+`single_nat_gateway = false`, que además son los defaults del módulo; los nodos
+salen por IP pública (`map_public_ip_on_launch = true`, "Specify true to indicate
+that instances launched into the subnet should be assigned a public IP address.
+Default is `false`"). Un NAT gateway es lo más caro que este lab podría dejar
+prendido sin estar midiendo nada. Citas de
+https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-vpc/v6.7.2/variables.tf
+(leído 2026-09-04).
+
+La etiqueta de descubrimiento de Karpenter va en **una** subnet, no en las dos:
+`public_subnet_tags_per_az` es "Additional tags for the public subnets where the
+primary key is the AZ" (mismo `variables.tf`) y el módulo hace
+`lookup(var.public_subnet_tags_per_az, element(var.azs, count.index), {})` sobre
+los tags de cada subnet (`main.tf` del módulo en v6.7.2, recurso
+`aws_subnet.public`). Con `public_subnet_tags` a secas quedarían etiquetadas las
+dos y Karpenter podría poner un nodo en la del control plane.
 
 **CPU exclusiva es un control, no una perilla.** `infra/userdata/base.toml` va en
 las **cinco** celdas SUT, stock incluidas, y pone el CPU manager del kubelet en

@@ -22,9 +22,14 @@ output "karpenter_nodepool_names" {
   }
 }
 
+output "vpc_id" {
+  description = "The VPC Terraform created for this lab day."
+  value       = module.vpc.vpc_id
+}
+
 output "subnet_id" {
   description = "The single subnet every node runs in."
-  value       = aws_subnet.nodes.id
+  value       = module.vpc.public_subnets[0]
 }
 
 output "node_security_group_id" {

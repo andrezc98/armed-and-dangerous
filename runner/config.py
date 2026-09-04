@@ -16,6 +16,11 @@ REPO = RUNNER.parent
 RESULTS = REPO / "results"
 MANIFESTS = REPO / "manifests"
 NAMESPACE = "aad"
+# The lab lives in us-east-1 and the sandbox profile does not default to it, so
+# every `aws` call the runner renders passes --region explicitly. A call that
+# resolves to another region either fails or - worse - answers "nothing here"
+# to a leak check.
+REGION = "us-east-1"
 
 # Set by cell.py --dry-run. sh() prints and returns "" while it is on.
 DRY_RUN = False

@@ -8,66 +8,59 @@ locals {
 }
 
 ################################################################################
-# Network: existing VPC, own subnets and route table
+# Network: the lab's own VPC, two public subnets, no NAT
 ################################################################################
 
-# The sandbox VPC belongs to someone else: reuse its IGW, never touch its route
-# tables. Everything created here is free (subnets + one route table).
-data "aws_internet_gateway" "existing" {
-  filter {
-    name   = "attachment.vpc-id"
-    values = [var.vpc_id]
-  }
-}
+# The lab builds and destroys its whole network every lab day: nothing here
+# depends on somebody else's VPC, and `terraform destroy` takes the network with
+# it. No private subnets and no NAT gateway on purpose - every node has to pull
+# images and reach the public EKS endpoint, and a NAT gateway is the most
+# expensive thing this lab could leave running while nothing is measuring.
+#
+# The module creates the internet gateway, the public route table, its default
+# route and the associations by itself: `create_igw` is "Controls if an Internet
+# Gateway is created for public subnets and the related routes that connect
+# them" and defaults to `true`
+# (https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-vpc/v6.7.2/variables.tf).
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 6.7"
 
-# Every node group and every Karpenter node lands here: one subnet, one AZ, so
-# loader and SUT are always same-AZ. Public because the VPC has no NAT.
-resource "aws_subnet" "nodes" {
-  vpc_id                  = var.vpc_id
-  cidr_block              = var.subnet_cidr
-  availability_zone       = var.availability_zone
+  name = "aws-aad-vpc"
+  cidr = var.vpc_cidr
+
+  # First AZ carries every node group and every Karpenter node, so loader and
+  # SUT are always same-AZ; the second one exists only for the control plane
+  # ENIs and never receives a node.
+  azs            = [var.availability_zone, var.control_plane_availability_zone]
+  public_subnets = [var.nodes_subnet_cidr, var.control_plane_subnet_cidr]
+
+  # "Specify true to indicate that instances launched into the subnet should be
+  # assigned a public IP address. Default is `false`" - with no NAT gateway this
+  # is how a node reaches the internet at all.
   map_public_ip_on_launch = true
 
-  tags = {
-    Name                     = "${var.cluster_name}-nodes"
-    "karpenter.sh/discovery" = var.cluster_name
-  }
-}
+  # Both default to false in v6.7.2; written out because "no NAT" is a cost
+  # decision of this lab and not an accident of the module's defaults.
+  enable_nat_gateway = false
+  single_nat_gateway = false
 
-# EKS requires "at least two subnets that are in different Availability Zones".
-# This one exists only to satisfy that: it is passed as control_plane_subnet_ids
-# and never as subnet_ids, so no node group and no EC2NodeClass can use it.
-resource "aws_subnet" "control_plane" {
-  vpc_id            = var.vpc_id
-  cidr_block        = var.control_plane_subnet_cidr
-  availability_zone = var.control_plane_availability_zone
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
-  tags = {
-    Name = "${var.cluster_name}-control-plane"
-  }
-}
-
-resource "aws_route_table" "lab" {
-  vpc_id = var.vpc_id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = data.aws_internet_gateway.existing.internet_gateway_id
+  # "Additional tags for the public subnets where the primary key is the AZ":
+  # the module merges this into the tags of the subnet whose AZ matches the key,
+  # so the Karpenter discovery tag lands on the nodes subnet and only there. A
+  # plain `public_subnet_tags` would tag both, and Karpenter would be free to
+  # put a node in the control plane subnet.
+  public_subnet_tags_per_az = {
+    (var.availability_zone) = {
+      "karpenter.sh/discovery" = var.cluster_name
+    }
   }
 
-  tags = {
-    Name = var.cluster_name
-  }
-}
-
-resource "aws_route_table_association" "nodes" {
-  subnet_id      = aws_subnet.nodes.id
-  route_table_id = aws_route_table.lab.id
-}
-
-resource "aws_route_table_association" "control_plane" {
-  subnet_id      = aws_subnet.control_plane.id
-  route_table_id = aws_route_table.lab.id
+  # Project/Environment/Owner/ManagedBy arrive through the provider's
+  # default_tags; passing `tags` here as well would only duplicate them.
 }
 
 ################################################################################
@@ -260,9 +253,11 @@ module "eks" {
     metrics-server = {}
   }
 
-  vpc_id                   = var.vpc_id
-  subnet_ids               = [aws_subnet.nodes.id]
-  control_plane_subnet_ids = [aws_subnet.nodes.id, aws_subnet.control_plane.id]
+  vpc_id = module.vpc.vpc_id
+  # Nodes only ever land in the first public subnet; the second is passed as a
+  # control plane subnet and nowhere else.
+  subnet_ids               = [module.vpc.public_subnets[0]]
+  control_plane_subnet_ids = module.vpc.public_subnets
 
   eks_managed_node_groups = local.node_groups
 

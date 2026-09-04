@@ -36,27 +36,32 @@ variable "kubernetes_version" {
   default     = "1.36"
 }
 
-variable "vpc_id" {
-  description = "Existing VPC to deploy into. No VPC, NAT or IGW is created; the real value lives in the git-ignored terraform.tfvars."
+variable "vpc_cidr" {
+  description = "CIDR of the VPC Terraform creates for the lab. It is torn down with everything else, so it only has to not collide with whatever the laptop is on."
   type        = string
+  default     = "10.42.0.0/16"
 }
 
-variable "subnet_cidr" {
+variable "nodes_subnet_cidr" {
   description = "CIDR of the single public subnet that carries every node group and every Karpenter node. One AZ on purpose: same-AZ loader and SUT (Graviton perf runbook)."
   type        = string
+  default     = "10.42.0.0/20"
 }
 
 variable "availability_zone" {
   description = "AZ of the node subnet. Must offer m8i.4xlarge, m9g.4xlarge, c7i.4xlarge and m7g.large."
   type        = string
+  default     = "us-east-1a"
 }
 
 variable "control_plane_subnet_cidr" {
-  description = "CIDR of the second subnet. EKS demands subnets in at least two AZs for the control plane ENIs; no node ever lands here."
+  description = "CIDR of the second public subnet. EKS demands subnets in at least two AZs for the control plane ENIs; no node ever lands here."
   type        = string
+  default     = "10.42.16.0/27"
 }
 
 variable "control_plane_availability_zone" {
   description = "AZ of the control plane subnet. Any standard AZ other than var.availability_zone (Local Zones do not count)."
   type        = string
+  default     = "us-east-1b"
 }

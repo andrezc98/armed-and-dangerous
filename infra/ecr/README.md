@@ -85,7 +85,7 @@ cd infra/ecr
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
 $EDITOR terraform.tfvars             # sandbox_account_id real
 
-export AWS_PROFILE=<perfil-sandbox>  # tiene que contener "sandbox"
+export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1   # el perfil tiene que contener "sandbox"
 terraform init
 terraform apply                      # GATED, y UNA sola vez
 ```
@@ -104,7 +104,7 @@ persona) es:
 
 ```bash
 cd ../../apps
-AWS_PROFILE=<perfil-sandbox> PUSH=1 ./build-multiarch.sh
+AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1 PUSH=1 ./build-multiarch.sh
 # mergea en results/images.json un tag + digest por imagen (sin datos de
 # cuenta; conserva las imágenes que esta corrida no tocó) y ese archivo SÍ se
 # commitea

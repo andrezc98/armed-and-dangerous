@@ -284,6 +284,7 @@ def rewrite_images(text):
 def scale(info, mng, size):
     sh([
         "aws", "eks", "update-nodegroup-config",
+        "--region", config.REGION,
         "--cluster-name", info["cluster_name"],
         "--nodegroup-name", info["nodegroup_names"][mng],
         "--scaling-config", f"desiredSize={size}",
@@ -305,14 +306,16 @@ def scale_to_zero(info, mng, label):
             print(f"# scale to 0 failed ({exc}); attempt {attempt}/{SCALE_DOWN_RETRIES}")
             if attempt == SCALE_DOWN_RETRIES:
                 print(f"# WARNING: {mng} may still be running. Check it by hand:\n"
-                      f"#   aws eks describe-nodegroup --cluster-name {info['cluster_name']} "
+                      f"#   aws eks describe-nodegroup --region {config.REGION} "
+                      f"--cluster-name {info['cluster_name']} "
                       f"--nodegroup-name {info['nodegroup_names'][mng]}")
                 return
             time.sleep(SCALE_DOWN_BACKOFF)
     try:
         wait_until(lambda: not labelled_nodes(label), NODE_GONE_TIMEOUT, f"no node with {label}")
     except RuntimeError as exc:
-        print(f"# WARNING: {exc}; check `aws ec2 describe-instances` by hand")
+        print(f"# WARNING: {exc}; check `aws ec2 describe-instances --region "
+              f"{config.REGION}` by hand")
 
 
 def labelled_nodes(label):
@@ -1133,7 +1136,8 @@ VOLUME_LEAK_FILTERS = (
 
 def describe_volumes():
     for tag_filter in VOLUME_LEAK_FILTERS:
-        sh(["aws", "ec2", "describe-volumes", "--filters", tag_filter,
+        sh(["aws", "ec2", "describe-volumes", "--region", config.REGION,
+            "--filters", tag_filter,
             "--query", "Volumes[].VolumeId"])
 
 
@@ -1166,7 +1170,8 @@ def teardown_day():
     print("\n# both lists above must be [] BEFORE `terraform destroy`, which a human runs.")
     print("# The full order is in the root README, section 'Reproducir':")
     print("#   cd infra && terraform destroy")
-    print("#   aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous "
+    print(f"#   aws ec2 describe-instances --region {config.REGION} "
+          "--filters Name=tag:Project,Values=armed-and-dangerous "
           "Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId'")
 
 
