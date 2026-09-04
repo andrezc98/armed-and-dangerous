@@ -1,5 +1,8 @@
 # terraform
 .terraform/
+# the only piece of the S3 backend configuration that is not committed: the
+# generated bucket name (infra/backend.hcl.example is the template)
+backend.hcl
 *.tfstate
 *.tfstate.backup
 terraform.tfvars

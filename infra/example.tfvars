@@ -12,6 +12,13 @@ sandbox_account_id = "000000000000"
 # is from the RFC 5737 documentation range and reaches nothing.
 admin_cidrs = ["203.0.113.7/32"]
 
+# Empty on the local path: whoever runs `terraform apply` is the cluster creator
+# and enable_cluster_creator_admin_permissions already makes them admin. Only
+# fill this in if the apply runs somewhere else (GitHub Actions), and then with
+# the ARN of the identity that will run kubectl:
+#   aws sts get-caller-identity --query Arn --output text
+# cluster_admin_principal_arns = ["arn:aws:iam::000000000000:user/placeholder"]
+
 # Defaults, listed so the tfvars is a complete picture of the lab. Terraform
 # creates this VPC and destroys it with the rest; there is no existing network
 # to point at any more.

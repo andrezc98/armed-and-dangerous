@@ -1,0 +1,160 @@
+# Terraform for the two long-lived roots, run with credentials nobody has to
+# store: the job assumes aws-aad-gha through GitHub's OIDC provider (created
+# once by infra/bootstrap/) and the state lives in the S3 bucket from the same
+# bootstrap.
+#
+# Manual dispatch only. There is no push trigger and there never will be: an
+# apply here builds an EKS cluster that bills by the minute, and a destroy takes
+# down a running lab day.
+#
+# Action tags verified 2026-09-04 (GitHub releases API): actions/checkout v7
+# (v7.0.1), aws-actions/configure-aws-credentials v6 (v6.2.4),
+# hashicorp/setup-terraform v4 (v4.0.1), actions/upload-artifact v7 (v7.0.1).
+name: infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      root:
+        description: "Terraform root: lab = infra/ (the EKS cluster, destroyed every lab day), ecr = infra/ecr/ (the four image repositories, NOT destroyed)"
+        type: choice
+        required: true
+        default: lab
+        options:
+          - lab
+          - ecr
+      action:
+        description: "plan reads only. apply and destroy run with -auto-approve: the gate is this dispatch plus the lab environment, not a prompt. BEFORE destroy of the lab root, run `uv run cell --teardown-day` from the laptop - this job has no kubectl and cannot delete Karpenter NodePools or PVCs."
+        type: choice
+        required: true
+        default: plan
+        options:
+          - plan
+          - apply
+          - destroy
+
+permissions:
+  id-token: write # the OIDC token for configure-aws-credentials
+  contents: read
+
+# One run per root at a time, and never cancel one in flight: a cancelled apply
+# leaves half a cluster, and a cancelled command leaves the S3 lock file behind.
+concurrency:
+  group: infra-${{ inputs.root }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    # The trust policy of aws-aad-gha matches
+    # repo:<owner>/<repo>:environment:lab and nothing else, so a job that drops
+    # this line cannot assume the role at all.
+    environment: lab
+    defaults:
+      run:
+        working-directory: ${{ inputs.root == 'ecr' && 'infra/ecr' || 'infra' }}
+    env:
+      # Repository *variables*, not secrets. The account id is not a secret but
+      # does not belong in the repository; admin_cidrs is the egress /32 of the
+      # laptop and changes every lab day; the admin ARNs carry the account id.
+      # Both list variables hold HCL, e.g. ["203.0.113.7/32"].
+      TF_VAR_sandbox_account_id: ${{ vars.SANDBOX_ACCOUNT_ID }}
+      TF_VAR_admin_cidrs: ${{ vars.ADMIN_CIDRS }}
+      TF_VAR_cluster_admin_principal_arns: ${{ vars.CLUSTER_ADMIN_ARNS }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assume the lab role through OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: aad-infra-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Says out loud which account this run is about to change. The account id
+      # appears here and in every ECR reference; in a private repository that is
+      # acceptable, and it is the only way to catch a role pointed at the wrong
+      # account before the plan does.
+      - name: Which identity did we get
+        run: aws sts get-caller-identity
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          # Pinned to the toolchain the roots were written and validated
+          # against; infra/versions.tf asks for >= 1.15 and the S3 backend's
+          # use_lockfile needs >= 1.10.
+          terraform_version: 1.15.2
+
+      # Partial backend configuration: everything but the bucket name is in
+      # versions.tf, and the bucket name is generated (infra/bootstrap/).
+      - name: terraform init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # The half of the teardown this job can actually see. The other half -
+      # Karpenter NodePools, the Mongo StatefulSet, the PVCs, the Jobs - needs
+      # kubectl and is the human's `uv run cell --teardown-day` before dispatch.
+      # Terraform does not know about either: no Karpenter node and no
+      # CSI-provisioned volume is in its state, so a destroy would leave them
+      # billing.
+      - name: Teardown checks before destroying the lab root
+        if: inputs.action == 'destroy' && inputs.root == 'lab'
+        run: |
+          set -euo pipefail
+          fail=0
+          for filter in \
+            "Name=tag:Project,Values=armed-and-dangerous" \
+            "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=aad"
+          do
+            echo "=== describe-volumes --filters $filter ==="
+            left="$(aws ec2 describe-volumes --region "$AWS_REGION" \
+              --filters "$filter" --query 'Volumes[].VolumeId' --output text)"
+            if [ -n "$left" ]; then
+              echo "STILL THERE: $left" >&2
+              fail=1
+            else
+              echo "empty"
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "Refusing to destroy: EBS volumes the CSI driver created are still around, and terraform destroy does not see them (they are not in its state). Run \`uv run cell --teardown-day\` from the laptop, wait for both lists to come back empty, then dispatch destroy again." >&2
+            exit 1
+          fi
+
+      - name: terraform plan
+        if: inputs.action == 'plan'
+        run: |
+          terraform plan -input=false -var-file=ci.tfvars -out=terraform.tfplan
+          mkdir -p plan-artifact
+          terraform show -no-color terraform.tfplan > plan-artifact/plan.txt
+          mv terraform.tfplan plan-artifact/terraform.tfplan
+
+      # A rendered plan carries resource ids and the account id, so it is an
+      # artifact of a private repository and not something to publish.
+      - name: Upload the plan
+        if: inputs.action == 'plan'
+        uses: actions/upload-artifact@v7
+        with:
+          name: plan-${{ inputs.root }}-${{ github.run_id }}
+          path: ${{ inputs.root == 'ecr' && 'infra/ecr' || 'infra' }}/plan-artifact
+          retention-days: 7
+
+      - name: terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply -input=false -auto-approve -var-file=ci.tfvars
+
+      - name: terraform destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -input=false -auto-approve -var-file=ci.tfvars
+
+      # After an apply the human still needs the outputs on the laptop, and
+      # cluster.json/ecr.json are git-ignored because they carry the account id.
+      # Printing the command is cheaper than inventing a channel for them.
+      - name: What to run on the laptop next
+        if: inputs.action == 'apply'
+        run: |
+          echo "terraform -chdir=${{ inputs.root == 'ecr' && 'infra/ecr' || 'infra' }} init -backend-config=backend.hcl"
+          echo "terraform -chdir=${{ inputs.root == 'ecr' && 'infra/ecr' || 'infra' }} output -json > results/\$(date +%F)/${{ inputs.root == 'ecr' && 'ecr' || 'cluster' }}.json"

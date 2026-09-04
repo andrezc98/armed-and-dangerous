@@ -1,0 +1,87 @@
+# Multi-arch build and push of the four own images to the private ECR
+# repositories of infra/ecr, with the same OIDC role the infra workflow uses.
+#
+# Manual dispatch only, like everything else that spends money. The tag is the
+# UTC date of the run (apps/build-multiarch.sh default) and the repositories are
+# IMMUTABLE, so re-running this on a day that already pushed fails with
+# ImageTagAlreadyExistsException. That recovery (TAG=<date>-r2 on a subset of
+# the images) stays on the local path in the root README; it is a two-command
+# fallback, not worth a pair of workflow inputs that exist for one bad day.
+#
+# Action tags verified 2026-09-04 (GitHub releases API): actions/checkout v7
+# (v7.0.1), aws-actions/configure-aws-credentials v6 (v6.2.4),
+# docker/setup-qemu-action v4 (v4.3.0), docker/setup-buildx-action v4 (v4.3.0),
+# aws-actions/amazon-ecr-login v2 (v2.1.7).
+name: images
+
+on: workflow_dispatch
+
+permissions:
+  id-token: write # the OIDC token for configure-aws-credentials
+  contents: write # the results/images.json commit at the end
+
+concurrency:
+  group: images
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Same environment as the infra workflow: it is what the sub claim in the
+    # role's trust policy matches.
+    environment: lab
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assume the lab role through OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: aad-images-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Which identity did we get
+        run: aws sts get-caller-identity
+
+      # linux/arm64 layers on an x86 runner. The script builds three of the four
+      # images for two platforms.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # AAD_CI=1 is the only thing this path needs from the script: it skips the
+      # AWS_PROFILE sandbox check (a runner has no profile) and prints
+      # sts get-caller-identity instead, so the log says which account got the
+      # push. REGISTRY comes from the login step, so the account id is never
+      # written down here.
+      - name: Build and push the four images
+        env:
+          PUSH: "1"
+          AAD_CI: "1"
+          REGION: us-east-1
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: apps/build-multiarch.sh
+
+      # results/images.json is the one file of this run that belongs in git: a
+      # tag and a digest per image, no account data. The runner reads the tag
+      # from it, so a push that is not committed is a push the next lab day
+      # cannot use.
+      - name: Commit results/images.json
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- results/images.json; then
+            echo "results/images.json is unchanged; nothing to commit"
+            exit 0
+          fi
+          tag="$(python3 -c 'import json; print(json.load(open("results/images.json"))["tag"])')"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/images.json
+          git commit -m "results: images pushed $tag [skip ci]"
+          git push

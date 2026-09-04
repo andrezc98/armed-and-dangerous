@@ -232,6 +232,28 @@ module "eks" {
   authentication_mode                      = "API" # access entries; v21 dropped aws-auth
   enable_cluster_creator_admin_permissions = true  # without it you are not admin of your own cluster (default: false)
 
+  # ...and the line above only covers the identity that ran the apply. When the
+  # apply runs in GitHub Actions the creator is the CI role, so without this the
+  # laptop that runs kubectl, the Karpenter CRDs and the runner all lab day gets
+  # "error: You must be logged in to the server (Unauthorized)". Empty on the
+  # local path, where the human is the creator.
+  #
+  # Policy ARN and scope from the EKS user guide, "Associate access policies with
+  # access entries": arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy,
+  # and "If you want the IAM principal to have the permissions cluster-wide,
+  # replace type=namespace,... with type=cluster".
+  access_entries = {
+    for arn in var.cluster_admin_principal_arns : basename(arn) => {
+      principal_arn = arn
+      policy_associations = {
+        cluster_admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
+
   addons = {
     coredns    = {}
     kube-proxy = {}

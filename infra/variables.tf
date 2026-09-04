@@ -30,6 +30,17 @@ variable "admin_cidrs" {
   type        = list(string)
 }
 
+variable "cluster_admin_principal_arns" {
+  description = "IAM principals that get an EKS access entry with AmazonEKSClusterAdminPolicy on top of whoever ran the apply. Empty by default, which is the local path: there the human who applies IS the creator and enable_cluster_creator_admin_permissions already makes them admin. It stops being empty the moment the apply moves to GitHub Actions: then the creator is the CI role, and the laptop that runs kubectl and the runner all lab day is nobody. Every ARN carries the account id, so the value never lives in this repo - it arrives as TF_VAR_cluster_admin_principal_arns from the CLUSTER_ADMIN_ARNS repository variable."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for arn in var.cluster_admin_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/", arn))])
+    error_message = "Every entry must be an IAM role or user ARN (arn:aws:iam::<account>:role/... or :user/...)."
+  }
+}
+
 variable "kubernetes_version" {
   description = "EKS control plane version. 1.36 is the newest in standard support and has a Bottlerocket aws-k8s-1.36 variant."
   type        = string

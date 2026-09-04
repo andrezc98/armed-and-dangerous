@@ -66,11 +66,23 @@ if [ "$PUSH" = "1" ]; then
     "" | *.dkr.ecr.*)
       # Bash mirror of runner/config.py require_sandbox(): a push goes to the
       # speaker's sandbox account or it does not go.
-      case "${AWS_PROFILE:-}" in
-        *sandbox*) ;;
-        *) echo "ERROR: AWS_PROFILE must be the personal sandbox profile (name contains 'sandbox'); refusing to push with default credentials" >&2
-           exit 1 ;;
-      esac
+      #
+      # AAD_CI=1 is the one escape, and it exists for .github/workflows/images.yml
+      # only: a GitHub Actions runner has no AWS_PROFILE at all, its credentials
+      # come from the OIDC role, and the account gate there is the role's own
+      # trust policy (one repo, one environment - infra/bootstrap/). Rather than
+      # trust the flag, print the identity the credentials actually resolve to,
+      # so the run log says which account was pushed to.
+      if [ "${AAD_CI:-0}" = "1" ]; then
+        echo "=== AAD_CI=1: skipping the AWS_PROFILE check; pushing as: ==="
+        aws sts get-caller-identity
+      else
+        case "${AWS_PROFILE:-}" in
+          *sandbox*) ;;
+          *) echo "ERROR: AWS_PROFILE must be the personal sandbox profile (name contains 'sandbox'); refusing to push with default credentials" >&2
+             exit 1 ;;
+        esac
+      fi
       if [ -z "$REGISTRY" ]; then
         # No --region here on purpose: sts is a global endpoint, and the region
         # that matters is the one baked into the registry host below, which is
