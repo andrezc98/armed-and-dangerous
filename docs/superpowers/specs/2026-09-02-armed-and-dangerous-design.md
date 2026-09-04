@@ -3,7 +3,8 @@
 **Event:** ACD Perú 2026-10-03 (target real; abstract v2 enviado, recap §11b) · AWS Community Day Argentina 2026-09-12 (waitlist: solo se presenta si abre con ≥7 días de aviso Y el smoke gate ya pasó) · AWS Women Colombia (garantizada, fecha TBD). Sesión ~30 min + Q&A, nivel 300, español neutro.
 **Title (published, immutable):** *ARMed and Dangerous: lo que Graviton5 hace con tus workloads, medido en EKS*.
 **Canonical abstract:** v2 (recap §11b: inference LLM en CPU como tercer deep-dive, Go como baseline silencioso). Si Argentina abre, se entrega v2 con el framing del recap §9: inference como "algo que no estaba en el abstract"; la promesa v1 ("un servicio Go como control") la cumple el baseline.
-**Revisión v2 (2026-09-03):** lab rediseñado tras revisión: nodos 4xlarge, stress hasta el punto de quiebre (no carga fija baja), tuning stock/tuned **en ambos silicios**, APerf como capa del "porqué" (contadores PMU) además de flame graphs, red (iperf3) como cuarta escena, MNG escalados 0↔1 por celda en vez de `tofu apply` por fase. v1 (2026-09-02) queda en git.
+**Revisión v2 (2026-09-03):** lab rediseñado tras revisión: nodos 4xlarge, stress hasta el punto de quiebre (no carga fija baja), tuning stock/tuned **en ambos silicios**, APerf como capa del "porqué" (contadores PMU) además de flame graphs, red (iperf3) como cuarta escena, MNG escalados 0↔1 por celda en vez de `terraform apply` por fase. v1 (2026-09-02) queda en git.
+**Enmienda 2026-09-03 (speaker):** IaC en **Terraform** (HCL, mismo módulo `terraform-aws-modules/eks`), no OpenTofu; CDK evaluado y descartado (el módulo expone `cpu_options`, `bootstrap_extra_args` y los AMI types de Bottlerocket directamente; la infra no va en ninguna slide).
 **Fecha de verificación:** todos los hechos de stack de §9 fueron verificados contra fuentes actuales el 2026-09-02/03. Re-verificar el día del lab antes de escribirlos en código, manifiestos o slides.
 
 ---
@@ -19,7 +20,7 @@ Hard constraints (event guidelines, mismas reglas que la spec de Strands tomó d
 - **Lecciones de la retrospectiva de KCD Lima** (heredadas de rompe-tu-agente): story over spec sheet; depth over breadth; el diseño de la medición narrado como parte de la historia; credibilidad con n≥3, fuentes datadas y caveats en voz alta; un headline en su propia slide; cierre que sorprenda.
 - **Cada número lleva fecha y fuente.** Terceros = mediciones independientes (Spare Cores, Phoronix), nunca marketing. Propios = harness publicado. `slides/fuentes.md` estilo kcd.
 - **Presupuesto lab ≤ $200 (techo).** Estimado v2: $40-70 en total (§3 tarifas). Slide de transparencia "este lab costó $X" con desglose por workload. El clúster queda **abajo entre días de lab** (no entre celdas: crear/destruir EKS cuesta 30-40 min de reloj y casi nada de dinero); el nodo SUT de cada celda se escala 0↔1. El runner lleva un ledger reloj × tarifa y aborta si un día de lab supera su estimado.
-- **AWS gated:** solo la cuenta sandbox del speaker, nunca el perfil cliente por defecto de la máquina (`require_sandbox()`, copiado de rompe-tu-agente `agent/config.py`). Nada de `tofu apply`, escalado de MNG ni buildx push sin autorización explícita.
+- **AWS gated:** solo la cuenta sandbox del speaker, nunca el perfil cliente por defecto de la máquina (`require_sandbox()`, copiado de rompe-tu-agente `agent/config.py`). Nada de `terraform apply`, escalado de MNG ni buildx push sin autorización explícita.
 - **Demo con plan B grabado; nada del escenario depende del WiFi.**
 - **Sanitización:** sin account IDs, ARNs con datos sensibles ni credenciales en nada commiteado (`demo/sanitize-check.sh`, copiado de rompe-tu-agente).
 
@@ -54,8 +55,8 @@ Riesgo de densidad: 25 slides en 30 min. Si el ensayo pasa de 30, se recorta en 
 
 ## 3. The lab: EKS cluster
 
-- **Infra:** OpenTofu + `terraform-aws-modules/eks/aws` **21.25.0**, patrón del repo kcd `infra-eks/` (VPC existente del sandbox + subnets propias + access entries `API`, Bottlerocket). AWS provider ~> 6.53. **Una sola AZ / subnet para todos los node groups** (misma AZ es requisito del Graviton perf runbook para el loader; placement group `cluster` se omite a propósito: mezclar familias en un PG añade riesgo de capacidad y la métrica que nos importa es CPU del SUT, no latencia entre nodos).
-- **Node groups (MNG), uno por celda de tuning** — el punto es comparar silicio y su tuning, no autoscaling. Todos con `min=0, max=1`, escalados a 1 solo durante su celda (2-3 min por cambio; reemplaza el `tofu apply` por fase de v1). Etiqueta `aad/cell=<nombre>` para el `nodeSelector` de cada workload. Taint `aad/sut=true:NoSchedule` en todos los SUT.
+- **Infra:** Terraform + `terraform-aws-modules/eks/aws` **21.25.0**, patrón del repo kcd `infra-eks/` (VPC existente del sandbox + subnets propias + access entries `API`, Bottlerocket). AWS provider ~> 6.53. **Una sola AZ / subnet para todos los node groups** (misma AZ es requisito del Graviton perf runbook para el loader; placement group `cluster` se omite a propósito: mezclar familias en un PG añade riesgo de capacidad y la métrica que nos importa es CPU del SUT, no latencia entre nodos).
+- **Node groups (MNG), uno por celda de tuning** — el punto es comparar silicio y su tuning, no autoscaling. Todos con `min=0, max=1`, escalados a 1 solo durante su celda (2-3 min por cambio; reemplaza el `terraform apply` por fase de v1). Etiqueta `aad/cell=<nombre>` para el `nodeSelector` de cada workload. Taint `aad/sut=true:NoSchedule` en todos los SUT.
 
 | MNG | Instancia | AMI | Qué la distingue |
 |---|---|---|---|
@@ -73,7 +74,7 @@ Riesgo de densidad: 25 slides en 30 min. Si el ensayo pasa de 30, se recorta en 
 - **DaemonSet del profiler (OTel eBPF):** `otel/opentelemetry-collector-ebpf-profiler:0.147.0` (tag del día al deploy), privileged + hostPID + mounts `/proc`, `/sys/kernel`, feature gate `service.profilesSupport`, OTLP gRPC → Pyroscope en `tools`. Multi-arch por naturaleza — y ejemplo viviente del DaemonSet blocker. Tolera el taint SUT.
 - **APerf** (aws/aperf, herramienta usada en CMP333 re:Invent 2025): se lanza por celda con el plugin `kubectl-aperf` (pod privileged en el nodo objetivo, imagen `public.ecr.aws/aperf/aperf:<tag>` multi-arch) durante la ventana de carga fija; produce tarball por corrida y el reporte comparativo `aperf report -r <stock> -r <tuned>` es un asset de slide (IPC, front-end/back-end stalls, TLB misses, branch mispredicts, por arquitectura y por celda). Perfil Java propio de APerf: opcional (ya tenemos eBPF); si se usa, requiere hostPath compartido `/tmp/aperf` con el pod Java.
 - **metrics-server** (addon EKS) para `kubectl top node/pod`: es la fuente de "CPU por Gbps" y del guard del loader. **Sin kube-prometheus-stack ni Grafana** (v1 los tenía): k6 JSON da p99/throughput, Pyroscope tiene su propia UI, APerf da los contadores.
-- **Ciclo de vida:** `tofu apply` al inicio de cada día de lab (humano, GATED), `tofu destroy` al final del día + verificación `describe-instances` por tag = 0 running. El runner **nunca** ejecuta tofu.
+- **Ciclo de vida:** `terraform apply` al inicio de cada día de lab (humano, GATED), `terraform destroy` al final del día + verificación `describe-instances` por tag = 0 running. El runner **nunca** ejecuta terraform.
 
 ## 3.5. Las perillas: tres en x86, una en Graviton (equidad metodológica)
 
@@ -113,7 +114,7 @@ Todas las imágenes propias construidas con **buildx `--platform linux/amd64,lin
 - **n≥3 corridas por celda**, mediana reportada, dispersión visible, JSONs crudos commiteados. Los datos crudos nunca se editan a mano; la slide sale del JSON.
 - **Pyroscope 2.3.0** en `tools` como backend de la señal de Profiles; flame graphs por celda exportados como PNG. Caveats dichos en escenario, con fuente: la **especificación** de la señal es estable desde 2025, pero el eBPF profiler se describe como **Alpha/work-in-progress** en su README y Grafana advierte simbolización imperfecta. Distinguir spec vs implementación es material de slide.
 - **APerf** por celda (§3): tarball por corrida en `results/<fecha>/<workload>/<celda>/run-<i>/aperf/`; reporte comparativo stock vs tuned por arquitectura como asset. Si APerf no graba en Bottlerocket (gate), el "porqué" se sostiene con flame graphs + knee y se dice.
-- **Runner:** Python 3.13 + uv. `require_sandbox()` primera línea de todo entrypoint. Una celda = escalar MNG a 1 (o 2 en red) → esperar Ready → aplicar overlay del workload (nodeSelector `aad/cell`) → healthcheck → warmup → knee → fija ×n con ventana APerf → capture (k6 JSON / salida YCSB / iperf JSON / timings llama + PNG Pyroscope + tarball APerf + `kubectl top`) → escalar MNG a 0. **Nunca tofu.** Análisis (medianas, knee, delta %, $/op, $/Mtok, CPU/Gbps) contra JSONs commiteados, con tests unitarios sobre fixtures.
+- **Runner:** Python 3.13 + uv. `require_sandbox()` primera línea de todo entrypoint. Una celda = escalar MNG a 1 (o 2 en red) → esperar Ready → aplicar overlay del workload (nodeSelector `aad/cell`) → healthcheck → warmup → knee → fija ×n con ventana APerf → capture (k6 JSON / salida YCSB / iperf JSON / timings llama + PNG Pyroscope + tarball APerf + `kubectl top`) → escalar MNG a 0. **Nunca terraform.** Análisis (medianas, knee, delta %, $/op, $/Mtok, CPU/Gbps) contra JSONs commiteados, con tests unitarios sobre fixtures.
 - **Tabla de tiempos** (base del estimado de costo; se ajusta con el gate):
 
 | Workload | Celdas | Por celda | Total |
@@ -128,7 +129,7 @@ Todas las imágenes propias construidas con **buildx `--platform linux/amd64,lin
 
 ## 6. El arco generacional (la yapa)
 
-m5 → m6i → m7i → m8i (x86) y m6g → m7g → m8g → m9g (ARM), talla `.4xlarge` en todas, **on-demand** (8 nodos × 20 min ≈ $2.5; Spot añadiría un caveat para ahorrar centavos — Spot va en la slide de migración como palanca, no aquí), vía la NodePool de Karpenter parcheando el requirement `instance-type` por generación (2-3 min por salto, sin tofu). Una sola workload (Java, corrida fija corta), corrida única por generación. Es una línea de tiempo en una slide, no un segundo benchmark. Caveat narrado: corrida única, orientativo — el arco, no el número. Corroboración de terceros: Spare Cores 2026-06-12 (m6g→m9g) y Phoronix (G4→G5, ≈30% geomean).
+m5 → m6i → m7i → m8i (x86) y m6g → m7g → m8g → m9g (ARM), talla `.4xlarge` en todas, **on-demand** (8 nodos × 20 min ≈ $2.5; Spot añadiría un caveat para ahorrar centavos — Spot va en la slide de migración como palanca, no aquí), vía la NodePool de Karpenter parcheando el requirement `instance-type` por generación (2-3 min por salto, sin terraform). Una sola workload (Java, corrida fija corta), corrida única por generación. Es una línea de tiempo en una slide, no un segundo benchmark. Caveat narrado: corrida única, orientativo — el arco, no el número. Corroboración de terceros: Spare Cores 2026-06-12 (m6g→m9g) y Phoronix (G4→G5, ≈30% geomean).
 
 ## 7. Migración en EKS: el cierre
 

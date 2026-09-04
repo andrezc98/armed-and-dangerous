@@ -4,19 +4,19 @@
 
 **Goal:** medir en EKS qué hace Graviton5 con tres clases de workload (Java, MongoDB, inference en CPU) + red + baseline Go, cada silicio llevado a su punto de quiebre en stock y tuned, explicar cada número con APerf (contadores PMU) y flame graphs de eBPF, y entregar el harness open source + slides para ARMed and Dangerous (ACD Perú 2026-10-03; Argentina 2026-09-12 solo si el waitlist abre con ≥7 días y el gate pasó; Colombia TBD).
 
-**Architecture:** un clúster EKS por día de lab (OpenTofu, módulo eks 21.25.0) con siete managed node groups: cinco SUT (`x86-stock`, `x86-tuned`, `x86-smtoff` sobre `m8i.4xlarge`; `arm-stock`, `arm-tuned` sobre `m9g.4xlarge`) con `min=0,max=1` escalados por celda, más `loader` (`c7i.4xlarge`) y `tools` (`m7g.large`). Un runner Python orquesta celdas: escalar MNG → deploy con `nodeSelector aad/cell` → warmup → knee (k6 `ramping-arrival-rate` / YCSB threadcount) → corrida fija al 80% del knee ×n con ventana APerf → capture → escalar a 0. Imágenes propias multi-arch (buildx → GHCR) + oficiales para MongoDB y llama.cpp. DaemonSets: profiler eBPF (todos), C-states (x86 tuned), red (tuned, celda red). Resultados JSON commiteados → charts matplotlib → `slides/contenido.md` + assets.
+**Architecture:** un clúster EKS por día de lab (Terraform, módulo eks 21.25.0) con siete managed node groups: cinco SUT (`x86-stock`, `x86-tuned`, `x86-smtoff` sobre `m8i.4xlarge`; `arm-stock`, `arm-tuned` sobre `m9g.4xlarge`) con `min=0,max=1` escalados por celda, más `loader` (`c7i.4xlarge`) y `tools` (`m7g.large`). Un runner Python orquesta celdas: escalar MNG → deploy con `nodeSelector aad/cell` → warmup → knee (k6 `ramping-arrival-rate` / YCSB threadcount) → corrida fija al 80% del knee ×n con ventana APerf → capture → escalar a 0. Imágenes propias multi-arch (buildx → GHCR) + oficiales para MongoDB y llama.cpp. DaemonSets: profiler eBPF (todos), C-states (x86 tuned), red (tuned, celda red). Resultados JSON commiteados → charts matplotlib → `slides/contenido.md` + assets.
 
-**Tech Stack:** OpenTofu, terraform-aws-modules/eks 21.25.0, Bottlerocket, Karpenter v1.14.1, k6 v2.2.0, go-ycsb, iperf3, llama.cpp (imagen oficial), MongoDB 8.0, JDK 25 + spring-petclinic-rest, Go stdlib, OTel eBPF profiler 0.147.0, Pyroscope 2.3.0, APerf (kubectl-aperf), metrics-server, Python 3.13 + uv, matplotlib.
+**Tech Stack:** Terraform, terraform-aws-modules/eks 21.25.0, Bottlerocket, Karpenter v1.14.1, k6 v2.2.0, go-ycsb, iperf3, llama.cpp (imagen oficial), MongoDB 8.0, JDK 25 + spring-petclinic-rest, Go stdlib, OTel eBPF profiler 0.147.0, Pyroscope 2.3.0, APerf (kubectl-aperf), metrics-server, Python 3.13 + uv, matplotlib.
 
 **Spec:** `docs/superpowers/specs/2026-09-02-armed-and-dangerous-design.md` (v2; leerla primero; cada task cita la sección que implementa).
 
 ## Global constraints
 
 - **Verify every API/field/tag against current docs before writing it** (CLAUDE.md): Context7 / docs oficiales / GitHub releases del día; pin lo verificado y citarlo en README. Nothing from training memory — this stack moves monthly.
-- **AWS is gated on the speaker.** Todo script que toca AWS llama `require_sandbox()` (copiado de `rompe-tu-agente/agent/config.py`; AWS_PROFILE debe contener `sandbox`) como primera línea; nada de `tofu apply/destroy`, escalado de MNG, push a registry ni corridas sin el speaker diciendo "go" (GATED). Nunca el perfil cliente por defecto de la máquina.
-- **Presupuesto total ≤ $200 (techo); estimado v2 $40-70.** Runner lleva ledger reloj × tarifa por celda y aborta si el día de lab supera su estimado. Clúster abajo **entre días de lab** (`tofu destroy` humano al final del día + `aws ec2 describe-instances` filtrado por `Project=armed-and-dangerous` = 0 running). Entre celdas solo se escalan MNG a 0.
+- **AWS is gated on the speaker.** Todo script que toca AWS llama `require_sandbox()` (copiado de `rompe-tu-agente/agent/config.py`; AWS_PROFILE debe contener `sandbox`) como primera línea; nada de `terraform apply/destroy`, escalado de MNG, push a registry ni corridas sin el speaker diciendo "go" (GATED). Nunca el perfil cliente por defecto de la máquina.
+- **Presupuesto total ≤ $200 (techo); estimado v2 $40-70.** Runner lleva ledger reloj × tarifa por celda y aborta si el día de lab supera su estimado. Clúster abajo **entre días de lab** (`terraform destroy` humano al final del día + `aws ec2 describe-instances` filtrado por `Project=armed-and-dangerous` = 0 running). Entre celdas solo se escalan MNG a 0.
 - **Español neutro todo lo que la audiencia ve** (slides, README, comentarios de resultados, speaker notes); nunca localizado al país anfitrión. Inglés el código, tests, commits.
-- Naming: `aws-aad-*` (aws-<event>-<resource>) — p.ej. `aws-aad-eks-lab`, `aws-aad-subnet-a`; MNG `aws-aad-mng-<celda>`; tags `Project=armed-and-dangerous, Environment=lab, Owner=andres-zeballos, ManagedBy=tofu`.
+- Naming: `aws-aad-*` (aws-<event>-<resource>) — p.ej. `aws-aad-eks-lab`, `aws-aad-subnet-a`; MNG `aws-aad-mng-<celda>`; tags `Project=armed-and-dangerous, Environment=lab, Owner=andres-zeballos, ManagedBy=terraform`.
 - Sin emojis en código/salidas. Sin account IDs, ARNs con datos sensibles ni credenciales en nada commiteado; `demo/sanitize-check.sh` antes de commitear resultados o assets.
 - Steps **GATED** = gasta AWS o push a registry. Pedir autorización al speaker antes del primero de cada tipo.
 - Commit after every task, conventional messages. Repo root: `~/Documents/personal/charlas/armed-and-dangerous`.
@@ -33,7 +33,7 @@
 | `apps/iperf3/` | Imagen mínima iperf3 multi-arch |
 | `apps/ycsb/` | Dockerfile de go-ycsb (amd64; corre en `loader`) |
 | `apps/build-multiarch.sh` | Pipeline buildx → GHCR (entregable de la charla) |
-| `infra/` | OpenTofu: EKS 21.25.0, 7 MNG, Karpenter, metrics-server, outputs |
+| `infra/` | Terraform: EKS 21.25.0, 7 MNG, Karpenter, metrics-server, outputs |
 | `manifests/base/` | Pyroscope values, profiler DaemonSet, C-states DaemonSet, net-tuned DaemonSet, StorageClass patch |
 | `manifests/workloads/<workload>/` | kustomize base + overlays por celda (`nodeSelector aad/cell`, tolerations, requests/limits, flags stock/tuned) |
 | `runner/` | Python 3.13 + uv: `cell.py` (orquestador), `knee.py`, `capture.py`, `cost.py`, `analysis/`, `k6/*.js`, `tests/` (sin AWS) |
@@ -49,7 +49,7 @@
 **Files:** `CLAUDE.md` (modificar), `README.md` (modificar la sección "El lab en una línea" y "Estructura").
 
 - [x] Steps 1-5 de v1 (skeleton, `.gitignore`, README esqueleto, stub sanitize, commit).
-- [x] **Step 6:** `CLAUDE.md`: regla de idioma sin excepción de voseo; "cluster DOWN between phases" → "between lab days; SUT node groups scale to 0 between cells"; "the runner never runs tofu; scaling an MNG is GATED like apply"; sección "Sibling repos". (Hecho 2026-09-03.)
+- [x] **Step 6:** `CLAUDE.md`: regla de idioma sin excepción de voseo; "cluster DOWN between phases" → "between lab days; SUT node groups scale to 0 between cells"; "the runner never runs terraform; scaling an MNG is GATED like apply"; sección "Sibling repos". (Hecho 2026-09-03.)
 - [x] **Step 7:** `README.md`: diagrama de una línea actualizado (SUT por celda, loader, tools, APerf) y tabla "Estructura" según File structure de arriba. (Las menciones a m7i ya se corrigieron a m8i el 2026-09-03; falta el diagrama y la tabla.)
 - [x] **Step 8:** Commit `docs: v2 rules (lab days, no tofu in runner, neutral spanish)`.
 
@@ -73,7 +73,7 @@
 - [ ] **Step 2 (GATED push):** ejecutar con `GITHUB_TOKEN` local contra GHCR público. Guardar la salida de `imagetools inspect` en `results/images-<fecha>.txt`.
 - [ ] **Step 3:** Commit `build: multi-arch pipeline (buildx, GHCR)`.
 
-### Task 4: Infra EKS (OpenTofu) [SPEC §3, §3.5]
+### Task 4: Infra EKS (Terraform) [SPEC §3, §3.5]
 
 **Files:** `infra/{versions.tf,variables.tf,main.tf,nodegroups.tf,karpenter.tf,outputs.tf,example.tfvars}`, `infra/userdata/thp.toml`.
 
@@ -83,7 +83,7 @@
 - [ ] **Step 2:** `main.tf`: patrón kcd `infra-eks/` (VPC existente vía `var.vpc_id`, **una** subnet pública propia en una AZ, route table propia, IGW existente); módulo `terraform-aws-modules/eks/aws` `~> 21.25`, provider `aws ~> 6.53`, `authentication_mode = "API"`, `enable_cluster_creator_admin_permissions = true`; addons coredns, kube-proxy, vpc-cni (`before_compute`), ebs-csi-driver, metrics-server. Sin pod identity (no hay Bedrock).
 - [ ] **Step 3:** `nodegroups.tf`: siete MNG según la tabla de spec §3. SUT: `min_size=0, max_size=1, desired_size=0`, `labels = { "aad/cell" = <celda> }`, taint `aad/sut=true:NoSchedule`; `x86-smtoff` con `cpu_options = { threads_per_core = 1 }` (**VERIFY** si también exige `core_count = 8`); `*-tuned` y `x86-smtoff` con `bootstrap_extra_args = file("userdata/thp.toml")`. `loader` y `tools` con `min=max=desired=1`, labels `aad/role`. Tags estándar en todo.
 - [ ] **Step 4:** `karpenter.tf`: Karpenter v1.14.1 vía `helm_release` (chart OCI oficial) + IAM + una `NodePool` restringida a familias `m5,m6i,m7i,m8i,m6g,m7g,m8g,m9g` talla `4xlarge`, `limits` 1 nodo, y dos `EC2NodeClass` Bottlerocket (una por arquitectura) — **VERIFY** campos v1 del día. Solo para el arco (Task 8) y el clip (Task 9).
-- [ ] **Step 5:** `outputs.tf` con los outputs de la interfaz. `tofu init && tofu validate` offline (sin credenciales); commitear `.terraform.lock.hcl`.
+- [ ] **Step 5:** `outputs.tf` con los outputs de la interfaz. `terraform init && terraform validate` offline (sin credenciales); commitear `.terraform.lock.hcl`.
 - [ ] **Step 6:** Commit `feat(infra): per-cell node groups (smt-off, thp), loader/tools, karpenter nodepool`.
 
 ### Task 5: Manifiestos: observabilidad, perillas y workloads [SPEC §3, §3.5, §4]
@@ -107,7 +107,7 @@
 
 **Interfaces (produce):** CLI `uv run cell --workload java|mongo|inference|net|go --cell <celda> [--runs 3] [--dry-run]`; layout `results/<fecha>/<workload>/<celda>/run-<i>/{k6.json|ycsb.txt|iperf.json|llama.json,top.json,aperf/,flamegraph.png}` + `results/<fecha>/<workload>/<celda>/knee.json`; `analysis.stats.summarize(results_dir) -> dict` con medianas, knee, `usd_per_kop`, `usd_per_mtok`, `cpu_per_gbps`; `cost.ledger(results_dir) -> markdown`.
 
-- [ ] **Step 1:** `pyproject.toml` con uv, Python 3.13 (`.python-version`; no 3.14, precedente rompe-tu-agente), deps mínimas (`boto3`, `httpx`, `pyyaml`, `matplotlib`); `kubectl`, `aws`, `kubectl-aperf` como CLIs externos versionados en README. `config.py`: copiar `require_sandbox()` de `rompe-tu-agente/agent/config.py` sin cambios + constantes de celdas: mapa overlay → MNG desde `tofu output -json` (`x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned` son 1:1; el overlay de inference `x86-t16` corre en la MNG `x86-tuned`; los overlays Java `x86-tuned-vthreads` y `arm-tuned-vthreads` corren en sus MNG tuned).
+- [ ] **Step 1:** `pyproject.toml` con uv, Python 3.13 (`.python-version`; no 3.14, precedente rompe-tu-agente), deps mínimas (`boto3`, `httpx`, `pyyaml`, `matplotlib`); `kubectl`, `aws`, `kubectl-aperf` como CLIs externos versionados en README. `config.py`: copiar `require_sandbox()` de `rompe-tu-agente/agent/config.py` sin cambios + constantes de celdas: mapa overlay → MNG desde `terraform output -json` (`x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned` son 1:1; el overlay de inference `x86-t16` corre en la MNG `x86-tuned`; los overlays Java `x86-tuned-vthreads` y `arm-tuned-vthreads` corren en sus MNG tuned).
 - [ ] **Step 2:** Test primero: `tests/test_knee.py` — dado un fixture de series k6 (rate → p99), `knee.find(series, slo_ms)` devuelve la última tasa con p99 ≤ SLO y `None` si ninguna cumple. Ejecutar → FAIL. Implementar `knee.py` (búsqueda lineal sobre los stages) → PASS.
 - [ ] **Step 3:** Test primero: `tests/test_stats.py` — con tres `run-*/k6.json` de fixture, `summarize` da mediana y dispersión (min/max) y `usd_per_kop = tarifa_h / (rps*3600/1000)`; con fixture `llama.json`, `usd_per_mtok`; con fixture `iperf.json` + `top.json`, `cpu_per_gbps`. FAIL → implementar `analysis/stats.py` → PASS.
 - [ ] **Step 4:** Test primero: `tests/test_cost.py` — ledger suma `minutos × tarifa/60` por celda y marca `OVER_ESTIMATE` si supera el estimado del día. FAIL → `cost.py` → PASS. Tarifas se leen de `results/cost.md` (capturadas el día del lab, nunca hardcodeadas).
@@ -117,19 +117,19 @@
 
 ### Task 6.5: Smoke gate (GATED, ~$8, medio día) [SPEC §3.5, §5]
 
-Condición para Task 7. Todo con el clúster de un día de lab (`tofu apply` humano).
+Condición para Task 7. Todo con el clúster de un día de lab (`terraform apply` humano).
 
 - [ ] **Step 1:** Escalar `x86-tuned` y `arm-tuned` a 1. Anotar el **stock real** leyendo en cada nodo (pod privileged): `/sys/kernel/mm/transparent_hugepage/enabled`, `nproc`, `lscpu` (threads per core), `/sys/devices/system/cpu/cpu0/cpuidle/state*/name` (¿hay > C1 en m8i?), presencia de `irqbalance`. Comprobar que el nodo tuned muestra `[always]` y que `x86-smtoff` (escalar aparte) muestra 8 CPUs.
 - [ ] **Step 2:** Aplicar profiler + Pyroscope; deploy Java en ambas arquitecturas, 15 min de carga fija. ¿Frames Java legibles (no solo `[unknown]`) en AMBAS? ¿Mongo y llama nativos resuelven símbolos? Si Java no pasa: fallback async-profiler vía OTel SDK solo para Java, documentado.
 - [ ] **Step 3:** `kubectl aperf` en cada SUT durante 2 min de carga: ¿graba en Bottlerocket (perf, `/boot`, PMU en guest)? Generar un `aperf report` comparando x86 vs arm. Si no graba: anotar la limitación; el porqué se sostiene con knee + flame graphs.
 - [ ] **Step 4:** Mongo: `ycsb-load` completo + 5 min de `workloadb`; `pages read into cache` debe quedar plano. Red: iperf3 60 s m9g↔m9g con y sin DaemonSet tuned; el readiness del DaemonSet debe pasar.
 - [ ] **Step 5:** Knee de Java en `arm-tuned` con el guard del loader activo: CPU del loader < 70% en el knee o subir la talla de `loader` antes de Task 7.
-- [ ] **Step 6:** Escalar todo a 0, `tofu destroy`, verificar 0 instancias. Commit `results/profiler-gate.md` con cada lectura y decisión: `results: smoke gate <fecha>`.
+- [ ] **Step 6:** Escalar todo a 0, `terraform destroy`, verificar 0 instancias. Commit `results/profiler-gate.md` con cada lectura y decisión: `results: smoke gate <fecha>`.
 
 ### Task 7: Corrida completa del laboratorio (GATED, ~$25-35, dos días de lab) [SPEC §4-5]
 
-- [ ] **Step 1 (día 1):** `tofu apply`. Java 5 celdas + 2 de virtual threads (≈5.5 h) y Go 2 celdas (≈1.2 h), n=3. Ledger al cierre; `tofu destroy`; 0 instancias.
-- [ ] **Step 2 (día 2):** `tofu apply`. Mongo 4 celdas (≈3.2 h), inference 5 celdas (≈2.8 h), red 4 celdas (≈0.8 h), n=3. Ledger; destroy; 0 instancias.
+- [ ] **Step 1 (día 1):** `terraform apply`. Java 5 celdas + 2 de virtual threads (≈5.5 h) y Go 2 celdas (≈1.2 h), n=3. Ledger al cierre; `terraform destroy`; 0 instancias.
+- [ ] **Step 2 (día 2):** `terraform apply`. Mongo 4 celdas (≈3.2 h), inference 5 celdas (≈2.8 h), red 4 celdas (≈0.8 h), n=3. Ledger; destroy; 0 instancias.
 - [ ] **Step 3:** Pase de outliers: dispersión razonable por celda; repetir la celda si no. Exportar flame graphs por celda, reportes APerf stock vs tuned por arquitectura, capturas de Pyroscope.
 - [ ] **Step 4:** `results/cost.md` con desglose real por workload → slide 24. Commit `results: full lab run <fechas>`.
 - [ ] **Step 5:** Análisis: confirmar/reemplazar headline candidates (spec §2) con números reales; escribir la frase de tuning en su forma verificada (verify, don't attack).

@@ -11,12 +11,12 @@ this instruction verbatim.
 ## AWS is the speaker's personal sandbox only
 The default credentials on this machine belong to a client. Every script that
 touches AWS calls `require_sandbox()` first (AWS_PROFILE must contain
-"sandbox"). Never run `tofu apply`/`destroy`, push images, or start benchmark
+"sandbox"). Never run `terraform apply`/`destroy`, push images, or start benchmark
 phases without the speaker saying go. Scaling a SUT node group from 0 is gated
-like `tofu apply`. Budget ceiling: $200 total (v2 estimate $40-70). The cluster
+like `terraform apply`. Budget ceiling: $200 total (v2 estimate $40-70). The cluster
 is DOWN between lab days; between cells only the SUT node groups scale to 0.
 Verify (describe-instances by project tag = 0 running) before leaving it
-unattended. The runner never runs tofu.
+unattended. The runner never runs terraform.
 
 ## Language
 Code, tests, commits: English. Everything the audience sees (slides, README,
@@ -37,7 +37,7 @@ The speaker owns the official Google Slides template; we hand over
 - `../rompe-tu-agente/`: copy `agent/config.py::require_sandbox()` and
   `demo/sanitize-check.sh` verbatim; `slides/contenido.md` + `slides/armado.md`
   are the deliverable pattern for the official Google Slides template.
-- `../kcd/infra-eks/`: the EKS + Bottlerocket OpenTofu pattern that already ran
+- `../kcd/infra-eks/`: the EKS + Bottlerocket HCL pattern (OpenTofu there, Terraform here) that already ran
   m9g on EKS 1.36 (existing VPC, own public subnets, access entries API).
 
 ## Sanitization
