@@ -18,6 +18,29 @@ module "karpenter" {
   # SSM permissions already cover /aws/service/*, which is what the
   # bottlerocket@latest alias resolves against.
 
+  # "Determines whether the controller policy is created as a standard IAM
+  # policy or inline IAM policy. This can be enabled when the error
+  # `LimitExceeded: Cannot exceed quota for PolicySize: 6144` is received since
+  # standard IAM policies have a limit of 6,144 characters versus an inline role
+  # policy's limit of 10,240"
+  # (modules/karpenter/variables.tf, terraform-aws-eks v21.25.0). That error is
+  # exactly what the 2026-09-04 apply hit, and the managed-policy size quota
+  # behind it (L-ED111B8C, "Managed policy length") is not adjustable, so there
+  # is nothing to request an increase for: the controller policy has to be
+  # inline on the role.
+  enable_inline_policy = true
+
+  # "Determines whether to enable native spot termination handling" (same file,
+  # default true). Every node in this lab is on-demand - the five cells, the
+  # loader, the tools group and both arc NodePools all pin
+  # karpenter.sh/capacity-type = on-demand - so the SQS queue, its policy and the
+  # four EventBridge rules the module would create never see an event. Turning
+  # it off deletes them, and it also drops the interruption statements from the
+  # controller policy, which is the other half of why that policy no longer
+  # overflows. settings.interruptionQueue disappears from the Helm values below
+  # with it.
+  enable_spot_termination = false
+
   tags = local.tags
 }
 
@@ -54,7 +77,15 @@ resource "helm_release" "karpenter" {
     settings:
       clusterName: ${module.eks.cluster_name}
       clusterEndpoint: ${module.eks.cluster_endpoint}
-      interruptionQueue: ${module.karpenter.queue_name}
+    # No settings.interruptionQueue on purpose, and no default to fall back on:
+    # "Interruption queue is the name of the SQS queue used for processing
+    # interruption events from EC2. Interruption handling is disabled if not
+    # specified." / `interruptionQueue: ""` (charts/karpenter/values.yaml,
+    # aws/karpenter-provider-aws v1.14.1), and the Deployment template only emits
+    # the INTERRUPTION_QUEUE env var inside `{{- with .Values.settings.interruptionQueue }}`
+    # (charts/karpenter/templates/deployment.yaml, same tag), so an absent value
+    # is a supported configuration and not a rendering error. There is no queue
+    # any more: enable_spot_termination = false above.
     EOT
   ]
 

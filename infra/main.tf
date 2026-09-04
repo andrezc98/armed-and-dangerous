@@ -195,9 +195,21 @@ resource "aws_iam_role" "ebs_csi" {
 
 resource "aws_iam_role_policy_attachment" "ebs_csi" {
   role = aws_iam_role.ebs_csi.name
-  # V2 scopes the permissions to volumes tagged ebs.csi.aws.com/cluster, which
-  # the driver applies itself to everything it provisions dynamically.
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2"
+  # Every write action is already scoped to resources the driver tags itself
+  # (ebs.csi.aws.com/cluster, CSIVolumeName, kubernetes.io/created-for/pvc/name),
+  # which is everything it provisions dynamically. ARN, type and version from
+  # https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicy.html
+  # (read 2026-09-04): "Type: Service role policy", "ARN:
+  # arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy", "Policy
+  # version: v15 (default)".
+  #
+  # This used to say .../service-role/AmazonEBSCSIDriverPolicyV2 and the
+  # 2026-09-04 apply died on it with NoSuchEntity. V2 does exist (created
+  # 2026-04-16) but it is a plain "AWS managed policy", so its ARN carries NO
+  # service-role/ path segment: arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2
+  # (https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html).
+  # The old value was the two spliced together and named nothing.
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
 ################################################################################

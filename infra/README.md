@@ -276,8 +276,13 @@ el lab necesita.
 **EBS CSI con Pod Identity, y sus etiquetas.** Sin el driver ningún PVC liga y el
 StatefulSet de MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
 `aws-aad-ebs-csi` confía en `pods.eks.amazonaws.com` y lleva
-`AmazonEBSCSIDriverPolicyV2`, que alcanza porque el driver etiqueta solo lo que
-provisiona dinámicamente.
+`arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy` (tipo "Service
+role policy", versión v15, editada el 2026-05-13:
+https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicy.html),
+que alcanza porque cada acción de escritura ya está acotada a recursos que el
+propio driver etiqueta (`ebs.csi.aws.com/cluster`, `CSIVolumeName`,
+`kubernetes.io/created-for/pvc/name`), es decir a todo lo que provisiona
+dinámicamente.
 
 El add-on además va con `configuration_values`:
 
@@ -305,6 +310,29 @@ depende de esta configuración
 gate de AZ. El runner ya exige un `AWS_PROFILE` cuyo nombre contenga `sandbox`,
 pero un nombre de perfil es una cadena que alguien escribe: esta es la mitad
 técnica de la misma regla.
+
+**Karpenter va con política inline y sin manejo de spot.** Dos banderas del
+submódulo, las dos por el mismo apply fallido del 2026-09-04:
+
+- `enable_inline_policy = true` — "This can be enabled when the error
+  `LimitExceeded: Cannot exceed quota for PolicySize: 6144` is received since
+  standard IAM policies have a limit of 6,144 characters versus an inline role
+  policy's limit of 10,240" (`modules/karpenter/variables.tf` de
+  terraform-aws-eks v21.25.0).
+- `enable_spot_termination = false` — todo el lab es on-demand (las cinco celdas,
+  el `loader`, el `tools` y las dos NodePool del arco fijan
+  `karpenter.sh/capacity-type: on-demand`), así que la cola SQS y las cuatro
+  reglas de EventBridge del submódulo nunca verían un evento. Con la bandera en
+  `false` no se crean, y las sentencias de interrupción salen de la política del
+  controlador.
+
+Como no hay cola, el `helm_release` ya no manda `settings.interruptionQueue`. El
+chart lo tolera: "Interruption queue is the name of the SQS queue used for
+processing interruption events from EC2. Interruption handling is disabled if not
+specified." con default `""` (`charts/karpenter/values.yaml`,
+aws/karpenter-provider-aws v1.14.1), y el Deployment solo emite la variable
+`INTERRUPTION_QUEUE` dentro de un `{{- with .Values.settings.interruptionQueue }}`
+(`charts/karpenter/templates/deployment.yaml`, mismo tag).
 
 **Karpenter no provisiona el benchmark.** Está para dos slides: el arco
 generacional y el clip de scale-from-zero. Elige por precio entre los tipos
@@ -351,6 +379,20 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
   una precondition se usa `insecure_value` (el parámetro es público).
 - `data.aws_ecrpublic_authorization_token` solo se emite en `us-east-1`, por eso
   lleva `region` explícita.
+- El ARN de la política del driver EBS decía
+  `arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2` y el apply
+  del 2026-09-04 murió ahí con `NoSuchEntity`. V2 existe (creada el 2026-04-16),
+  pero es una "AWS managed policy" común y su ARN **no** lleva el tramo
+  `service-role/`: es `arn:aws:iam::aws:policy/AmazonEBSCSIDriverPolicyV2`
+  (https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEBSCSIDriverPolicyV2.html).
+  El valor viejo era la mezcla de los dos y no nombraba nada. Se quedó con la
+  política sin sufijo, que sí vive bajo `service-role/`.
+- El apply del 2026-09-04 también cortó con `LimitExceeded: Cannot exceed quota
+  for PolicySize: 6144` en la política del controlador de Karpenter. La cuota
+  (L-ED111B8C, "Managed policy length") no es ajustable, así que no hay aumento
+  que pedir: el submódulo se pasó a `enable_inline_policy = true` (una política
+  inline de rol llega a 10.240 caracteres) y a `enable_spot_termination = false`,
+  que además saca del documento las sentencias de interrupción.
 
 ## Pendiente de verificar el día del apply
 
