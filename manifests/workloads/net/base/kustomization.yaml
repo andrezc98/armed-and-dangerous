@@ -8,6 +8,6 @@ resources:
 
 # The two client Jobs are templates the runner renders (__CELL__) and applies one
 # at a time, so they are not listed here.
-images:
-  - name: ghcr.io/andrezc98/aad-iperf3
-    newTag: PUSH_DATE
+#
+# No images: transformer either. The own image is named bare with a sentinel tag
+# (aad-iperf3:UNSET); the runner adds the registry and the tag (runner/README.md).

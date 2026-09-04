@@ -40,7 +40,7 @@ spec:
           # The tag is written out even though kustomize rewrites it: applied
           # raw with kubectl apply -f, an untagged image means :latest, and
           # :latest does not exist in this registry.
-          image: ghcr.io/andrezc98/aad-iperf3:PUSH_DATE
+          image: aad-iperf3:UNSET
           # The image ENTRYPOINT is iperf3 (apps/iperf3/Dockerfile).
           args:
             - -s

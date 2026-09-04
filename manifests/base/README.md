@@ -169,12 +169,12 @@ el reservado.
 Los Jobs no son parte de ningún kustomization; son plantillas que el runner
 renderiza y aplica en orden:
 
-| Archivo | Placeholders |
-|---|---|
-| `workloads/mongo/base/ycsb-load-job.yaml` | `__NAME__` (carga fija de 20M registros) |
-| `workloads/mongo/base/ycsb-run-job.yaml` | `__NAME__`, `__WORKLOAD__`, `__OPERATIONCOUNT__`, `__THREADS__`, `__TARGET__` |
-| `workloads/net/base/iperf3-client-job.yaml` | `__NAME__`, `__CELL__` |
-| `workloads/net/base/iperf3-client-reverse-job.yaml` | `__NAME__`, `__CELL__` |
+| Archivo | Placeholders | Imagen propia |
+|---|---|---|
+| `workloads/mongo/base/ycsb-load-job.yaml` | `__NAME__` (carga fija de 20M registros) | `aad-ycsb:UNSET` |
+| `workloads/mongo/base/ycsb-run-job.yaml` | `__NAME__`, `__WORKLOAD__`, `__OPERATIONCOUNT__`, `__THREADS__`, `__TARGET__` | `aad-ycsb:UNSET` |
+| `workloads/net/base/iperf3-client-job.yaml` | `__NAME__`, `__CELL__` | `aad-iperf3:UNSET` |
+| `workloads/net/base/iperf3-client-reverse-job.yaml` | `__NAME__`, `__CELL__` | `aad-iperf3:UNSET` |
 
 `__NAME__` está en los cuatro porque el pod template de un Job es **inmutable**:
 volver a aplicar un Job con un nombre que ya existe falla con "field is
@@ -189,13 +189,31 @@ colección de 20M — un benchmark de L2/L3 con etiqueta de DDR5, y con el contr
 de `pages read into cache` plano mientras pasa. Si se cambia, se cambia en los
 dos Jobs.
 
-### `PUSH_DATE`
+### `UNSET`: por qué en git no hay registro (2026-09-04)
 
-Las imágenes propias se referencian como `ghcr.io/andrezc98/aad-<x>:PUSH_DATE`.
-`PUSH_DATE` es un placeholder literal: `apps/build-multiarch.sh` etiqueta con
-`$(date +%F)` y el push a GHCR está gated. Cuando el push ocurra, se reemplaza el
-placeholder por la fecha real (en el `images:` de cada `base/kustomization.yaml`
-y en los cuatro archivos de Job) y se commitea.
+Las cuatro imágenes propias se referencian por **nombre pelado y tag centinela**:
+`aad-java:UNSET`, `aad-go:UNSET`, `aad-iperf3:UNSET`, `aad-ycsb:UNSET`. Viven en
+repositorios ECR **privados** de la cuenta sandbox (`infra/ecr/`), y el registro
+es `<cuenta>.dkr.ecr.us-east-1.amazonaws.com`: escribirlo acá metería el id de
+cuenta en el repo. Por eso no está, y por eso tampoco hay bloque `images:` en
+ningún `base/kustomization.yaml`.
+
+El registro y el tag los pone el runner, en el momento de renderizar:
+
+- **Overlays**: `cell.py` escribe un kustomization descartable en un directorio
+  temporal con `resources: [<overlay>]` y un `images:` con los cuatro nombres
+  (`newName: <registro>/aad-<x>`, `newTag: <tag>`), y corre
+  `kubectl kustomize` sobre él.
+- **Plantillas de Job**: no son parte de ningún kustomization, así que `render()`
+  sustituye el centinela en el mismo paso en el que llena los `__PLACEHOLDER__`.
+
+El registro sale de `results/<fecha>/ecr.json` (`terraform -chdir=infra/ecr
+output -json`, **git-ignored**, lleva el id de cuenta) y el tag de
+`results/images.json` (lo escribe el push gated, **sí se commitea**, no tiene
+datos de cuenta). Antes de escalar cualquier node group el runner renderiza todo
+y se niega a seguir si queda un `:UNSET`: llegaría al clúster como
+`ImagePullBackOff`, o sea quince minutos de un 4xlarge pago. Detalle completo en
+`runner/README.md` y en `infra/ecr/README.md`.
 
 ## Versiones fijadas
 

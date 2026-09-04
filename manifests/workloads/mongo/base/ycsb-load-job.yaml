@@ -5,8 +5,9 @@
 # The image entrypoint is go-ycsb, so args start at the subcommand, and
 # /workloads ships inside the image (apps/ycsb/Dockerfile).
 #
-# Applied by the runner, not by kustomize. Image tag PUSH_DATE is the same
-# placeholder as every other own image; substituted after the gated GHCR push.
+# Applied by the runner, not by kustomize, so no kustomization images:
+# transformer ever sees it: the runner puts the registry and the tag on the own
+# image (aad-ycsb:UNSET) itself, the same pass that fills the placeholder below.
 #
 #   __NAME__  unique Job name per invocation, rendered by the runner
 #             (for example ycsb-load-2026-09-11).
@@ -32,7 +33,7 @@ spec:
         aad/role: loader
       containers:
         - name: ycsb
-          image: ghcr.io/andrezc98/aad-ycsb:PUSH_DATE
+          image: aad-ycsb:UNSET
           args:
             - load
             - mongodb

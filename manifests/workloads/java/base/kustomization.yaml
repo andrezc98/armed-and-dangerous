@@ -6,9 +6,7 @@ resources:
   - deployment.yaml
   - service.yaml
 
-# PUSH_DATE is a literal placeholder, not a tag that exists. apps/build-multiarch.sh
-# tags with $(date +%F) and the push to GHCR is gated on the speaker, so the real
-# tag is substituted here and committed once the images are pushed.
-images:
-  - name: ghcr.io/andrezc98/aad-java
-    newTag: PUSH_DATE
+# No images: transformer here. The own image is named bare with a sentinel tag
+# (aad-java:UNSET) so that nothing in git carries the sandbox account id; the
+# runner adds the registry and the tag of the day through a throwaway
+# kustomization at render time (runner/README.md).

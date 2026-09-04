@@ -6,6 +6,5 @@ resources:
   - deployment.yaml
   - service.yaml
 
-images:
-  - name: ghcr.io/andrezc98/aad-go
-    newTag: PUSH_DATE
+# No images: transformer here. The own image is named bare with a sentinel tag
+# (aad-go:UNSET); the runner adds the registry and the tag (runner/README.md).

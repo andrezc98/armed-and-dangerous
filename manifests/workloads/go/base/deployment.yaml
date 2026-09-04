@@ -31,7 +31,7 @@ spec:
           # The tag is written out even though kustomize rewrites it: applied
           # raw with kubectl apply -f, an untagged image means :latest, and
           # :latest does not exist in this registry.
-          image: ghcr.io/andrezc98/aad-go:PUSH_DATE
+          image: aad-go:UNSET
           ports:
             - name: http
               containerPort: 8080
