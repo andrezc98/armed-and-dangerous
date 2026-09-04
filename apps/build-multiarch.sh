@@ -21,14 +21,21 @@
 #      --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com` -
 #     verbatim from "Private registry authentication in Amazon ECR"; the token
 #     "is valid for 12 hours".
+#   https://docs.aws.amazon.com/cli/latest/reference/ecr/get-login-password.html
+#     CLI command reference synopsis: `get-login-password [--debug] [--region
+#     <value>] ...` - no positional or required argument beyond the options
+#     above; `--region` is what this script always passes explicitly.
 #
 # PUSH=0 (default): no registry involved. Builds to a local OCI tarball per
 # image, tagged with the bare name the manifests use, and asserts the tarball's
 # index.json lists the expected platforms.
 # PUSH=1 (GATED, speaker-only): pushes to the four private ECR repositories of
 # the sandbox account (infra/ecr), runs imagetools inspect against the registry
-# so both manifests are visible, and writes ../results/images.json with the tag
-# and one digest per image.
+# so both manifests are visible, and MERGES the tag and digest of the image(s)
+# it built into ../results/images.json (one tag per image - a rebuild of one
+# image must never move the tag the other three are already deployed at); it
+# refuses to write a file that would end up with fewer than the four images
+# (infra/ecr/README.md, "same-day re-push").
 set -euo pipefail
 
 TAG="${TAG:-$(date +%F)}"
@@ -47,20 +54,32 @@ REGISTRY="${REGISTRY:-}"
 
 cd "$(dirname "$0")"
 
-# An explicit REGISTRY takes the script off the ECR path entirely (the GHCR
-# alternative above), and then the docker login is the caller's job.
-if [ "$PUSH" = "1" ] && [ -z "$REGISTRY" ]; then
-  # Bash mirror of runner/config.py require_sandbox(): a push goes to the
-  # speaker's sandbox account or it does not go.
-  case "${AWS_PROFILE:-}" in
-    *sandbox*) ;;
-    *) echo "ERROR: AWS_PROFILE must be the personal sandbox profile (name contains 'sandbox'); refusing to push with default credentials" >&2
-       exit 1 ;;
+# Empty REGISTRY (derive it from the caller's sandbox account) or an explicit
+# one that is already an ECR host: either way this is the ECR path, and it
+# always needs the sandbox profile and a docker login - an explicit
+# REGISTRY=<account>.dkr.ecr... does not get to skip either just because it
+# was spelled out instead of derived. Only a REGISTRY that is NOT an ECR host
+# (the GHCR alternative above) takes the script off the ECR path entirely, and
+# then the docker login is the caller's own job.
+if [ "$PUSH" = "1" ]; then
+  case "$REGISTRY" in
+    "" | *.dkr.ecr.*)
+      # Bash mirror of runner/config.py require_sandbox(): a push goes to the
+      # speaker's sandbox account or it does not go.
+      case "${AWS_PROFILE:-}" in
+        *sandbox*) ;;
+        *) echo "ERROR: AWS_PROFILE must be the personal sandbox profile (name contains 'sandbox'); refusing to push with default credentials" >&2
+           exit 1 ;;
+      esac
+      if [ -z "$REGISTRY" ]; then
+        ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+        REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
+      fi
+      aws ecr get-login-password --region "$REGION" \
+        | docker login --username AWS --password-stdin "$REGISTRY"
+      ;;
+    *) ;;
   esac
-  ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
-  REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
-  aws ecr get-login-password --region "$REGION" \
-    | docker login --username AWS --password-stdin "$REGISTRY"
 fi
 
 # All four images need a builder that can build for a foreign platform and
@@ -141,24 +160,49 @@ print(",".join(sorted(platforms)))
 done
 
 if [ "$PUSH" = "1" ]; then
-  # The one thing the runner reads out of a push: which tag is in ECR. The
-  # registry is NOT in here - it carries the account id and it reaches the
-  # runner through the git-ignored results/<date>/ecr.json instead.
+  # The one thing the runner reads out of a push: which tag is in ECR, PER
+  # image. The registry is NOT in here - it carries the account id and it
+  # reaches the runner through the git-ignored results/<date>/ecr.json instead.
+  #
+  # MERGE, never overwrite: a positional-args run only rebuilds a subset (one
+  # image, on a same-day IMMUTABLE re-push - infra/ecr/README.md), and the
+  # other images already deployed must keep the tag they actually have in ECR.
+  # Overwriting the whole file with a single top-level tag used to repoint all
+  # four at a tag only the rebuilt one carries, which is an ImagePullBackOff on
+  # a billing node group. Refuses outright, instead of warning and writing a
+  # partial file, if the merged result would still be short of all four -
+  # results/images.json is committed and a short file silently ships that gap
+  # to the next lab day.
   mkdir -p ../results
   python3 -c '
 import json, sys, time
+
+path = "../results/images.json"
 tag, pairs = sys.argv[1], sys.argv[2:]
-json.dump({
-    "tag": tag,
-    "pushed": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    "digests": dict(zip(pairs[::2], pairs[1::2])),
-}, open("../results/images.json", "w"), indent=1, sort_keys=True)
-open("../results/images.json", "a").write("\n")
+built = dict(zip(pairs[::2], pairs[1::2]))  # name -> digest, only what this run built
+
+try:
+    existing = json.load(open(path))
+except FileNotFoundError:
+    existing = {}
+images = existing.get("images", {})
+images.update({name: {"tag": tag, "digest": digest} for name, digest in built.items()})
+
+expected = ["aad-java", "aad-go", "aad-iperf3", "aad-ycsb"]
+missing = sorted(set(expected) - images.keys())
+if missing:
+    missing_str = ", ".join(missing)
+    sys.exit(
+        f"refusing to write {path}: it would end up with {len(images)}/{len(expected)} "
+        f"image(s), missing {missing_str}. Build the missing ones too before "
+        "committing, e.g. run apps/build-multiarch.sh with no positional args."
+    )
+
+json.dump(
+    {"tag": tag, "pushed": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "images": images},
+    open(path, "w"), indent=1, sort_keys=True,
+)
+open(path, "a").write("\n")
 ' "$TAG" "${digests[@]}"
-  echo "=== wrote ../results/images.json (tag $TAG, ${#images[@]} image(s)) ==="
-  if [ "${#images[@]}" -ne 4 ]; then
-    echo "WARNING: only ${#images[@]} image(s) were built, so results/images.json" >&2
-    echo "         lists only those digests. Re-run without positional args before" >&2
-    echo "         committing it." >&2
-  fi
+  echo "=== merged ../results/images.json: $TAG for ${images[*]/#/aad-} ==="
 fi

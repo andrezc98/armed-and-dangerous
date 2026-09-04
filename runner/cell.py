@@ -48,14 +48,26 @@ JOB_DELETE_TIMEOUT = 60
 # ImagePullBackOff takes to become obvious.
 UNSET_TAG = "UNSET"
 OWN_IMAGES = ("aad-java", "aad-go", "aad-iperf3", "aad-ycsb")
-IMAGES = {}  # {"registry": ..., "tag": ...}, filled once per run by load_images()
+# {"registry": ..., "tags": {"aad-java": ..., ...}}, filled once per run by
+# load_images(). One tag PER image, not one shared by all four: a partial
+# PUSH=1 (one image rebuilt) only ever moves that image's own tag, so a schema
+# with a single top-level tag used to repoint every own image at a tag only
+# one of them had - an ImagePullBackOff on a billing node group.
+IMAGES = {}
 _UNSET_IMAGE = re.compile(rf"({'|'.join(OWN_IMAGES)}):{UNSET_TAG}")
 
 # The throwaway kustomization the runner renders every overlay through: the
 # overlays name their images bare, this is what puts the registry back.
 # `resources` is a RELATIVE path on purpose - kustomize refuses an absolute one
 # ("new root ... cannot be absolute", kustomize v5.6.0 in kubectl 1.33.9).
-OVERLAY_KUSTOMIZATION = """resources:
+# apiVersion/kind are the ones every kustomization.yaml in this repo already
+# carries (https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/:
+# "apiVersion: kustomize.config.k8s.io/v1beta1" / "kind: Kustomization") - a
+# throwaway file is still a Kustomization and kustomize documents both fields
+# as part of the object, not as decoration.
+OVERLAY_KUSTOMIZATION = """apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
   - {overlay}
 images:
 {images}
@@ -211,30 +223,43 @@ def cluster_info(day_dir):
 
 
 def load_images(day_dir, override_tag=None):
-    """Where the own images live today: registry from ECR, tag from the push.
+    """Where the own images live today: registry from ECR, tag per image from
+    the push.
 
     Two files because they have two lifetimes and two secrecy levels. The
     registry is `<account>.dkr.ecr.<region>.amazonaws.com`, so it carries the
     sandbox account id and its file is git-ignored; it is written once per lab
-    day from `terraform -chdir=infra/ecr output -json`. The tag is whatever the
-    last gated push produced, it is the same for every lab day until the next
-    push, and results/images.json has no account data in it, so that one IS
-    committed.
+    day from `terraform -chdir=infra/ecr output -json`. The tags are whatever
+    the last gated push produced FOR EACH image (apps/build-multiarch.sh merges
+    into results/images.json rather than overwriting it, so a partial PUSH=1
+    only moves the tag of the image(s) it actually rebuilt); results/images.json
+    has no account data in it, so that one IS committed. `--image-tag` is a
+    single override applied to all four - a one-off for pointing a cell at a tag
+    that is not what the file currently says for any of them.
     """
     path = day_dir / "ecr.json"
     registry = unwrap(read_json(path, FIXTURE_ECR, ECR_JSON_HELP)).get("registry")
     if not registry:
         raise SystemExit(f"{path} has no registry.\n{ECR_JSON_HELP}")
 
-    tag = override_tag
-    if not tag:
+    if override_tag:
+        tags = {name: override_tag for name in OWN_IMAGES}
+    else:
         images_path = config.RESULTS / "images.json"
-        tag = read_json(images_path, FIXTURE_IMAGES, IMAGES_JSON_HELP).get("tag")
-        if not tag:
-            raise SystemExit(f"{images_path} has no tag.\n{IMAGES_JSON_HELP}")
+        images = read_json(images_path, FIXTURE_IMAGES, IMAGES_JSON_HELP).get("images", {})
+        missing = [name for name in OWN_IMAGES if not images.get(name, {}).get("tag")]
+        if missing:
+            raise SystemExit(
+                f"{images_path} has no tag for {', '.join(missing)}.\n{IMAGES_JSON_HELP}"
+            )
+        tags = {name: images[name]["tag"] for name in OWN_IMAGES}
 
-    IMAGES.update(registry=registry, tag=tag)
-    print(f"# own images: {registry}/<name>:{tag}")
+    IMAGES.update(registry=registry, tags=tags)
+    if len(set(tags.values())) == 1:
+        print(f"# own images: {registry}/<name>:{next(iter(tags.values()))}")
+    else:
+        detail = ", ".join(f"{name}={tag}" for name, tag in sorted(tags.items()))
+        print(f"# own images: {registry}/<name>:<tag> ({detail})")
     return IMAGES
 
 
@@ -243,7 +268,7 @@ def image_ref(name):
         raise RuntimeError(
             f"{name} has no registry yet: load_images() has to run before anything renders"
         )
-    return f"{IMAGES['registry']}/{name}:{IMAGES['tag']}"
+    return f"{IMAGES['registry']}/{name}:{IMAGES['tags'][name]}"
 
 
 def rewrite_images(text):
@@ -327,13 +352,16 @@ def kustomize_overlay(workload, cell):
 
     An entry the overlay does not use costs nothing: an images entry that matches
     no image is simply not applied, which is why all four go in every time.
+
+    Goes through image_ref() (guarded: raises if load_images() has not run) for
+    each name rather than reading IMAGES directly, so there is exactly one place
+    that knows how a registry/tag pair is put together.
     """
-    images = "\n".join(
-        f"  - name: {name}\n"
-        f"    newName: {IMAGES['registry']}/{name}\n"
-        f"    newTag: {IMAGES['tag']}"
-        for name in OWN_IMAGES
-    )
+    entries = []
+    for name in OWN_IMAGES:
+        new_name, new_tag = image_ref(name).rsplit(":", 1)
+        entries.append(f"  - name: {name}\n    newName: {new_name}\n    newTag: {new_tag}")
+    images = "\n".join(entries)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()  # /var -> /private/var on macOS; relpath is lexical
         rel = os.path.relpath(Path(overlay(workload, cell)).resolve(), root)
@@ -809,8 +837,21 @@ def check_images(workload, cell):
     an ImagePullBackOff, which is fifteen minutes of a paid 4xlarge before anyone
     reads it. Rendering the overlay and the workload's Job templates here costs a
     second.
+
+    Under --dry-run, config.sh() never actually runs `kubectl kustomize` (it
+    short-circuits and returns "" while config.DRY_RUN is set), so rendering the
+    overlay here would always come back empty and therefore always look clean -
+    not a check, just the appearance of one. The overlay render is skipped and
+    said out loud instead of pretending it happened; the Job templates below are
+    plain Python string substitution (rewrite_images), so they involve no
+    subprocess and ARE genuinely checked even in a dry run.
     """
-    texts = {f"overlay {workload}/{cell}": kustomize_overlay(workload, cell)}
+    texts = {}
+    if config.DRY_RUN:
+        print("# (dry-run) overlay render skipped: kubectl does not run under --dry-run "
+              "(config.sh), so only the Job templates below are actually checked here")
+    else:
+        texts[f"overlay {workload}/{cell}"] = kustomize_overlay(workload, cell)
     for rel in JOB_TEMPLATES.get(workload, ()):
         texts[rel] = rewrite_images((config.MANIFESTS / rel).read_text())
     left = sorted(what for what, text in texts.items() if f":{UNSET_TAG}" in text)

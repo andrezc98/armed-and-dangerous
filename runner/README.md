@@ -106,10 +106,13 @@ persona, no el runner:
 
    Los dos archivos están **git-ignored**: llevan el id de la cuenta sandbox. El
    tag de las imágenes, en cambio, sale de `results/images.json`, que **sí** se
-   commitea (tag y digests, sin datos de cuenta) y lo escribe el push gated
-   (`PUSH=1 apps/build-multiarch.sh`). `--image-tag <tag>` lo pisa para apuntar
-   una celda a otro tag que ya esté en ECR. En `--dry-run` los dos caen en sus
-   fixtures y el plan lo dice.
+   commitea (un tag y un digest **por imagen**, no uno solo para las cuatro; sin
+   datos de cuenta) y lo escribe el push gated (`PUSH=1 apps/build-multiarch.sh`),
+   que mergea en vez de sobreescribir: una corrida parcial (una sola imagen) no
+   mueve el tag de las otras tres. `--image-tag <tag>` pisa el tag de las cuatro
+   a la vez, para apuntar una celda a otro tag puntual que ya esté en ECR (por
+   ejemplo, el de un re-push del mismo día — `infra/ecr/README.md`). En
+   `--dry-run` los dos caen en sus fixtures y el plan lo dice.
 
 3. **`results/cost.md` con las tarifas del día.** Antes de subir cualquier node
    group el runner lee ese archivo y el ledger del día: si alguna tarifa sigue en
@@ -302,17 +305,26 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   el runner renderiza el overlay y las plantillas de Job del workload y se niega a
   seguir si todavía aparece. Llega al clúster como `ImagePullBackOff`, que son
   quince minutos de un 4xlarge pago hasta que alguien lo lee; renderizarlo aquí
-  cuesta un segundo. En `--dry-run` lo imprime en vez de cortar.
+  cuesta un segundo. **En `--dry-run` el overlay NO se renderiza de verdad**:
+  `config.sh()` corta corto y devuelve `""` mientras `config.DRY_RUN` está
+  puesto, así que `kubectl kustomize` nunca corre y un render "limpio" ahí no
+  sería evidencia de nada — `check_images()` lo dice en vez de aparentar que
+  chequeó (`# (dry-run) overlay render skipped`). Las plantillas de Job sí se
+  chequean en un dry run, porque `render()`/`rewrite_images()` son sustitución
+  de texto en Python puro, sin subproceso de por medio.
 - **Las imágenes propias no tienen registro en git**: los manifiestos las nombran
   `aad-java:UNSET`, `aad-go:UNSET`, `aad-iperf3:UNSET` y `aad-ycsb:UNSET`, porque
   el registro real es `<cuenta>.dkr.ecr.us-east-1.amazonaws.com` y el id de cuenta
   no se commitea. El runner lo pone de dos maneras, según qué esté renderizando:
   - **Overlays**: escribe un kustomization descartable en un directorio temporal
-    con `resources: [<overlay>]` y un `images:` con las cuatro entradas
-    (`name` / `newName` / `newTag`) y corre `kubectl kustomize` sobre él. Los
-    campos son los de la documentación de kustomize — `newName` "Override the
-    image name for images whose image name matches `name`", `newTag` "Override
-    the image tag or digest"
+    (`apiVersion: kustomize.config.k8s.io/v1beta1` / `kind: Kustomization`, los
+    mismos valores que trae cualquier `kustomization.yaml` del repo) con
+    `resources: [<overlay>]` y un `images:` con las cuatro entradas
+    (`name` / `newName` / `newTag`, armadas a partir de `image_ref()` y no
+    leyendo `IMAGES` directo) y corre `kubectl kustomize` sobre él. Los campos
+    son los de la documentación de kustomize — `newName` "Override the image
+    name for images whose image name matches `name`", `newTag` "Override the
+    image tag or digest"
     (https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/images/).
     La entrada `resources` es una ruta **relativa** calculada con
     `os.path.relpath`: kustomize rechaza una absoluta con "new root ... cannot be
@@ -370,6 +382,7 @@ producen k6 con `inference.js`, go-ycsb y las dos tablas de `kubectl top`
 (`test_capture.py` verifica que `top-net.json` siga teniendo la forma que el
 parser produce). `cluster.json` y `ecr.json` son salidas de
 `terraform output -json` con su envoltorio `{"value": ...}`, que es lo que
-`--dry-run` lee cuando no hay clúster; `images.json` es el archivo que escribe el
-push. El id de cuenta que aparece en `ecr.json` es `123456789012`, el valor de
+`--dry-run` lee cuando no hay clúster; `images.json` es el archivo que escribe
+(mergeando) el push, con un tag y un digest por imagen bajo la clave `images`.
+El id de cuenta que aparece en `ecr.json` es `123456789012`, el valor de
 documentación de AWS, no una cuenta.

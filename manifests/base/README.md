@@ -208,12 +208,15 @@ El registro y el tag los pone el runner, en el momento de renderizar:
   sustituye el centinela en el mismo paso en el que llena los `__PLACEHOLDER__`.
 
 El registro sale de `results/<fecha>/ecr.json` (`terraform -chdir=infra/ecr
-output -json`, **git-ignored**, lleva el id de cuenta) y el tag de
-`results/images.json` (lo escribe el push gated, **sí se commitea**, no tiene
-datos de cuenta). Antes de escalar cualquier node group el runner renderiza todo
-y se niega a seguir si queda un `:UNSET`: llegaría al clúster como
-`ImagePullBackOff`, o sea quince minutos de un 4xlarge pago. Detalle completo en
-`runner/README.md` y en `infra/ecr/README.md`.
+output -json`, **git-ignored**, lleva el id de cuenta) y el tag, uno **por
+imagen** (no uno solo para las cuatro), de `results/images.json` (lo escribe el
+push gated, **sí se commitea**, no tiene datos de cuenta). Antes de escalar
+cualquier node group el runner renderiza todo y se niega a seguir si queda un
+`:UNSET`: llegaría al clúster como `ImagePullBackOff`, o sea quince minutos de
+un 4xlarge pago. En `--dry-run` el overlay no se renderiza de verdad (`kubectl`
+no corre bajo `--dry-run`), así que ese paso se salta y se dice; las plantillas
+de Job sí se revisan, porque no dependen de ningún subproceso. Detalle completo
+en `runner/README.md` y en `infra/ecr/README.md`.
 
 ## Versiones fijadas
 

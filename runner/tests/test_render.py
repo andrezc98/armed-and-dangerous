@@ -100,14 +100,28 @@ def test_rendering_without_a_registry_is_refused(monkeypatch):
 
 
 @pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl is not installed")
-def test_an_overlay_renders_through_the_throwaway_kustomization():
+@pytest.mark.parametrize("workload, cell_name, own_image", [
+    ("java", "arm-tuned", "aad-java"),
+    ("go", "x86-stock", "aad-go"),
+    # mongo's overlay carries the upstream mongo:8.0.29 image, not an own one -
+    # aad-ycsb only shows up in the Job templates outside this kustomization
+    # (cell.JOB_TEMPLATES). Rendered here to prove a workload with no own image
+    # in its overlay still goes through the throwaway kustomization cleanly.
+    ("mongo", "x86-stock", None),
+    # inference is entirely third-party images (curlimages/curl, llama.cpp);
+    # same reasoning as mongo.
+    ("inference", "x86-t15", None),
+    ("net", "arm-tuned", "aad-iperf3"),
+])
+def test_an_overlay_renders_through_the_throwaway_kustomization(workload, cell_name, own_image):
     """The images transformer runs from a temp dir outside the repo, so the
     resources entry has to be a relative path: kustomize refuses an absolute one
     with "new root ... cannot be absolute", and the cell would die after the node
-    group is already up."""
-    rendered = cell.kustomize_overlay("go", "x86-stock")
-    images = [doc["spec"]["template"]["spec"]["containers"][0]["image"]
-              for doc in yaml.safe_load_all(rendered)
-              if doc and doc["kind"] == "Deployment"]
-    assert images == [f"{ECR}/aad-go:2026-09-19"]
+    group is already up. One overlay (go/x86-stock) used to be the only one ever
+    exercised through kustomize_overlay(); every workload's kustomization.yaml is
+    shaped differently (mongo and net drop resources that are not listed at all,
+    inference has no own image), so each is rendered here."""
+    rendered = cell.kustomize_overlay(workload, cell_name)
     assert cell.UNSET_TAG not in rendered
+    if own_image:
+        assert f"{ECR}/{own_image}:2026-09-19" in rendered

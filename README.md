@@ -51,8 +51,8 @@ Una sola vez, para toda la gira de charlas:
 #    Terraform aparte, con estado propio, y NO se destruye entre días de lab.
 cd infra/ecr && terraform init && terraform apply     # GATED
 
-# 2. Build multi-arch y push de las cuatro imágenes propias (GATED). Escribe
-#    results/images.json con el tag y un digest por imagen: ese archivo SÍ se
+# 2. Build multi-arch y push de las cuatro imágenes propias (GATED). Mergea en
+#    results/images.json un tag y un digest POR IMAGEN: ese archivo SÍ se
 #    commitea (no lleva datos de cuenta).
 cd ../../apps && AWS_PROFILE=<perfil-sandbox> PUSH=1 ./build-multiarch.sh
 git add ../results/images.json && git commit -m "build: push <fecha>"
@@ -144,6 +144,16 @@ attestations.
 ```
 AWS_PROFILE=<perfil-sandbox> PUSH=1 apps/build-multiarch.sh
 ```
+
+El script mergea el resultado (un tag y un digest **por imagen**) en
+`results/images.json` en vez de sobreescribirlo: una corrida parcial (un solo
+positional arg) no toca el tag de las otras tres. Si el mismo día hace falta
+reconstruir una imagen que ya se subió, `IMMUTABLE` devuelve
+`ImageTagAlreadyExistsException`; la recuperación es `TAG=<fecha>-r2 PUSH=1
+apps/build-multiarch.sh <imagen>` (el merge conserva el resto) y el runner
+sigue tomando el tag de cada imagen de `results/images.json` solo — no hace
+falta tocar nada más. `--image-tag <tag>` es solo para pisar puntualmente una
+celda con otro tag que ya esté en ECR (`infra/ecr/README.md`).
 
 Los manifiestos no llevan el registro: nombran las imágenes por nombre pelado y
 tag centinela (`aad-java:UNSET`) para que el id de cuenta no entre a git, y el

@@ -261,22 +261,60 @@ def test_a_dry_run_says_which_fixtures_it_read(plan):
 
 # --- registry and tag ---------------------------------------------------------
 
+ECR = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+
+
+def _write_ecr_json(tmp_path):
+    (tmp_path / "ecr.json").write_text(json.dumps({"registry": {"value": ECR}}))
+
+
+def _write_images_json(path, tags):
+    """tags: {image_name: tag}. Every image gets a distinct, checkable digest."""
+    path.write_text(json.dumps({
+        "tag": next(iter(tags.values())),
+        "images": {name: {"tag": tag, "digest": f"sha256:{name}"} for name, tag in tags.items()},
+    }))
+
+
 def test_the_registry_comes_from_ecr_json_and_the_tag_from_images_json(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", False)
     monkeypatch.setattr(config, "RESULTS", tmp_path)
-    (tmp_path / "ecr.json").write_text(json.dumps(
-        {"registry": {"value": "123456789012.dkr.ecr.us-east-1.amazonaws.com"}}))
-    (tmp_path / "images.json").write_text(json.dumps({"tag": "2026-10-03"}))
+    _write_ecr_json(tmp_path)
+    _write_images_json(tmp_path / "images.json", {name: "2026-10-03" for name in cell.OWN_IMAGES})
     assert cell.load_images(tmp_path) == {
-        "registry": "123456789012.dkr.ecr.us-east-1.amazonaws.com", "tag": "2026-10-03"}
+        "registry": ECR, "tags": {name: "2026-10-03" for name in cell.OWN_IMAGES}}
+
+
+def test_a_per_image_tag_that_differs_from_the_rest_is_what_image_ref_uses():
+    """The bug a partial PUSH=1 used to cause: repointing every own image at a
+    tag only one of them has. images.json now carries a tag PER image, and
+    image_ref() has to use the one that belongs to the name it is asked for,
+    not a single tag shared by all four."""
+    tags = {"aad-java": "2026-10-05-r2", "aad-go": "2026-10-03",
+             "aad-iperf3": "2026-10-03", "aad-ycsb": "2026-10-03"}
+    cell.IMAGES.update(registry=ECR, tags=tags)
+    assert cell.image_ref("aad-java") == f"{ECR}/aad-java:2026-10-05-r2"
+    assert cell.image_ref("aad-go") == f"{ECR}/aad-go:2026-10-03"
 
 
 def test_image_tag_overrides_images_json_and_does_not_need_it(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", False)
     monkeypatch.setattr(config, "RESULTS", tmp_path)  # no images.json in it
-    (tmp_path / "ecr.json").write_text(json.dumps(
-        {"registry": {"value": "123456789012.dkr.ecr.us-east-1.amazonaws.com"}}))
-    assert cell.load_images(tmp_path, "2026-10-04")["tag"] == "2026-10-04"
+    _write_ecr_json(tmp_path)
+    result = cell.load_images(tmp_path, "2026-10-04")
+    assert result["tags"] == {name: "2026-10-04" for name in cell.OWN_IMAGES}
+
+
+def test_a_missing_per_image_tag_names_the_missing_image(tmp_path, monkeypatch):
+    """A file that only ever recorded three images (or a stale schema without
+    an `images` map) must not silently pass an image through with no tag."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(config, "RESULTS", tmp_path)
+    _write_ecr_json(tmp_path)
+    tags = {name: "2026-10-03" for name in cell.OWN_IMAGES if name != "aad-ycsb"}
+    _write_images_json(tmp_path / "images.json", tags)
+    with pytest.raises(SystemExit, match="aad-ycsb"):
+        cell.load_images(tmp_path)
 
 
 def test_a_missing_ecr_json_names_the_terraform_command(tmp_path, monkeypatch):

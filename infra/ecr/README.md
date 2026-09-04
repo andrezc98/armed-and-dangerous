@@ -36,12 +36,22 @@ como opcional del Task 12 del plan; no hace falta para correr el lab.
 | `aws_ecr_lifecycle_policy` | `repository` + `policy` | https://github.com/hashicorp/terraform-provider-aws/blob/v6.63.0/website/docs/r/ecr_lifecycle_policy.html.markdown — `repository` es "Name of the repository to apply the policy", `policy` es "The policy document. This is a JSON formatted string." |
 | Regla `tagged` + `tagPatternList` | obligatorio | https://docs.aws.amazon.com/AmazonECR/latest/userguide/lifecycle_policy_parameters.html — "If you specify `tagged`, then you must also specify a `tagPrefixList` value or a `tagPatternList` value"; y "it's best practice to use a `tagPatternList`" |
 | `countType: imageCountMoreThan` | conservar 5 | misma página — "images are sorted from youngest to oldest based on `pushed_at_time` and then all images greater than the specified count are expired or archived" |
-| Login de Docker | `aws ecr get-login-password --region <region> \| docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com` | https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html (verbatim; el token "is valid for 12 hours") |
+| Login de Docker | `aws ecr get-login-password --region <region> \| docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com` | https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html (verbatim; el token "is valid for 12 hours"). Referencia del comando CLI: https://docs.aws.amazon.com/cli/latest/reference/ecr/get-login-password.html — sinopsis `get-login-password [--debug] [--region <value>] ...`, sin argumento posicional ni requerido más allá de las opciones. |
 
 `IMMUTABLE` no es una preferencia de seguridad, es el control de la medición: el
-tag es la fecha del push y es lo que `results/images.json` le pasa al runner. Un
-tag que se puede mover significa que dos días de lab renderizan el mismo YAML y
-bajan dos binarios distintos.
+tag es la fecha del push y es lo que `results/images.json` le pasa al runner (un
+tag por imagen, no uno solo para las cuatro - ver más abajo). Un tag que se
+puede mover significa que dos días de lab renderizan el mismo YAML y bajan dos
+binarios distintos.
+
+**Recuperación de un re-push el mismo día:** `IMMUTABLE` hace que un segundo
+`docker push` con el mismo tag falle con `ImageTagAlreadyExistsException`. La
+salida es volver a correr el build con OTRO tag y solo la imagen que hace
+falta: `TAG=<fecha>-r2 PUSH=1 apps/build-multiarch.sh <imagen>`. El script
+mergea el resultado en `results/images.json` (conserva el tag de las otras
+tres, no las toca) y el runner sigue tomando el tag de cada imagen de ese mismo
+archivo, sin intervención; `--image-tag <tag>` es solo para pisar puntualmente
+una celda, no hace falta para este flujo.
 
 ## El pull desde los nodos ya está permitido, no hay que agregar nada
 
@@ -95,8 +105,9 @@ persona) es:
 ```bash
 cd ../../apps
 AWS_PROFILE=<perfil-sandbox> PUSH=1 ./build-multiarch.sh
-# escribe results/images.json (tag + digest por imagen, sin datos de cuenta) y
-# ese archivo SÍ se commitea
+# mergea en results/images.json un tag + digest por imagen (sin datos de
+# cuenta; conserva las imágenes que esta corrida no tocó) y ese archivo SÍ se
+# commitea
 ```
 
 El orden completo del día de lab vive en el README raíz, sección "Reproducir".
