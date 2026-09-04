@@ -17,9 +17,13 @@
 
 [settings.kernel.hugepages.transparent]
 enabled = "always"
-# Unset defrag would derive from enabled and become "madvise", which is not what
-# "always" is supposed to mean for a memory-hungry SUT.
-defrag = "defer+madvise"
+# defrag is deliberately left out, so it stays at the OS default in both stock
+# and tuned: "When unset, the defrag policy is derived from
+# hugepages.transparent.enabled (always and madvise map to madvise, never maps
+# to never)" (https://bottlerocket.dev/en/os/1.64.x/api/settings/kernel/).
+# One knob is what the spec and the README describe, and it is also the only
+# knob the commented kernel-parameters fallback below can set, so both paths
+# produce the same machine.
 
 # Fallback for Bottlerocket < 1.64.0, where the setting above does not exist.
 # Costs one extra reboot on the node's first boot (watch the cell change time).

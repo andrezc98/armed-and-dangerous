@@ -41,6 +41,12 @@ resource "helm_release" "karpenter" {
   # this pins it to the tools node group so it never shares a SUT.
   values = [
     <<-EOT
+    # The tools node group is min = max = desired = 1 and the chart defaults to
+    # "# -- Number of replicas." / "replicas: 2"
+    # (charts/karpenter/values.yaml, aws/karpenter-provider-aws v1.14.1) with a
+    # required hostname podAntiAffinity, so the second pod would sit
+    # Unschedulable forever against a podDisruptionBudget of maxUnavailable: 1.
+    replicas: 1
     nodeSelector:
       kubernetes.io/os: linux
       aad/role: tools

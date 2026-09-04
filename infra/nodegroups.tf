@@ -36,7 +36,7 @@ locals {
     desired_size    = 1
   }
 
-  node_groups = {
+  node_group_defs = {
     # Bottlerocket as it ships: THP, C-states and SMT at their defaults. The
     # runbook reads those values off the node instead of assuming them.
     "x86-stock" = merge(local.sut_common, {
@@ -104,6 +104,30 @@ locals {
       ami_type       = "BOTTLEROCKET_ARM_64"
       instance_types = ["m7g.large"]
       labels         = { "aad/role" = "tools" }
+    })
+  }
+
+  # For a Bottlerocket managed node group the releaseVersion EKS expects is the
+  # very string the SSM image_version parameter returns ("1.64.0-<hash>"): the
+  # module maps every BOTTLEROCKET_* ami_type to
+  # "/aws/service/bottlerocket/aws-k8s-${local.ssm_kubernetes_version}/x86_64/latest/image_version"
+  # and passes that value straight through as
+  # "release_version = var.ami_id != \"\" ? null : var.use_latest_ami_release_version ? local.latest_ami_release_version : var.ami_release_version"
+  # (terraform-aws-eks v21.25.0, modules/eks-managed-node-group/main.tf, lines
+  # 415-416, 437 and 480). AWS's own docs never spell the format out.
+  bottlerocket_ssm_arch = {
+    BOTTLEROCKET_x86_64 = "x86_64"
+    BOTTLEROCKET_ARM_64 = "arm64"
+  }
+
+  # Pin the AMI release from the same data source the THP gate reads, so the
+  # image that boots is the image the gate checked and the exact release lands
+  # in state. use_latest_ami_release_version defaults to true and wins over
+  # ami_release_version (line 480 above), so it has to be turned off here.
+  node_groups = {
+    for cell, ng in local.node_group_defs : cell => merge(ng, {
+      use_latest_ami_release_version = false
+      ami_release_version            = data.aws_ssm_parameter.bottlerocket_image_version[local.bottlerocket_ssm_arch[ng.ami_type]].insecure_value
     })
   }
 }

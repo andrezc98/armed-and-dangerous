@@ -44,8 +44,8 @@ efecto se escribe en mayúsculas y con guion bajo (`NO_SCHEDULE`); dentro de un
 NodePool de Karpenter, en cambio, se escribe `NoSchedule`.
 
 `max_size = 2` en las cuatro celdas de red, no 1: la celda de iperf3 necesita un
-segundo nodo del mismo tipo para el cliente (spec seccion 4), y la spec seccion 3
-dice `max=1`. Se resolvió a favor de la seccion 4 porque `max_size` no cuesta
+segundo nodo del mismo tipo para el cliente (spec sección 4), y la spec sección 3
+dice `max=1`. Se resolvió a favor de la sección 4 porque `max_size` no cuesta
 nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 `x86-smtoff` no corre la celda de red y se queda en 1.
 
@@ -103,6 +103,30 @@ plan con el mensaje que dice qué hacer: dentro de `thp.toml` está comentada la
 ruta alternativa por `settings.boot.kernel-parameters`, que sí cuesta un reboot
 extra en el primer arranque del nodo.
 
+Se fija una sola perilla, `enabled = "always"`. `defrag` queda en el default del
+sistema operativo tanto en stock como en tuned: "When unset, the defrag policy
+is derived from `hugepages.transparent.enabled` (`always` and `madvise` map to
+`madvise`, `never` maps to `never`)"
+(https://bottlerocket.dev/en/os/1.64.x/api/settings/kernel/). Es además la única
+perilla que puede fijar la ruta alternativa por línea de comandos del kernel,
+así que las dos rutas producen la misma máquina.
+
+**La AMI que arranca es la AMI que revisa el gate.** Las siete node groups fijan
+`ami_release_version` desde el mismo parámetro SSM
+`/aws/service/bottlerocket/aws-k8s-1.36/<arch>/latest/image_version` que lee
+`terraform_data.bottlerocket_supports_thp`. Para una managed node group
+Bottlerocket, el `releaseVersion` que espera EKS es exactamente ese string
+(`1.64.0-<hash>`): el módulo mapea cada `ami_type` `BOTTLEROCKET_*` a ese
+parámetro —
+`BOTTLEROCKET_x86_64 = "/aws/service/bottlerocket/aws-k8s-${local.ssm_kubernetes_version}/x86_64/latest/image_version"`
+— y pasa su valor tal cual —
+`release_version = var.ami_id != "" ? null : var.use_latest_ami_release_version ? local.latest_ami_release_version : var.ami_release_version`
+(https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-eks/v21.25.0/modules/eks-managed-node-group/main.tf,
+líneas 415-416, 437 y 480). La documentación de AWS no publica el formato del
+`releaseVersion` de Bottlerocket; la cita es del módulo. Como
+`use_latest_ami_release_version` viene en `true` por default y gana sobre
+`ami_release_version`, se apaga explícitamente en `nodegroups.tf`.
+
 **SMT off es solo x86.** EC2 pide las dos opciones de CPU juntas, por eso
 `core_count = 8` (el default de `m8i.4xlarge`, 8 núcleos por 2 hilos) además de
 `threads_per_core = 1`. En Graviton no existe la perilla: "You can't modify the
@@ -147,7 +171,16 @@ no tiene señal de rendimiento; por eso la lista de familias está cerrada y
 ## Pendiente de verificar el día del apply
 
 - La versión de Bottlerocket publicada para `aws-k8s-1.36`. Si es menor a
-  1.64.0 el plan corta solo; el fallback está comentado en `thp.toml`.
+  1.64.0 el plan corta solo; el fallback está comentado en `thp.toml`. Ojo con
+  el alcance: el gate prueba que la AMI fijada soporta la perilla, no que el
+  nodo la tenga puesta. Antes de medir cualquier celda tuned hay que leerlo en
+  el nodo, y si no dice `[always]` la corrida no vale.
+
+  ```bash
+  kubectl debug node/<nodo-tuned> -it --image=busybox -- \
+    cat /host/sys/kernel/mm/transparent_hugepage/enabled
+  # tiene que decir [always]; con [madvise] la celda tuned no está tuneada
+  ```
 - Que `CpuOptions` sea aceptado en el launch template de una managed node group.
   La documentación de EKS solo enumera lo prohibido y `CpuOptions` no aparece;
   la conclusión es por ausencia y se confirma en el primer apply.
