@@ -1,0 +1,34 @@
+[project]
+name = "aad-runner"
+version = "0.1.0"
+description = "Cell orchestrator, knee finder, capture and cost ledger for the ARMed and Dangerous lab."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    # Pyroscope render API is the only HTTP call the runner makes (capture.py).
+    "httpx==0.28.1",
+    # Reads terraform output / kubectl -o yaml and renders Job templates.
+    "pyyaml==6.0.3",
+    # analysis/charts.py only.
+    "matplotlib==3.11.1",
+]
+# No boto3 on purpose: the only AWS call is `aws eks update-nodegroup-config`,
+# shelled out through config.sh() so AWS_PROFILE and the sandbox guard stay in
+# one place and --dry-run can print the exact command.
+
+[project.scripts]
+cell = "cell:main"
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Flat layout: the modules live at the runner root, not in a package dir.
+only-include = ["cell.py", "config.py", "knee.py", "capture.py", "cost.py", "analysis"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

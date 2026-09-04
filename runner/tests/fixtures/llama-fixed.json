@@ -1,0 +1,23 @@
+{
+  "state": { "testRunDurationMs": 360000.0, "isStdOutTTY": false, "isStdErrTTY": false },
+  "options": { "summaryTrendStats": ["avg", "min", "med", "p(90)", "p(95)", "p(99)", "p(99.9)", "max"] },
+  "metrics": {
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 4100.0, "min": 3800.0, "med": 4050.0, "p(90)": 4400.0,
+        "p(95)": 4600.0, "p(99)": 4900.0, "p(99.9)": 5200.0, "max": 5400.0
+      }
+    },
+    "http_reqs": { "type": "counter", "contains": "default", "values": { "count": 350, "rate": 0.9722222 } },
+    "http_req_failed": { "type": "rate", "contains": "default", "values": { "rate": 0, "passes": 0, "fails": 350 } },
+    "llama_predicted_per_second": {
+      "type": "trend",
+      "contains": "default",
+      "values": { "avg": 25.4, "min": 22.1, "med": 25.6, "p(90)": 27.2, "p(95)": 27.8, "p(99)": 28.4, "p(99.9)": 28.9, "max": 29.1 }
+    },
+    "llama_predicted_tokens": { "type": "counter", "contains": "default", "values": { "count": 36000, "rate": 100.0 } },
+    "llama_prompt_tokens": { "type": "counter", "contains": "default", "values": { "count": 21000, "rate": 58.33 } }
+  }
+}
