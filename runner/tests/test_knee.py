@@ -71,6 +71,72 @@ def test_invalid_reasons_flags_failures_and_dropped_iterations():
     ]
 
 
+# --- the ladder is judged per step, not as a whole -----------------------------
+# A knee ladder is SUPPOSED to break at the top. Judged with the whole-run rule
+# (invalid_reasons, which is the rule for the FIXED runs) every ladder that
+# actually found a knee was thrown away.
+
+OVERLOADED = "go-knee-overloaded.json"  # 200..1800 rps; 1400 and 1800 time out
+STAGE, RAMP = 60, 5
+
+
+def _laddered(steps):
+    """A k6 knee summary out of {rate: (p99_ms, delivered_fraction, failed_rate)}."""
+    metrics = {}
+    for rate, (p99, delivered, failed) in steps.items():
+        metrics[f"http_req_duration{{rate:{rate}}}"] = {"values": {"p(99)": p99, "max": p99 * 3}}
+        metrics[f"http_reqs{{rate:{rate}}}"] = {
+            "values": {"count": round(rate * (STAGE - RAMP) * delivered)}
+        }
+        metrics[f"http_req_failed{{rate:{rate}}}"] = {"values": {"rate": failed}}
+    return {"metrics": metrics}
+
+
+def test_the_old_whole_run_rule_would_have_rejected_a_ladder_that_found_its_knee():
+    assert knee.invalid_reasons(_summary(OVERLOADED)) != []
+
+
+def test_a_crossing_with_an_overloaded_tail_still_yields_the_knee():
+    summary = _summary(OVERLOADED)
+    steps = knee.step_reasons(summary, STAGE, RAMP)
+    # Only the two steps past the crossing are unusable, and only they.
+    assert sorted(steps) == [1400, 1800]
+    assert knee.find(knee.series_from_summary(summary), 100, steps) == 1000
+
+
+def test_a_crossing_without_an_overloaded_tail_yields_the_same_knee():
+    """The server keeps answering past the SLO: nothing is invalid, and the knee
+    is still the last step under it."""
+    summary = _laddered({200: (5.0, 1.0, 0.0), 600: (40.0, 1.0, 0.0), 1000: (410.0, 1.0, 0.0)})
+    steps = knee.step_reasons(summary, STAGE, RAMP)
+    assert steps == {}
+    assert knee.find(knee.series_from_summary(summary), 100, steps) == 600
+
+
+def test_a_first_step_the_generator_never_delivered_is_not_a_knee():
+    """Half the offered requests placed at the very first rate: that ladder
+    measured the VU budget, and its 5 ms is the generator's latency."""
+    summary = _laddered({200: (5.0, 0.5, 0.0), 600: (9.0, 1.0, 0.0)})
+    steps = knee.step_reasons(summary, STAGE, RAMP)
+    assert 200 in steps and "delivered" in steps[200]
+    assert knee.find(knee.series_from_summary(summary), 100, steps) is None
+
+
+def test_a_step_that_answered_with_errors_is_not_a_knee_either():
+    summary = _laddered({200: (5.0, 1.0, 0.0), 600: (6.0, 1.0, 0.05)})
+    assert sorted(knee.step_reasons(summary, STAGE, RAMP)) == [600]
+    assert knee.find(knee.series_from_summary(summary), 100,
+                     knee.step_reasons(summary, STAGE, RAMP)) == 200
+
+
+def test_ladder_rates_are_the_rates_lib_js_holds():
+    assert knee.ladder_rates({"RATE_START": 200, "RATE_STEP": 400, "RATE_MAX": 1800}) == [
+        200, 600, 1000, 1400, 1800
+    ]
+    # A RATE_MAX that is not on the grid: the top step is the last one that fits.
+    assert knee.ladder_rates({"RATE_START": 200, "RATE_STEP": 400, "RATE_MAX": 1500})[-1] == 1400
+
+
 def test_parse_ycsb_reads_the_read_and_total_lines():
     parsed = knee.parse_ycsb((FIXTURES / "ycsb-t64.txt").read_text())
     assert parsed["READ"]["OPS"] == 951.2

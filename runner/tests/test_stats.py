@@ -136,3 +136,14 @@ def test_fewer_than_three_valid_runs_flags_the_cell_without_raising(tmp_path):
     assert s["runs"] == 1
     assert s["insufficient_runs"] is True
     assert s["rps"]["median"] == 190.0  # still summarised, just flagged
+
+
+def test_a_truncated_ycsb_run_is_excluded_instead_of_crashing_the_analysis(tmp_path):
+    """go-ycsb prints its report only if it finished. A killed run leaves a file
+    with no READ line, and that used to be a KeyError over the whole cell."""
+    cell = tmp_path / "mongo" / "x86-tuned"
+    (cell / "run-1").mkdir(parents=True)
+    (cell / "run-1" / "ycsb.txt").write_text("Run finished, takes 1m2s\n")
+    s = stats.summarize(cell)
+    assert s["runs"] == 0
+    assert s["excluded"] == [{"run": "run-1", "reasons": ["ycsb.txt has no READ/TOTAL line"]}]

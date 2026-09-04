@@ -11,8 +11,9 @@
 // Env contract (spec §4 / plan Task 2):
 //   TARGET_URL      base URL of the SUT service (script-specific default)
 //   MODE            knee | fixed (default fixed)
-//   SLO_MS          p99 breaking latency in ms (default 100, CMP333 acceptance rule)
-//   knee:  RATE_START RATE_STEP RATE_MAX STAGE_SECONDS  (ladder; each step = RAMP_SECONDS ramp + hold)
+//   SLO_MS          p99 breaking latency in ms (default 100, CMP333 acceptance rule);
+//                   <= 0 means the workload has no latency SLO and MODE=fixed gets no threshold
+//   knee:  RATE_START RATE_STEP RATE_MAX STAGE_SECONDS RAMP_SECONDS  (ladder; each step = ramp + hold)
 //   fixed: RATE DURATION
 //   PREALLOC_VUS MAX_VUS  VU budget for the arrival-rate executors
 //   SUMMARY_PATH    where handleSummary writes the JSON (default summary.json)
@@ -58,7 +59,14 @@ export function buildOptions(workload, overrides = {}) {
       stages.push({ target: r, duration: `${STAGE_SECONDS - RAMP_SECONDS}s` });
       // A threshold on a tagged sub-metric is what makes k6 report that sub-metric
       // in the summary: this yields the (rate -> p99) series the runner reads.
+      // The other two are what let runner/knee.py judge a step ONE AT A TIME -
+      // how much of the offered load the step really delivered, and how much of
+      // it answered - instead of discarding every ladder that reached the knee.
+      // All three stay report-only (no abortOnFail): the ladder runs to the top
+      // and the steps past the crossing are simply ignored.
       thresholds[`http_req_duration{rate:${r}}`] = [`p(99)<${SLO_MS}`];
+      thresholds[`http_req_failed{rate:${r}}`] = ['rate<0.01'];
+      thresholds[`http_reqs{rate:${r}}`] = ['count>0'];
     }
     scenarios.knee = {
       executor: 'ramping-arrival-rate',
@@ -79,7 +87,11 @@ export function buildOptions(workload, overrides = {}) {
       maxVUs: MAX_VUS,
       gracefulStop: '10s',
     };
-    thresholds.http_req_duration = [`p(99)<${SLO_MS}`];
+    // SLO_MS <= 0 means the workload has no latency SLO to hold (inference is
+    // measured closed-loop on the server's own slots). Without this guard the
+    // threshold is `p(99)<0`, which no run can meet, so every inference Job
+    // would exit 99 and end up Failed for a reason that is not a failure.
+    if (SLO_MS > 0) thresholds.http_req_duration = [`p(99)<${SLO_MS}`];
   }
   return Object.assign(
     {

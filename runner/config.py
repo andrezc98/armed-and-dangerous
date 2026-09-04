@@ -120,7 +120,11 @@ WORKLOADS = {
         # ingestion_relabeling_rules in manifests/base/pyroscope-values.yaml).
         "service_name": "java",
         "slo_ms": 100,  # CMP333 acceptance rule
-        "ladder": {"RATE_START": 200, "RATE_STEP": 400, "RATE_MAX": 6000, "STAGE_SECONDS": 60},
+        # RAMP_SECONDS is in the ladder and not only a lib.js default because the
+        # runner needs the held seconds of a step to judge whether the generator
+        # delivered it (knee.step_reasons); k6 gets the same number as env.
+        "ladder": {"RATE_START": 200, "RATE_STEP": 400, "RATE_MAX": 6000,
+                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5},
         "fixed_seconds": 480,
         "warmup_seconds": 180,
         "cells": ["x86-stock", "x86-tuned", "x86-smtoff", "arm-stock", "arm-tuned",
@@ -132,8 +136,13 @@ WORKLOADS = {
         "target_url": "http://go.aad.svc:8080",
         "resource": "deploy/go",
         "service_name": "aad-go",
+        # distroless: no shell to `kubectl exec` a `cat` into, so the cpuset
+        # control reads /healthz through the API server service proxy instead
+        # (<service>:<port> of the k8s apiserver proxy URL form).
+        "cpus_proxy": "go:8080",
         "slo_ms": 20,
-        "ladder": {"RATE_START": 1000, "RATE_STEP": 1000, "RATE_MAX": 20000, "STAGE_SECONDS": 60},
+        "ladder": {"RATE_START": 1000, "RATE_STEP": 1000, "RATE_MAX": 20000,
+                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5},
         "fixed_seconds": 480,
         "warmup_seconds": 60,
         "cells": ["x86-stock", "arm-stock"],
@@ -144,7 +153,10 @@ WORKLOADS = {
         "target_url": "http://llama.aad.svc:8080",
         "resource": "deploy/llama",
         "service_name": "llama-server",
-        "slo_ms": 100,
+        # 0 = no latency SLO. A closed loop on 4 slots is measured in tok/s,
+        # and a p99 threshold here only made every Job end Failed
+        # (runner/k6/lib.js omits the threshold when SLO_MS <= 0).
+        "slo_ms": 0,
         # No ladder: with --parallel 4 slots an open arrival rate either idles
         # slots or queues inside the server, so the measured run is closed-loop
         # (MODE=saturate, VUS = slots) and there is no knee to find.
@@ -152,7 +164,6 @@ WORKLOADS = {
         "saturate_vus": 4,
         "fixed_seconds": 360,
         "warmup_seconds": 60,
-        "warmup_rate": 1,
         "cells": ["x86-stock", "x86-tuned", "x86-t15", "arm-stock", "arm-tuned"],
     },
     "mongo": {
@@ -169,6 +180,8 @@ WORKLOADS = {
         "knee_operationcount": 2000000,
         "fixed_seconds": 480,
         "warmup_seconds": 300,
+        "warm_pages": 1000,  # 'pages read into cache' delta per pass that counts as flat
+        "warm_max_min": 20,  # give up warming after this and refuse to measure EBS
         "cells": ["x86-stock", "x86-tuned", "arm-stock", "arm-tuned"],
     },
     "net": {
@@ -198,10 +211,22 @@ def exclusive_cpus(cell):
     return EXCLUSIVE_CPUS.get(node_cell(cell), DEFAULT_EXCLUSIVE_CPUS)
 
 
-def popen(cmd, *, cwd=None):
+def popen(cmd, *, cwd=None, log=None):
     """Same funnel for the two commands that must outlive the call: the APerf
-    recording and the Pyroscope port-forward. Returns None under --dry-run."""
+    recording and the Pyroscope port-forward. Returns None under --dry-run.
+
+    `log` is a path that receives the child's stdout and stderr; without it the
+    child writes to this terminal. What it must never be again is a pipe nobody
+    reads: a child that fills the 64 KiB pipe buffer blocks forever, and the one
+    child here that talks (APerf, a line per sampling interval) is also the one
+    the runner waits on, so that deadlock lands in the middle of a paid run.
+    """
     print("$ " + shlex.join(cmd) + " &" + (f"    # cwd={cwd}" if cwd else ""), flush=True)
     if DRY_RUN:
         return None
-    return subprocess.Popen(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if log is None:
+        return subprocess.Popen(cmd, cwd=cwd, text=True)
+    # Popen dups the descriptor, so the parent's handle can close right away.
+    with open(log, "w") as handle:
+        return subprocess.Popen(cmd, cwd=cwd, text=True, stdout=handle,
+                                stderr=subprocess.STDOUT)

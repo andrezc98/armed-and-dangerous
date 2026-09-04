@@ -17,7 +17,7 @@ import json
 import re
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -36,8 +36,20 @@ NODE_GONE_TIMEOUT = 600  # the cell is billed until the instance actually goes a
 SCALE_DOWN_RETRIES = 3
 SCALE_DOWN_BACKOFF = 10
 JOB_DELETE_TIMEOUT = 60
-MONGO_WARM_PAGES = 1000  # 'pages read into cache' delta that counts as flat
-MONGO_WARM_MAX_MIN = 20  # give up warming after this and refuse to measure EBS
+
+# The literal image tag every own image still carries until the gated GHCR push
+# happens (manifests/base/README.md). Reaching the cluster with it costs the
+# fifteen paid minutes an ImagePullBackOff takes to become obvious.
+PUSH_DATE = "PUSH_DATE"
+
+# The Job templates the runner renders itself, per workload: they are not part of
+# any kustomization, so `kubectl kustomize` does not see their image tags.
+JOB_TEMPLATES = {
+    "mongo": ("workloads/mongo/base/ycsb-load-job.yaml",
+              "workloads/mongo/base/ycsb-run-job.yaml"),
+    "net": ("workloads/net/base/iperf3-client-job.yaml",
+            "workloads/net/base/iperf3-client-reverse-job.yaml"),
+}
 
 # What to try when the loader, and not the silicon, is what the knee measured.
 KNEE_REMEDY = ("raise the VU budget (--env PREALLOC_VUS=... --env MAX_VUS=...) or "
@@ -45,11 +57,15 @@ KNEE_REMEDY = ("raise the VU budget (--env PREALLOC_VUS=... --env MAX_VUS=...) o
 
 # Rendered per run: a Job's pod template is immutable, so the name carries the
 # repetition. The k6 scripts arrive through a ConfigMap built from runner/k6/.
+# The aad/cell label on the Job (not only on the pod) is what lets the cell drop
+# every Job it created when it ends.
 K6_JOB = """apiVersion: batch/v1
 kind: Job
 metadata:
   name: {name}
   namespace: {ns}
+  labels:
+    aad/cell: {cell}
 spec:
   backoffLimit: 0
   template:
@@ -235,17 +251,41 @@ def check_cpuset(spec, cell, meta):
     A cpuset equal to the whole node means the static CPU manager did not take,
     the pod is sharing cores with the DaemonSets and the IRQs, and the cell is
     not comparable with any other (manifests/base/README.md).
+
+    Two ways to read it, because one of the images has no shell:
+
+    - `cat /sys/fs/cgroup/cpuset.cpus.effective` through `kubectl exec`, for
+      every workload whose image can run a `cat`;
+    - for the distroless Go server, its own /healthz through the API server
+      service proxy: `runtime.NumCPU()` "returns the number of logical CPUs
+      usable by the current process", i.e. it honours the affinity mask
+      (https://pkg.go.dev/runtime#NumCPU). The proxy URL form is the documented
+      one - `.../services/<name>:<port>/proxy` "proxies to the specified port
+      name or port number using http"
+      (https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/).
+
+    Either way, silence is not a pass. An empty answer used to leave the control
+    unevaluated and the cell went on to measure something incomparable.
     """
     expected = config.exclusive_cpus(cell)
-    cpuset = kn("exec", spec["resource"], "--", "cat", "/sys/fs/cgroup/cpuset.cpus.effective",
-                capture=True, check=False).strip()
-    meta["cpuset"] = cpuset or "<dry-run>"
-    if not cpuset:
-        return []
-    count = cpuset_size(cpuset)
+    if spec.get("cpus_proxy"):
+        where = f"/api/v1/namespaces/{config.NAMESPACE}/services/{spec['cpus_proxy']}/proxy/healthz"
+        body = kubectl("get", "--raw", where, capture=True, check=False).strip()
+        meta["cpuset"] = body or "<dry-run>"
+        if not body:
+            return [] if config.DRY_RUN else [f"cpuset_unreadable: GET {where} answered nothing"]
+        count = json.loads(body)["cpus"]
+    else:
+        where = f"{spec['resource']} cpuset.cpus.effective"
+        cpuset = kn("exec", spec["resource"], "--", "cat", "/sys/fs/cgroup/cpuset.cpus.effective",
+                    capture=True, check=False).strip()
+        meta["cpuset"] = cpuset or "<dry-run>"
+        if not cpuset:
+            return [] if config.DRY_RUN else [f"cpuset_unreadable: {where} answered nothing"]
+        count = cpuset_size(cpuset)
     meta["cpuset_count"] = count
     if count != expected:
-        return [f"cpuset {cpuset} is {count} vCPUs, expected {expected} exclusive"]
+        return [f"{where} is {count} vCPUs, expected {expected} exclusive"]
     return []
 
 
@@ -267,10 +307,15 @@ def render(template_path, **subs):
     return text
 
 
-def k6_job_yaml(name, script, env):
-    body = "\n".join(f'            - name: {k}\n              value: "{v}"' for k, v in env.items())
+def k6_job_yaml(name, cell, script, env):
+    # json.dumps and not an f-string quote: a value with a quote, a backslash or
+    # a leading '*' in it would otherwise render YAML that either fails to parse
+    # or, worse, parses into something else. JSON scalars are valid YAML scalars.
+    body = "\n".join(
+        f'            - name: {k}\n              value: {json.dumps(str(v))}' for k, v in env.items()
+    )
     return K6_JOB.format(
-        name=name, ns=config.NAMESPACE, image=K6_IMAGE, script=script,
+        name=name, ns=config.NAMESPACE, cell=cell, image=K6_IMAGE, script=script,
         marker=SUMMARY_MARKER, env=body,
     )
 
@@ -330,10 +375,17 @@ def job_failure(name):
 
 
 def k6_summary(logs):
-    """The summary JSON out of the Job logs, split on the marker."""
+    """The summary JSON out of the Job logs, split on the marker.
+
+    None for "there is no summary here", which includes a marker with nothing
+    after it: k6 died before handleSummary wrote the file, `cat` printed
+    nothing, and the caller's job_failure() path is the one that explains it.
+    Parsing an empty string would raise a JSONDecodeError instead.
+    """
     if SUMMARY_MARKER not in logs:
         return None
-    return json.loads(logs.split(SUMMARY_MARKER, 1)[1])
+    body = logs.split(SUMMARY_MARKER, 1)[1].strip()
+    return json.loads(body) if body else None
 
 
 # --- workload steps ----------------------------------------------------------
@@ -344,18 +396,37 @@ def k6_env(spec, mode, extra):
     return env
 
 
+LADDER_REMEDY = ("raise the top of the ladder (--rate-max, or --threads for mongo) "
+                 "and run the cell again")
+
+
+def uncrossed(found, last, unit):
+    """The reason a ladder that never broke the SLO is not a knee.
+
+    The top step passing means the ladder stopped before the system did: 80 % of
+    it is 80 % of a rate the silicon was still comfortable at, and the cells get
+    compared on the ceiling of the generator's script instead of on their own.
+    """
+    if found is None or found != last:
+        return []
+    return [f"ladder_never_crossed: the top step ({found} {unit}) still met the SLO; "
+            f"{LADDER_REMEDY}"]
+
+
 def k6_knee(spec, workload, cell, cell_dir, env_extra):
     ladder = spec["ladder"]
     name = f"k6-{workload}-{cell}-knee"
-    seconds = ladder["STAGE_SECONDS"] * (
-        1 + (ladder["RATE_MAX"] - ladder["RATE_START"]) // ladder["RATE_STEP"]
-    )
+    # --env reaches the ladder too: a knee run that ignores the VU budget the
+    # human just raised is the run that made them raise it. The merged dict is
+    # also what the summary is judged against, so an overridden STAGE_SECONDS
+    # moves the runner's expectation and not only k6's.
+    env = {**ladder, **env_extra}
+    stage_seconds, ramp_seconds = int(env["STAGE_SECONDS"]), int(env.get("RAMP_SECONDS", 5))
+    rates = knee.ladder_rates({k: int(env[k]) for k in ("RATE_START", "RATE_STEP", "RATE_MAX")})
     logs = run_job(
         name,
-        # --env reaches the ladder too: a knee run that ignores the VU budget the
-        # human just raised is the run that made them raise it.
-        k6_job_yaml(name, spec["script"], k6_env(spec, "knee", {**ladder, **env_extra})),
-        seconds + 300,
+        k6_job_yaml(name, cell, spec["script"], k6_env(spec, "knee", env)),
+        stage_seconds * len(rates) + 300,
     )
     summary = k6_summary(logs)
     if summary is None:
@@ -366,17 +437,25 @@ def k6_knee(spec, workload, cell, cell_dir, env_extra):
             raise RuntimeError(
                 f"job/{name} produced no {SUMMARY_MARKER} block:\n{job_failure(name)}"
             )
-        print(f"# (dry-run) assuming knee = RATE_START = {ladder['RATE_START']}")
-        return {"unit": "rps", "knee": ladder["RATE_START"], "slo_ms": spec["slo_ms"],
+        print(f"# (dry-run) assuming knee = RATE_START = {rates[0]}")
+        return {"unit": "rps", "knee": rates[0], "slo_ms": spec["slo_ms"],
                 "series": [], "invalid": []}
     series = knee.series_from_summary(summary)
-    found = knee.find(series, spec["slo_ms"])
+    steps = knee.step_reasons(summary, stage_seconds, ramp_seconds)
+    found = knee.find(series, spec["slo_ms"], steps)
+    invalid = uncrossed(found, rates[-1], "rps")
+    if found is None and series and series[0][0] in steps:
+        invalid.append(f"ladder_first_step_invalid: {series[0][0]} rps {steps[series[0][0]]}")
     result = {
         "unit": "rps",
         "knee": found,
         "slo_ms": spec["slo_ms"],
         "series": series,
-        "invalid": knee.invalid_reasons(summary),
+        # Only the steps at or below the knee matter; past it the ladder is
+        # supposed to break (runner/knee.py).
+        "invalid_steps": {r: why for r, why in sorted(steps.items())
+                          if found is None or r <= found},
+        "invalid": invalid,
     }
     if not config.DRY_RUN:
         (cell_dir / "knee-raw.json").write_text(json.dumps(summary, indent=1))
@@ -386,8 +465,10 @@ def k6_knee(spec, workload, cell, cell_dir, env_extra):
 def check_knee(result, slo_ms):
     """A knee the cell may not measure at is a knee the cell must not measure at.
 
-    Dropped iterations or failed requests during the ladder mean the crossing
-    that was found belongs to the generator, and 80 % of it is 80 % of nothing.
+    Three ways a ladder fails to produce one: the generator was the bottleneck
+    (the loader guard, or a step that never delivered the load it offered), the
+    first step already broke the SLO, or no step ever did and the knee is just
+    the top of the ladder.
     """
     if result.get("invalid"):
         raise RuntimeError(f"knee not usable: {'; '.join(result['invalid'])}. {KNEE_REMEDY}")
@@ -397,15 +478,17 @@ def check_knee(result, slo_ms):
         )
 
 
-def ycsb_job_yaml(name, spec, threads, target, operationcount, load=False):
+def ycsb_job_yaml(name, cell, spec, threads, target, operationcount, load=False):
     template = config.MANIFESTS / "workloads" / "mongo" / "base" / (
         "ycsb-load-job.yaml" if load else "ycsb-run-job.yaml"
     )
     if load:
+        # The load is the day's, not the cell's: it runs once, when the
+        # collection is empty, and every later cell of the day reuses it.
         text = render(template, NAME=name)
     else:
         text = render(
-            template, NAME=name, WORKLOAD=spec["workload_file"], THREADS=threads,
+            template, NAME=name, CELL=cell, WORKLOAD=spec["workload_file"], THREADS=threads,
             TARGET=target, OPERATIONCOUNT=operationcount,
         )
     # recordcount is written into both Job templates, not passed in: the load and
@@ -425,15 +508,21 @@ def ycsb_knee(spec, cell, cell_dir):
         name = f"ycsb-run-{cell}-t{threads}-knee"
         logs = run_job(
             name,
-            ycsb_job_yaml(name, spec, threads, 0, spec["knee_operationcount"]),
+            ycsb_job_yaml(name, cell, spec, threads, 0, spec["knee_operationcount"]),
             spec["fixed_seconds"] + 900,
         )
         if config.DRY_RUN:
             continue
         # One broken step invalidates the ladder: the steps after it are measured
-        # against a cache and a client the failed step already disturbed.
-        if not logs or "READ" not in knee.parse_ycsb(logs):
-            raise RuntimeError(f"job/{name} printed no READ line:\n{job_failure(name)}")
+        # against a cache and a client the failed step already disturbed. Both
+        # lines are needed: READ carries the p99 the SLO is about, TOTAL the
+        # throughput the fixed runs are throttled to.
+        parsed = knee.parse_ycsb(logs) if logs else {}
+        missing = [line for line in ("READ", "TOTAL") if line not in parsed]
+        if missing:
+            raise RuntimeError(
+                f"job/{name} printed no {'/'.join(missing)} line:\n{job_failure(name)}"
+            )
         (cell_dir / f"knee-t{threads}.txt").write_text(logs)
         runs.append((threads, logs))
     if not runs:
@@ -445,9 +534,12 @@ def ycsb_knee(spec, cell, cell_dir):
     ops = 0
     for threads, logs in runs:
         if threads == found:
-            ops = knee.parse_ycsb(logs)["READ"]["OPS"]
+            # TOTAL and not READ: `--target` throttles every operation, and
+            # workloadb is 95/5, so pinning the run to the READ rate would ask
+            # for 5 % less load than the knee actually carried.
+            ops = knee.parse_ycsb(logs)["TOTAL"]["OPS"]
     return {"unit": "threads", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
-            "series": series, "invalid": []}
+            "series": series, "invalid": uncrossed(found, spec["threads"][-1], "threads")}
 
 
 def mongo_eval(js):
@@ -467,45 +559,69 @@ def mongo_pages_read():
     return mongo_int('db.serverStatus().wiredTiger.cache["pages read into cache"]') or 0
 
 
-def mongo_prepare(spec, cell, meta, date):
+MONGO_DROP = 'db.getSiblingDB("ycsb").usertable.drop()'
+MONGO_COUNT = 'db.getSiblingDB("ycsb").usertable.estimatedDocumentCount()'
+
+
+def mongo_prepare(spec, cell, meta, date, reload=False):
     """Load once per lab day, then warm the cache in every cell.
 
     The dataset survives between cells on purpose (the PVC reattaches), so the
     20M-record load runs only when the collection is empty; what every cell still
     has to pay is the warm-up, until 'pages read into cache' stops moving.
+
+    Empty or complete, nothing in between. A load that was killed halfway leaves
+    a collection that answers every read and is a different benchmark from the
+    one the other cells ran, and the warm-up control would look perfectly flat
+    while it happened. (estimatedDocumentCount reads the collection metadata, so
+    it is exact except after an unclean shutdown - which is itself a reason to
+    reload rather than to measure.)
     """
-    count = mongo_int('db.getSiblingDB("ycsb").usertable.estimatedDocumentCount()')
+    count = mongo_int(MONGO_COUNT)
     meta["mongo_documents"] = count
     if count is None and not config.DRY_RUN:
         raise RuntimeError("could not read the ycsb collection count from mongosh")
+    if reload and not config.DRY_RUN:
+        print(f"# --reload: dropping the {count} document(s) already in ycsb.usertable")
+        mongo_eval(MONGO_DROP)
+        count = 0
     if config.DRY_RUN or count == 0:
         name = f"ycsb-load-{date}"
-        run_job(name, ycsb_job_yaml(name, spec, None, None, None, load=True), 5400)
+        run_job(name, ycsb_job_yaml(name, cell, spec, None, None, None, load=True), 5400)
+    elif count != spec["recordcount"]:
+        raise RuntimeError(
+            f"partial_dataset: ycsb.usertable holds {count} documents, not the "
+            f"{spec['recordcount']} both YCSB Jobs are written for. Drop it and let the "
+            f"cell load it again:\n"
+            f"    kubectl -n {config.NAMESPACE} exec statefulset/mongo -- "
+            f"mongosh --quiet --eval '{MONGO_DROP}'\n"
+            f"  or pass --reload."
+        )
 
     # Warm until two consecutive samples stop moving, not for a fixed number of
     # passes: a cold 40 GiB WiredTiger cache does not care how many times it was
     # asked. The wall clock is the only bound, and hitting it means the run would
     # measure EBS instead of memory.
     meta["mongo_warmup"] = []
-    deadline = now() + MONGO_WARM_MAX_MIN * 60
+    deadline = now() + spec["warm_max_min"] * 60
     attempt = 0
     while True:
         before = mongo_pages_read()
         name = f"ycsb-run-{cell}-warm{attempt}"
         run_job(
             name,
-            ycsb_job_yaml(name, spec, 64, 0, spec["knee_operationcount"]),
+            ycsb_job_yaml(name, cell, spec, 64, 0, spec["knee_operationcount"]),
             spec["warmup_seconds"] + 900,
         )
         delta = mongo_pages_read() - before
         meta["mongo_warmup"].append(delta)
-        if config.DRY_RUN or delta < MONGO_WARM_PAGES:
+        if config.DRY_RUN or delta < spec["warm_pages"]:
             return
         attempt += 1
         if now() > deadline:
             raise RuntimeError(
                 f"cache_not_warm: 'pages read into cache' still climbing by {delta} per pass "
-                f"after {MONGO_WARM_MAX_MIN} min; this cell would measure EBS, not memory"
+                f"after {spec['warm_max_min']} min; this cell would measure EBS, not memory"
             )
 
 
@@ -559,6 +675,30 @@ def budget_gate(day_dir, override, cost_md=cost.COST_MD):
     print(f"# budget: USD {spent:.2f} committed today, estimate {estimate:.2f}")
 
 
+def check_push_date(workload, cell):
+    """No cell starts while the manifests still say :PUSH_DATE.
+
+    That placeholder is the image tag until the gated GHCR push happens
+    (manifests/base/README.md). It reaches the cluster as an ImagePullBackOff,
+    which is fifteen minutes of a paid 4xlarge before anyone reads it; rendering
+    the overlay here costs a second.
+    """
+    texts = {f"overlay {workload}/{cell}": kubectl("kustomize", overlay(workload, cell),
+                                                   capture=True, quiet=True)}
+    for rel in JOB_TEMPLATES.get(workload, ()):
+        texts[rel] = (config.MANIFESTS / rel).read_text()
+    left = sorted(what for what, text in texts.items() if PUSH_DATE in text)
+    if not left:
+        return
+    message = (f"{PUSH_DATE} is still the image tag in {', '.join(left)}. Replace it with the "
+               "tag of the gated GHCR push (manifests/base/README.md) before scaling a node "
+               "group up.")
+    if config.DRY_RUN:
+        print(f"# (dry-run) this check would stop the cell: {message}")
+        return
+    raise SystemExit(message)
+
+
 def run_cell(args):
     workload, cell = args.workload, args.cell
     spec = dict(config.WORKLOADS[workload])
@@ -566,7 +706,10 @@ def run_cell(args):
     if cell not in spec["cells"]:
         raise SystemExit(f"{workload} has no cell {cell}; cells are {spec['cells']}")
 
-    date = args.date or datetime.now(UTC).strftime("%Y-%m-%d")
+    # The LOCAL date, not UTC: a lab day that runs into the evening in Lima or
+    # Buenos Aires would otherwise roll into tomorrow's directory at 19:00 and
+    # split one day's ledger, and its budget gate, in two.
+    date = args.date or datetime.now().astimezone().date().isoformat()
     day_dir = config.RESULTS / date
     cell_dir = day_dir / workload / cell
     if not config.DRY_RUN:
@@ -578,9 +721,10 @@ def run_cell(args):
     label = f"aad/cell={mng}"
     invalid = []
 
-    print(f"\n=== {workload}/{cell} on node group {info['nodegroup_names'][mng]} "
+    print(f"\n=== {date}  {workload}/{cell} on node group {info['nodegroup_names'][mng]} "
           f"({config.instance_type(cell)} x{nodes_wanted}) ===\n")
     budget_gate(day_dir, args.override_budget)
+    check_push_date(workload, cell)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -615,17 +759,23 @@ def run_cell(args):
         if spec["loader"] == "k6":
             sync_k6_scripts()
 
-        # --- warmup
+        # --- warmup: the same shape as the measurement, so what gets warm is
+        # what gets measured. Inference has no ladder, so it warms closed-loop on
+        # the server's slots exactly as it will be measured; the others hold the
+        # first rate of their ladder.
         if workload == "mongo":
-            mongo_prepare(spec, cell, meta, date)
+            mongo_prepare(spec, cell, meta, date, reload=args.reload)
         elif spec["loader"] == "k6" and spec["warmup_seconds"]:
-            rate = spec.get("warmup_rate", spec.get("ladder", {}).get("RATE_START", 1))
+            duration = f"{spec['warmup_seconds']}s"
+            if spec.get("ladder") is None:
+                mode, load = "saturate", {"VUS": spec["saturate_vus"], "DURATION": duration}
+            else:
+                mode, load = "fixed", {"RATE": spec["ladder"]["RATE_START"], "DURATION": duration}
             name = f"k6-{workload}-{cell}-warmup"
             run_job(
                 name,
-                k6_job_yaml(name, spec["script"], k6_env(spec, "fixed", {
-                    "RATE": rate, "DURATION": f"{spec['warmup_seconds']}s", **args.env,
-                })),
+                k6_job_yaml(name, cell, spec["script"],
+                            k6_env(spec, mode, {**load, **args.env})),
                 spec["warmup_seconds"] + 300,
             )
 
@@ -688,6 +838,10 @@ def run_cell(args):
         raise
     finally:
         scale_to_zero(info, mng, label)
+        # The Jobs this cell created. They are Complete or Failed by now and
+        # their logs are already on disk; what they still do is keep their pods
+        # in `kubectl get pods` and their names taken for the next cell.
+        kn("delete", "jobs", "-l", f"aad/cell={cell}", "--ignore-not-found")
         if workload == "net":
             kubectl("delete", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"),
                     "--ignore-not-found")
@@ -746,7 +900,8 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         name = f"ycsb-run-{cell}-t{threads}-r{i}"
         logs = run_job(
             name,
-            ycsb_job_yaml(name, spec, threads, target, int(target * spec["fixed_seconds"])),
+            ycsb_job_yaml(name, cell, spec, threads, target,
+                          int(target * spec["fixed_seconds"])),
             spec["fixed_seconds"] + 900,
         )
         run_meta["threads"], run_meta["target_ops"] = threads, target
@@ -770,7 +925,8 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         })
         run_meta["rate"] = rate
         out_name = "k6.json"
-    logs = run_job(name, k6_job_yaml(name, spec["script"], env), spec["fixed_seconds"] + 300)
+    logs = run_job(name, k6_job_yaml(name, cell, spec["script"], env),
+                   spec["fixed_seconds"] + 300)
     summary = k6_summary(logs)
     if summary is None:
         no_summary(run_meta, name)
@@ -792,22 +948,52 @@ def write_ledger(day_dir):
         (day_dir / "ledger.md").write_text(text)
 
 
+# Two filters, both of which must come back []. The Project tag is the provider's
+# default_tags and only reaches what Terraform created; a CSI volume is created by
+# the driver's own CreateVolume call and carries it only because the add-on is
+# configured with controller.extraVolumeTags (infra/main.tf). The second filter is
+# the tag the driver writes on its own, so the check still holds if that
+# configuration is ever lost.
+VOLUME_LEAK_FILTERS = (
+    "Name=tag:Project,Values=armed-and-dangerous",
+    f"Name=tag:kubernetes.io/created-for/pvc/namespace,Values={config.NAMESPACE}",
+)
+
+
+def describe_volumes():
+    for tag_filter in VOLUME_LEAK_FILTERS:
+        sh(["aws", "ec2", "describe-volumes", "--filters", tag_filter,
+            "--query", "Volumes[].VolumeId"])
+
+
 def teardown_day():
     """End of the lab day, before the human runs `terraform destroy`.
 
-    The EBS volume behind the Mongo PVC was provisioned by the CSI driver, is not
-    in Terraform state, and `terraform destroy` never sees it (infra/README.md).
-    This is also the only place the Mongo StatefulSet is deleted: a cell leaves it
-    running so the next cell of the day reuses the dataset. `delete pvc --all`
-    takes Pyroscope's 20Gi volume with it, which is the intention - it is a
-    profile store for one lab day, not a database.
+    Everything here is outside the Terraform state, which is exactly why it is
+    here: the EBS volume behind the Mongo PVC was provisioned by the CSI driver
+    and the Karpenter nodes were provisioned by Karpenter, so `terraform destroy`
+    sees neither (infra/README.md). This is also the only place the Mongo
+    StatefulSet is deleted: a cell leaves it running so the next cell of the day
+    reuses the dataset. `delete pvc --all` takes Pyroscope's 20Gi volume with it,
+    which is the intention - it is a profile store for one lab day, not a
+    database.
+
+    The canonical order for the whole teardown is in the root README
+    ("Reproducir"); this command is its middle step.
     """
+    # Only the arc and the clip days have NodePools at all, and their CRD only
+    # exists after `kubectl apply -f infra/karpenter/`.
+    if kubectl("get", "crd", "nodepools.karpenter.sh", capture=True, quiet=True,
+               check=False).strip() or config.DRY_RUN:
+        kubectl("delete", "nodepool", "--all", "--ignore-not-found")
+    kn("delete", "jobs", "--all", "--ignore-not-found")
+    kubectl("delete", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"),
+            "--ignore-not-found")
     kn("delete", "sts", "mongo", "--ignore-not-found")
     kn("delete", "pvc", "--all")
-    sh(["aws", "ec2", "describe-volumes",
-        "--filters", "Name=tag:Project,Values=armed-and-dangerous",
-        "--query", "Volumes[].VolumeId"])
-    print("\n# the list above must be [] BEFORE `terraform destroy`, which a human runs:")
+    describe_volumes()
+    print("\n# both lists above must be [] BEFORE `terraform destroy`, which a human runs.")
+    print("# The full order is in the root README, section 'Reproducir':")
     print("#   cd infra && terraform destroy")
     print("#   aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous "
           "Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId'")
@@ -816,7 +1002,7 @@ def teardown_day():
 # --- cli ---------------------------------------------------------------------
 
 def apply_overrides(spec, args):
-    for key in ("slo_ms", "fixed_seconds", "warmup_seconds"):
+    for key in ("slo_ms", "fixed_seconds", "warmup_seconds", "warm_pages", "warm_max_min"):
         if getattr(args, key) is not None:
             spec[key] = getattr(args, key)
     if args.threads:
@@ -824,7 +1010,8 @@ def apply_overrides(spec, args):
     if spec.get("ladder"):
         spec["ladder"] = dict(spec["ladder"])
         for flag, key in (("rate_start", "RATE_START"), ("rate_step", "RATE_STEP"),
-                          ("rate_max", "RATE_MAX"), ("stage_seconds", "STAGE_SECONDS")):
+                          ("rate_max", "RATE_MAX"), ("stage_seconds", "STAGE_SECONDS"),
+                          ("ramp_seconds", "RAMP_SECONDS")):
             if getattr(args, flag) is not None:
                 spec["ladder"][key] = getattr(args, flag)
 
@@ -834,9 +1021,12 @@ def parse_args(argv=None):
     p.add_argument("--workload", choices=sorted(config.WORKLOADS))
     p.add_argument("--cell", choices=sorted(config.CELL_MNG))
     p.add_argument("--runs", type=int, default=3)
-    p.add_argument("--date", help="results/<date>/ to write into (default: today, UTC)")
+    p.add_argument("--date", help="results/<date>/ to write into (default: today, local time)")
     p.add_argument("--dry-run", action="store_true", help="print the command plan and touch nothing")
-    p.add_argument("--teardown-day", action="store_true", help="drop the Mongo dataset before terraform destroy")
+    p.add_argument("--teardown-day", action="store_true",
+                   help="drop everything the cluster still holds (NodePools, Jobs, net "
+                        "knob, Mongo sts, PVCs) and print the leak checks, before "
+                        "terraform destroy")
     p.add_argument("--override-budget", action="store_true",
                    help="run even though the day already exceeds estimate_per_day_usd")
     p.add_argument("--slo-ms", type=float, dest="slo_ms")
@@ -846,7 +1036,14 @@ def parse_args(argv=None):
     p.add_argument("--rate-step", type=int, dest="rate_step")
     p.add_argument("--rate-max", type=int, dest="rate_max")
     p.add_argument("--stage-seconds", type=int, dest="stage_seconds")
+    p.add_argument("--ramp-seconds", type=int, dest="ramp_seconds")
     p.add_argument("--threads", type=int, nargs="+", help="YCSB thread ladder")
+    p.add_argument("--warm-pages", type=int, dest="warm_pages",
+                   help="mongo: 'pages read into cache' delta per pass that counts as flat")
+    p.add_argument("--warm-max-min", type=int, dest="warm_max_min",
+                   help="mongo: give up warming the cache after this many minutes")
+    p.add_argument("--reload", action="store_true",
+                   help="mongo: drop the YCSB collection and load it again before this cell")
     p.add_argument("--env", action="append", default=[], metavar="K=V",
                    help="extra env for the k6 Job (repeatable)")
     args = p.parse_args(argv)

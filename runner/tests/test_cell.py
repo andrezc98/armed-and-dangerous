@@ -54,6 +54,47 @@ def _day(tmp_path, estimate="3.00"):
     return day, md
 
 
+# --- every workload plans end to end -----------------------------------------
+# One dry run per workload, inference included: the plan is the only place the
+# whole sequence of a cell is exercised, and the inference branch used to crash
+# in the warm-up (spec["ladder"] is None, so spec.get("ladder", {}).get(...) is
+# .get on None) - after the node group would already have been paid for.
+
+@pytest.mark.parametrize("workload,cell_name", [
+    ("java", "arm-tuned"),
+    ("go", "x86-stock"),
+    ("mongo", "x86-stock"),
+    ("inference", "arm-tuned"),
+    ("inference", "x86-t15"),
+    ("net", "arm-tuned"),
+])
+def test_every_workload_plans_a_whole_cell(plan, workload, cell_name):
+    out = plan("--workload", workload, "--cell", cell_name)
+    assert "=== " in out and f"{workload}/{cell_name}" in out
+    assert "--scaling-config desiredSize=0" in out  # it always comes back down
+
+
+def test_the_inference_warmup_saturates_the_slots_it_will_be_measured_on(plan, monkeypatch):
+    """Warm the way you measure. The old warm-up asked for MODE=fixed at a
+    RATE it read off a ladder inference does not have."""
+    applied = {}
+    real = cell.apply_stdin
+
+    def spy(yaml_text, what):
+        applied[what] = yaml_text
+        return real(yaml_text, what)
+
+    monkeypatch.setattr(cell, "apply_stdin", spy)
+    plan("--workload", "inference", "--cell", "arm-tuned")
+    warmup = yaml.safe_load(applied["job/k6-inference-arm-tuned-warmup"])
+    env = {e["name"]: e["value"]
+           for e in warmup["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["MODE"] == "saturate"
+    assert env["VUS"] == str(config.WORKLOADS["inference"]["saturate_vus"])
+    assert env["DURATION"] == f"{config.WORKLOADS['inference']['warmup_seconds']}s"
+    assert env["SLO_MS"] == "0"  # no p99 threshold, so the Job does not end Failed
+
+
 # --- C1: the runner never runs terraform -------------------------------------
 
 def test_the_plan_never_shells_out_to_terraform(plan):
@@ -160,6 +201,129 @@ def test_a_ladder_that_never_met_the_slo_aborts_the_cell():
 
 def test_a_usable_knee_passes_the_check():
     assert cell.check_knee({"knee": 2600, "invalid": []}, 100) is None
+
+
+# --- a ladder that never crossed is not a knee -------------------------------
+
+def test_a_knee_at_the_top_of_the_ladder_is_refused():
+    """The top step still met the SLO, so the ladder stopped before the system
+    did and 80 % of it is 80 % of a rate nothing struggled at."""
+    reasons = cell.uncrossed(6000, 6000, "rps")
+    assert reasons and "raise the top of the ladder" in reasons[0]
+    with pytest.raises(RuntimeError, match="ladder_never_crossed"):
+        cell.check_knee({"knee": 6000, "invalid": reasons}, 100)
+
+
+def test_a_knee_below_the_top_of_the_ladder_is_accepted():
+    assert cell.uncrossed(2600, 6000, "rps") == []
+    assert cell.uncrossed(None, 6000, "rps") == []
+
+
+def test_the_ycsb_ladder_is_judged_the_same_way():
+    assert "ladder_never_crossed" in cell.uncrossed(128, 128, "threads")[0]
+
+
+# --- the image tag never reaches the cluster as a placeholder ----------------
+
+def test_a_manifest_still_tagged_push_date_stops_the_cell(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: "image: ghcr.io/x/aad-go:PUSH_DATE")
+    with pytest.raises(SystemExit, match="PUSH_DATE is still the image tag"):
+        cell.check_push_date("go", "x86-stock")
+
+
+def test_a_manifest_with_a_real_tag_passes(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: "image: ghcr.io/x/aad-go:2026-09-19")
+    assert cell.check_push_date("go", "x86-stock") is None
+
+
+def test_a_dry_run_prints_the_push_date_check_instead_of_failing(plan):
+    # Every manifest in the repo still carries the placeholder today, so the
+    # plan has to stay readable while it does.
+    assert "(dry-run) this check would stop the cell" in plan(
+        "--workload", "mongo", "--cell", "x86-stock"
+    )
+
+
+# --- the cpuset control cannot pass by saying nothing ------------------------
+
+def test_an_unreadable_cpuset_invalidates_the_cell(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: "")
+    meta = {}
+    assert cell.check_cpuset(config.WORKLOADS["java"], "arm-tuned", meta) == [
+        "cpuset_unreadable: deploy/java cpuset.cpus.effective answered nothing"
+    ]
+
+
+def test_the_go_cell_reads_its_cpuset_through_the_service_proxy(monkeypatch):
+    """distroless: no shell to exec a `cat` into, so the server reports its own
+    affinity mask (runtime.NumCPU) over the API server service proxy."""
+    seen = {}
+    monkeypatch.setattr(config, "DRY_RUN", False)
+
+    def fake_kubectl(*args, **kw):
+        seen["args"] = args
+        return '{"cpus":15}'
+
+    monkeypatch.setattr(cell, "kubectl", fake_kubectl)
+    meta = {}
+    assert cell.check_cpuset(config.WORKLOADS["go"], "x86-stock", meta) == []
+    assert seen["args"][:2] == ("get", "--raw")
+    assert seen["args"][2] == "/api/v1/namespaces/aad/services/go:8080/proxy/healthz"
+    assert meta["cpuset_count"] == 15
+
+
+def test_a_go_pod_that_did_not_get_its_exclusive_cpus_is_refused(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: '{"cpus":16}')
+    assert cell.check_cpuset(config.WORKLOADS["go"], "x86-stock", {}) == [
+        "/api/v1/namespaces/aad/services/go:8080/proxy/healthz is 16 vCPUs, "
+        "expected 15 exclusive"
+    ]
+
+
+# --- a half-loaded Mongo collection is a different benchmark ----------------
+
+def test_a_partial_ycsb_collection_refuses_to_be_measured(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "mongo_int", lambda js: 3_500_000)
+    with pytest.raises(RuntimeError, match="partial_dataset"):
+        cell.mongo_prepare(dict(config.WORKLOADS["mongo"]), "x86-stock", {}, "2026-09-20")
+
+
+def test_an_empty_collection_is_loaded_and_a_complete_one_is_reused(monkeypatch):
+    spec = dict(config.WORKLOADS["mongo"])
+    jobs = []
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_job", lambda name, *a, **k: jobs.append(name) or "")
+    monkeypatch.setattr(cell, "mongo_pages_read", lambda: 0)
+
+    monkeypatch.setattr(cell, "mongo_int", lambda js: 0)
+    cell.mongo_prepare(spec, "x86-stock", {}, "2026-09-20")
+    assert jobs[0] == "ycsb-load-2026-09-20"
+
+    jobs.clear()
+    monkeypatch.setattr(cell, "mongo_int", lambda js: spec["recordcount"])
+    cell.mongo_prepare(spec, "x86-stock", {}, "2026-09-20")
+    assert not any(j.startswith("ycsb-load") for j in jobs)
+
+
+# --- a Job that printed a marker and nothing else is still no summary --------
+
+def test_an_empty_body_after_the_marker_is_not_a_summary():
+    assert cell.k6_summary(f"boom\n{cell.SUMMARY_MARKER}\n") is None
+    assert cell.k6_summary("no marker here") is None
+    assert cell.k6_summary(f"{cell.SUMMARY_MARKER}\n{{\"metrics\": {{}}}}") == {"metrics": {}}
+
+
+# --- the lab day is the local day -------------------------------------------
+
+def test_the_default_date_is_the_local_date_not_utc(plan):
+    from datetime import datetime
+    today = datetime.now().astimezone().date().isoformat()
+    assert f"=== {today}  java/arm-tuned" in plan("--workload", "java", "--cell", "arm-tuned")
 
 
 # --- S3: a measured run with no output is invalid, not absent ----------------

@@ -48,8 +48,18 @@ _TOP_POD = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)Mi")
 _LOADER_PODS = ("k6-", "ycsb-", "iperf3-client")
 
 
+APERF_LOG = "aperf.log"
+
+
 def aperf_start(node, seconds, out_dir):
-    """Start the APerf recording that should cover the measured run."""
+    """Start the APerf recording that should cover the measured run.
+
+    Its output lands in run-<i>/aperf/aperf.log, next to the tarball, and that
+    file is the only diagnostic when `aperf_finish` reports "failed: exit 1":
+    the plugin says there why (no PMU in the guest, no /boot, a pod that would
+    not schedule) and the runner deliberately does not fail the run over it.
+    Before, that output went to a pipe nobody read (config.popen).
+    """
     if not config.DRY_RUN:
         out_dir.mkdir(parents=True, exist_ok=True)
     return config.popen(
@@ -60,6 +70,7 @@ def aperf_start(node, seconds, out_dir):
             f"--namespace={APERF_NAMESPACE}",
         ],
         cwd=out_dir,
+        log=None if config.DRY_RUN else out_dir / APERF_LOG,
     )
 
 

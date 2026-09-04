@@ -54,6 +54,8 @@ kubectl aperf --help
 | Esperar el borrado de un Job | `kubectl wait --for=delete job/<nombre> -n aad --timeout=60s` | https://kubernetes.io/docs/reference/kubectl/generated/kubectl_wait/ — `--for` acepta `[create\|delete\|condition=...\|jsonpath=...]`, y el ejemplo es literal: "Wait for the pod "busybox1" to be deleted, with a timeout of 60s, after having issued the "delete" command". Devuelve error si el objeto nunca existió, que es el caso normal, así que va con `check=False` |
 | Columnas de `kubectl top` | nodo: `NAME CPU(cores) CPU(%) MEMORY(bytes) MEMORY(%)`; pod: `NAME CPU(cores) MEMORY(bytes)` | kubectl 1.33, `staging/src/k8s.io/kubectl/pkg/metricsutil/metrics_printer.go`: `NodeColumns = []string{"NAME", "CPU(cores)", "CPU(%)", "MEMORY(bytes)", "MEMORY(%)"}` y `PodColumns = []string{"NAME", "CPU(cores)", "MEMORY(bytes)"}`, con la CPU impresa como `%vm` y la memoria como `%vMi`. **El listado de pods no trae porcentaje**: son dos parsers, no uno |
 | Nodo del pod de iperf3 | `kubectl -n aad get pod -l app=iperf3-server -o jsonpath='{.items[0].spec.nodeName}'` | https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/ — `nodeName` (string) en `PodSpec`: "NodeName is a request to schedule this pod onto a specific node" |
+| cpuset de la celda de Go | `kubectl get --raw /api/v1/namespaces/aad/services/go:8080/proxy/healthz` | https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/ — la forma es `.../services/[https:]<service_name>[:port_name]/proxy`, y `<service_name>:<port_name>` "proxies to the specified port name or port number using http" ("You can also use the port number in place of the *port_name*"). Del otro lado, `runtime.NumCPU()` "returns the number of logical CPUs usable by the current process" (https://pkg.go.dev/runtime#NumCPU), o sea respeta la máscara de afinidad |
+| Sub-métricas por escalón del knee | thresholds sobre `http_req_failed{rate:R}` (`rate<0.01`) y `http_reqs{rate:R}` (`count>0`) | un threshold sobre una sub-métrica etiquetada es lo que hace que k6 la reporte; verificado con `docker run --rm -v $PWD/runner/k6:/scripts:ro grafana/k6:2.2.0 run --quiet -e MODE=knee ... -e SUMMARY_PATH=/dev/stdout /scripts/go.js`, cuyo resumen trae `http_reqs{rate:10}` y `http_req_failed{rate:10}` |
 
 `service_name` sale de la regla de reetiquetado del chart de Pyroscope
 (`labelmap process.executable.name → service_name`, en
@@ -103,7 +105,7 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 |---|---|---|
 | `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6, escalera 200→6000 rps, SLO p99 100 ms |
 | `go` | `x86-stock`, `arm-stock` | k6, escalera 1000→20000 rps, SLO p99 20 ms |
-| `inference` | `x86-stock`, `x86-tuned`, `x86-t15`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera |
+| `inference` | `x86-stock`, `x86-tuned`, `x86-t15`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
 | `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | go-ycsb, escalera de hilos 16/32/64/128, SLO p99 READ 5 ms |
 | `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
 
@@ -113,19 +115,27 @@ celdas de un workload que corren sobre la node group tuned que les corresponde
 
 Todos los defaults viven en `config.WORKLOADS` y se pueden pisar desde la CLI:
 `--slo-ms`, `--rate-start`, `--rate-step`, `--rate-max`, `--stage-seconds`,
-`--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`, `--date`,
-`--override-budget`, y `--env K=V` (repetible) para cualquier otra variable de
-los scripts de k6. `--env` llega a las tres cargas de k6 de la celda —
+`--ramp-seconds`, `--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`,
+`--date`, `--override-budget`, `--warm-pages` y `--warm-max-min` (los dos topes
+del calentamiento de Mongo), `--reload` (bota la colección de YCSB y la vuelve a
+cargar antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
+de los scripts de k6. `--env` llega a las tres cargas de k6 de la celda —
 calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
+`--date` es la fecha **local**, no UTC: un día de lab que sigue después de las
+19:00 en Lima o Buenos Aires no se parte en dos directorios (ni en dos gates de
+presupuesto).
 
 Al terminar el día de lab, antes de que la persona corra `terraform destroy`:
 
 ```bash
-uv run cell --teardown-day     # borra el StatefulSet de Mongo y todos los PVC
+uv run cell --teardown-day     # NodePools, Jobs, perilla de red, sts de Mongo y
+                               # todos los PVC; después los dos describe-volumes
 ```
 
 Eso borra también el PVC de 20 GiB de Pyroscope, que es la intención: es el
-almacén de perfiles de un día de lab, no una base de datos.
+almacén de perfiles de un día de lab, no una base de datos. El orden completo del
+cierre está en un solo lugar, el README raíz, sección "Reproducir" → "Cierre del
+día de lab"; este comando es su paso del medio y lo imprime al terminar.
 
 El dataset de Mongo sobrevive **entre celdas del mismo día** a propósito: el
 `ycsb-load` de 20M registros corre una sola vez (cuando la colección está vacía)
@@ -154,6 +164,7 @@ results/
                                            # TODOS los nodos de la celda (red usa 2)
         meta.json                          # cpuset, aperf, flamegraph, invalidaciones
         aperf/aperf_record_<ts>.tar.gz
+        aperf/aperf.log                  # stdout+stderr del plugin, el diagnóstico
         flamegraph.json                    # render de Pyroscope (no hay PNG en la API)
 ```
 
@@ -166,7 +177,13 @@ uv run python -m analysis.charts ../results/<fecha> --out /tmp/figs
 ```
 
 `stats.summarize` devuelve mediana y min/max por celda más `usd_per_kop`,
-`usd_per_mtok` y `cpu_per_gbps` cuando hay tarifa. Sin tarifa capturada
+`usd_per_mtok` y `cpu_per_gbps` cuando hay tarifa. `cpu_per_gbps` es una razón
+entre dos cosas medidas en ventanas distintas y conviene leerla así: **CPU
+mediana del nodo SUT sobre TODA la ventana de la celda de red** (las muestras de
+`kubectl top` cubren la corrida de ida y la de vuelta) dividida por los **Gbps de
+la corrida de ida** (`iperf.json`). Es un indicador comparable entre celdas
+—las dos puntas son del mismo tipo de instancia— y no un costo de CPU por Gbps
+instantáneo. Sin tarifa capturada
 (`results/cost.md` todavía en `TODO`) esos campos simplemente no aparecen: un
 precio inventado en un slide de costo es un número equivocado, no aproximado.
 
@@ -178,30 +195,54 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
 - **cpuset exclusivo**: `cat /sys/fs/cgroup/cpuset.cpus.effective` dentro del pod
   medido. Se esperan 15 vCPU (7 en `x86-smtoff`); si el cpuset es el nodo entero,
   la política `static` del CPU manager no quedó puesta y la celda se marca
-  inválida y aborta. Es un control, no una perilla.
+  inválida y aborta. Es un control, no una perilla. **Una lectura vacía tampoco
+  pasa**: se marca `cpuset_unreadable` y la celda aborta igual. La celda de Go es
+  la excepción de forma, no de fondo: su imagen es distroless y no tiene shell
+  donde correr un `cat`, así que el servidor informa su propia máscara de
+  afinidad (`runtime.NumCPU()`) por `/healthz` y el runner la lee por el proxy de
+  Services del API server.
 - **guard del loader**: `kubectl top node` cada 10 s alrededor de **las dos**
   escaleras (k6 y go-ycsb); si el nodo `loader` pasa de 70 % de CPU durante el
   knee, el knee es el del generador y no el del silicio: queda escrito en
   `knee.json` y la celda aborta. En la celda de red el guard no aplica (el
   generador es el segundo nodo de la celda, no el loader) y se saltea explícito.
-- **knee inservible**: si el knee trae `dropped_iterations`, peticiones fallidas
-  o el guard disparado, la celda **aborta antes de las corridas fijas** con el
-  remedio en el mensaje (subir `PREALLOC_VUS`/`MAX_VUS` con `--env`, o agrandar el
-  loader). Medir al 80 % de un knee inválido es medir el 80 % de nada.
+- **knee inservible**: la escalera se juzga **escalón por escalón**, no entera. Un
+  escalón vale si entregó la carga que ofreció
+  (`http_reqs{rate:R}.count >= 0.95 x R x (STAGE_SECONDS - RAMP_SECONDS)`) y si
+  contestó (`http_req_failed{rate:R}.rate < 0.01`); el knee es el último escalón
+  válido con p99 <= SLO, y lo que pasa **después** del cruce se ignora, porque
+  arriba del knee la escalera tiene que romperse: esa es la definición de knee.
+  La regla entera de corrida (`invalid_reasons`) queda solo para las corridas
+  fijas — aplicada a la escalera rechazaba justamente las que encontraban el
+  knee. La celda **aborta antes de las corridas fijas** si el primer escalón ya
+  es inválido, si el guard del loader disparó, o si el knee cayó en el tope de la
+  escalera (`ladder_never_crossed`: nada cruzó el SLO, así que el techo lo puso
+  el script y no el silicio; hay que subir `--rate-max`, o `--threads` en Mongo).
+  Medir al 80 % de un knee inválido es medir el 80 % de nada.
 - **corridas inválidas**: `http_req_failed.rate > 0.01`,
   `dropped_iterations.count > 0` o un Job que no imprimió resumen
   (`no_summary`) marcan la corrida en `meta.json`. La corrida queda guardada,
   `analysis.stats` la deja fuera de las medianas y la lista en `excluded`, y si
   quedan menos de tres corridas válidas la celda sale con `insufficient_runs` y
   los gráficos la saltean (el ledger igual la cobra).
-- **APerf**: `ok` o el motivo. Si el plugin no graba en Bottlerocket la corrida
-  igual vale — el argumento se sostiene con el knee y los flame graphs.
+- **APerf**: `ok` o el motivo, y la salida completa del plugin en
+  `run-<i>/aperf/aperf.log`. Ese archivo es el único diagnóstico cuando dice
+  `failed: exit 1` (sin PMU en el guest, sin `/boot`, un pod que no programa).
+  Antes esa salida iba a un pipe que nadie leía, que además es la forma de que un
+  hijo hablador se cuelgue al llenar el buffer de 64 KiB. Si el plugin no graba
+  en Bottlerocket la corrida igual vale — el argumento se sostiene con el knee y
+  los flame graphs.
 - **Pyroscope**: `ok` o el motivo, más el `flamegraph.json` de la corrida.
 - **Mongo**: cantidad de documentos al empezar y el delta de
-  `pages read into cache` de cada pasada de calentamiento. El calentamiento
-  repite hasta que dos muestras seguidas se diferencien en menos de 1000 páginas,
-  con un tope de 20 minutos de reloj; si se llega al tope la celda se marca
-  `cache_not_warm` y aborta, porque esa corrida mediría EBS y no memoria.
+  `pages read into cache` de cada pasada de calentamiento. La colección está
+  vacía (y se carga) o está completa (y se reusa): cualquier número intermedio es
+  `partial_dataset` y la celda se niega a medir, porque una carga cortada a la
+  mitad contesta todas las lecturas y es otro benchmark, con el control de
+  calentamiento perfectamente plano mientras pasa. El calentamiento repite hasta
+  que dos muestras seguidas se diferencien en menos de 1000 páginas
+  (`--warm-pages`), con un tope de 20 minutos de reloj (`--warm-max-min`); si se
+  llega al tope la celda se marca `cache_not_warm` y aborta, porque esa corrida
+  mediría EBS y no memoria.
 - **minutos por celda**: lo único que se factura por celda, y lo que consume el
   ledger.
 
@@ -236,6 +277,16 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   de YCSB (load y run) y tiene que coincidir, así que el runner **verifica** que
   el YAML renderizado lo traiga en vez de sustituirlo. `render()` además falla si
   queda algún `__PLACEHOLDER__` sin reemplazar.
+- **`PUSH_DATE` se atrapa antes de encender nada**: antes del `scale()` el runner
+  renderiza el overlay (`kubectl kustomize`) y las plantillas de Job del workload
+  y se niega a seguir si todavía aparece el placeholder. Llega al clúster como
+  `ImagePullBackOff`, que son quince minutos de un 4xlarge pago hasta que alguien
+  lo lee; renderizarlo aquí cuesta un segundo. En `--dry-run` lo imprime en vez de
+  cortar, así que el plan se sigue pudiendo leer con los manifiestos como están
+  hoy.
+- **Cada Job lleva la etiqueta `aad/cell` de su celda** y la celda los borra al
+  terminar (`kubectl -n aad delete jobs -l aad/cell=<celda>`). Los logs ya están
+  en disco; lo que dejaban era sus pods en `kubectl get pods` y el nombre tomado.
 - **La perilla de red la aplica el runner**, y solo en el workload `net`
   (`kubectl apply -f manifests/base/net-tuned-daemonset.yaml` antes,
   `kubectl delete -f` después). En `manifests/base` retunearía también las celdas
@@ -253,7 +304,11 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
 
   `uv sync` lo arregla solo cuando además reinstala el paquete; con el entorno ya
   auditado no reescribe el archivo y el flag sigue puesto, así que `chflags` es lo
-  que hay que correr. Variante peor del mismo problema: si el directorio del
+  que hay que correr. Vuelve a aparecer **cada vez que se edita el código del
+  runner**: `uv run` sincroniza, la sincronización reinstala el editable, y la
+  reinstalación vuelve a marcar el `.pth` como oculto (además de repetirle la
+  línea). Las dos salidas que funcionan son `rm -rf .venv && uv sync` una vez
+  después de editar, o `chflags nohidden $P && uv run --no-sync cell ...`. Variante peor del mismo problema: si el directorio del
   proyecto se sincroniza y aparecen copias `... 2.dist-info` / `... 2.pth`,
   `uv sync` falla con `Failed to read metadata from: .../aad_runner-0.1.0 2.dist-info`;
   ahí lo que corresponde es `rm -rf .venv && uv sync`. Los tests no dependen de

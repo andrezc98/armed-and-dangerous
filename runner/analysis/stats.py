@@ -79,7 +79,18 @@ def summarize(cell_dir, usd_per_hour=None):
             if tokens:
                 tok_s.append(tokens["values"]["count"] / (summary["state"]["testRunDurationMs"] / 1000.0))
         elif (run / "ycsb.txt").exists():
-            read = knee.parse_ycsb((run / "ycsb.txt").read_text())["READ"]
+            # go-ycsb prints its report only if it finished. A run killed part
+            # way through leaves a file with no READ line, and reading that as a
+            # KeyError would take the whole analysis down with it; it is one
+            # invalid run, exactly like a k6 Job that printed no summary.
+            parsed = knee.parse_ycsb((run / "ycsb.txt").read_text())
+            missing = [line for line in ("READ", "TOTAL") if line not in parsed]
+            if missing:
+                out["excluded"].append(
+                    {"run": run.name, "reasons": [f"ycsb.txt has no {'/'.join(missing)} line"]}
+                )
+                continue
+            read = parsed["READ"]
             p99.append(read["99th(us)"] / 1000.0)
             rps.append(read["OPS"])
         elif (run / "iperf.json").exists():
