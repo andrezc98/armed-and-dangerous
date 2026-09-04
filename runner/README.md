@@ -76,7 +76,7 @@ uv run cell --workload java --cell arm-tuned --dry-run
 uv run cell --workload java --cell arm-tuned --runs 3
 ```
 
-Antes de la primera celda del día hacen falta dos archivos que escribe una
+Antes de la primera celda del día hacen falta tres archivos que escribe una
 persona, no el runner:
 
 1. **`results/<fecha>/cluster.json`**, con los nombres del clúster y de las node
@@ -97,7 +97,21 @@ persona, no el runner:
    `runner/tests/fixtures/cluster.json` y lo dice en la primera línea del plan,
    así que el plan se puede leer sin clúster.
 
-2. **`results/cost.md` con las tarifas del día.** Antes de subir cualquier node
+2. **`results/<fecha>/ecr.json`**, con el registro de las imágenes propias. Mismo
+   trato que el anterior, pero del root `infra/ecr` (ver `infra/ecr/README.md`):
+
+   ```bash
+   terraform -chdir=infra/ecr output -json > results/$(date +%F)/ecr.json
+   ```
+
+   Los dos archivos están **git-ignored**: llevan el id de la cuenta sandbox. El
+   tag de las imágenes, en cambio, sale de `results/images.json`, que **sí** se
+   commitea (tag y digests, sin datos de cuenta) y lo escribe el push gated
+   (`PUSH=1 apps/build-multiarch.sh`). `--image-tag <tag>` lo pisa para apuntar
+   una celda a otro tag que ya esté en ECR. En `--dry-run` los dos caen en sus
+   fixtures y el plan lo dice.
+
+3. **`results/cost.md` con las tarifas del día.** Antes de subir cualquier node
    group el runner lee ese archivo y el ledger del día: si alguna tarifa sigue en
    `TODO` se niega a escalar nada, y si el día ya superó `estimate_per_day_usd`
    también, salvo que se pase `--override-budget` a propósito. `--dry-run` pasa
@@ -120,9 +134,10 @@ celdas de un workload que corren sobre la node group tuned que les corresponde
 Todos los defaults viven en `config.WORKLOADS` y se pueden pisar desde la CLI:
 `--slo-ms`, `--rate-start`, `--rate-step`, `--rate-max`, `--stage-seconds`,
 `--ramp-seconds`, `--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`,
-`--date`, `--override-budget`, `--warm-pages` y `--warm-max-min` (los dos topes
-del calentamiento de Mongo), `--reload` (bota la colección de YCSB y la vuelve a
-cargar antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
+`--date`, `--override-budget`, `--image-tag` (el tag de las imágenes propias en
+ECR, si no el de `results/images.json`), `--warm-pages` y `--warm-max-min` (los
+dos topes del calentamiento de Mongo), `--reload` (bota la colección de YCSB y la
+vuelve a cargar antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
 de los scripts de k6. `--env` llega a las tres cargas de k6 de la celda —
 calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
 `--date` es la fecha **local**, no UTC: un día de lab que sigue después de las
@@ -155,8 +170,10 @@ baja a cero y vuelve a programarse sobre el nodo de la celda siguiente;
 ```
 results/
   cost.md                                  # tarifas, a mano el día del lab
+  images.json                              # tag y digests del push, commiteado
   <fecha>/
-    cluster.json                           # terraform output -json, escrito a mano
+    cluster.json                           # terraform output -json de infra/, a mano
+    ecr.json                               # terraform output -json de infra/ecr, a mano
     ledger.md                              # costo del día, por celda
     <workload>/<celda>/
       cell.json                            # instancia, nodos, minutos, invalidaciones
@@ -281,13 +298,31 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   de YCSB (load y run) y tiene que coincidir, así que el runner **verifica** que
   el YAML renderizado lo traiga en vez de sustituirlo. `render()` además falla si
   queda algún `__PLACEHOLDER__` sin reemplazar.
-- **`PUSH_DATE` se atrapa antes de encender nada**: antes del `scale()` el runner
-  renderiza el overlay (`kubectl kustomize`) y las plantillas de Job del workload
-  y se niega a seguir si todavía aparece el placeholder. Llega al clúster como
-  `ImagePullBackOff`, que son quince minutos de un 4xlarge pago hasta que alguien
-  lo lee; renderizarlo aquí cuesta un segundo. En `--dry-run` lo imprime en vez de
-  cortar, así que el plan se sigue pudiendo leer con los manifiestos como están
-  hoy.
+- **El centinela `:UNSET` se atrapa antes de encender nada**: antes del `scale()`
+  el runner renderiza el overlay y las plantillas de Job del workload y se niega a
+  seguir si todavía aparece. Llega al clúster como `ImagePullBackOff`, que son
+  quince minutos de un 4xlarge pago hasta que alguien lo lee; renderizarlo aquí
+  cuesta un segundo. En `--dry-run` lo imprime en vez de cortar.
+- **Las imágenes propias no tienen registro en git**: los manifiestos las nombran
+  `aad-java:UNSET`, `aad-go:UNSET`, `aad-iperf3:UNSET` y `aad-ycsb:UNSET`, porque
+  el registro real es `<cuenta>.dkr.ecr.us-east-1.amazonaws.com` y el id de cuenta
+  no se commitea. El runner lo pone de dos maneras, según qué esté renderizando:
+  - **Overlays**: escribe un kustomization descartable en un directorio temporal
+    con `resources: [<overlay>]` y un `images:` con las cuatro entradas
+    (`name` / `newName` / `newTag`) y corre `kubectl kustomize` sobre él. Los
+    campos son los de la documentación de kustomize — `newName` "Override the
+    image name for images whose image name matches `name`", `newTag` "Override
+    the image tag or digest"
+    (https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/images/).
+    La entrada `resources` es una ruta **relativa** calculada con
+    `os.path.relpath`: kustomize rechaza una absoluta con "new root ... cannot be
+    absolute" (kustomize v5.6.0 dentro de kubectl 1.33.9), y eso reventaría
+    después de que la node group ya está arriba.
+  - **Plantillas de Job**: no son parte de ningún kustomization, así que `render()`
+    sustituye el centinela en el mismo paso en el que llena los
+    `__PLACEHOLDER__`. Es el diff más chico de los dos caminos que había: pasar
+    cada Job renderizado por otro `kubectl kustomize` habría sido un subproceso
+    más por Job y un `yaml.safe_load` de una cadena vacía en `--dry-run`.
 - **Cada Job lleva la etiqueta `aad/cell` de su celda** y la celda los borra al
   terminar (`kubectl -n aad delete jobs -l aad/cell=<celda>`). Los logs ya están
   en disco; lo que dejaban era sus pods en `kubectl get pods` y el nombre tomado.
@@ -333,5 +368,8 @@ ningún escalón pase, `java-fixed.json`, `go-fixed.json`) y de iperf3 3.20
 `top-pod.txt` y `top-net.json` son sintéticos, escritos con la forma exacta que
 producen k6 con `inference.js`, go-ycsb y las dos tablas de `kubectl top`
 (`test_capture.py` verifica que `top-net.json` siga teniendo la forma que el
-parser produce). `cluster.json` es la salida de `terraform output -json` con su
-envoltorio `{"value": ...}`, que es lo que `--dry-run` lee cuando no hay clúster.
+parser produce). `cluster.json` y `ecr.json` son salidas de
+`terraform output -json` con su envoltorio `{"value": ...}`, que es lo que
+`--dry-run` lee cuando no hay clúster; `images.json` es el archivo que escribe el
+push. El id de cuenta que aparece en `ecr.json` es `123456789012`, el valor de
+documentación de AWS, no una cuenta.

@@ -13,23 +13,55 @@
 #     attestation will be created for the build result" (--provenance docs);
 #     this lab doesn't need supply-chain attestations, and skipping them
 #     keeps the OCI index a flat, one-manifest-per-platform list.
+#   `docker buildx imagetools inspect --format` "Format the output using the
+#     given Go template", default `{{.Manifest}}`; `{{json .Manifest}}` renders
+#     the manifest list as JSON, whose `digest` is the manifest-list digest.
+#   https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html
+#     `aws ecr get-login-password --region <region> | docker login --username AWS
+#      --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com` -
+#     verbatim from "Private registry authentication in Amazon ECR"; the token
+#     "is valid for 12 hours".
 #
 # PUSH=0 (default): no registry involved. Builds to a local OCI tarball per
-# image and asserts the tarball's index.json lists the expected platforms.
-# PUSH=1 (GATED, speaker-only): pushes to GHCR and runs imagetools inspect
-# against the registry so both manifests are visible.
+# image, tagged with the bare name the manifests use, and asserts the tarball's
+# index.json lists the expected platforms.
+# PUSH=1 (GATED, speaker-only): pushes to the four private ECR repositories of
+# the sandbox account (infra/ecr), runs imagetools inspect against the registry
+# so both manifests are visible, and writes ../results/images.json with the tag
+# and one digest per image.
 set -euo pipefail
 
-REGISTRY="${REGISTRY:-ghcr.io/andrezc98}"
 TAG="${TAG:-$(date +%F)}"
 PUSH="${PUSH:-0}"
 OUT_DIR="${OUT_DIR:-./build-out}"
+REGION="${REGION:-us-east-1}"
+# Empty by default: with PUSH=0 the images are tagged `aad-<name>:<tag>`, which
+# is exactly what the manifests carry, and no registry has to exist.
+REGISTRY="${REGISTRY:-}"
 
-# ECR fallback for the sandbox account (commented, no account id, no push):
-# REGISTRY=<account-id>.dkr.ecr.us-east-1.amazonaws.com
-# aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "$REGISTRY"
+# The GHCR form this used to have, kept as the alternative:
+# REGISTRY=ghcr.io/<owner> PUSH=1 ./build-multiarch.sh
+# echo "$GITHUB_TOKEN" | docker login ghcr.io --username <owner> --password-stdin
+# It is not the lab's path any more: ECR pulls from inside the region with the
+# node IAM role and needs no registry secret in the cluster (infra/ecr/README.md).
 
 cd "$(dirname "$0")"
+
+# An explicit REGISTRY takes the script off the ECR path entirely (the GHCR
+# alternative above), and then the docker login is the caller's job.
+if [ "$PUSH" = "1" ] && [ -z "$REGISTRY" ]; then
+  # Bash mirror of runner/config.py require_sandbox(): a push goes to the
+  # speaker's sandbox account or it does not go.
+  case "${AWS_PROFILE:-}" in
+    *sandbox*) ;;
+    *) echo "ERROR: AWS_PROFILE must be the personal sandbox profile (name contains 'sandbox'); refusing to push with default credentials" >&2
+       exit 1 ;;
+  esac
+  ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+  REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
+  aws ecr get-login-password --region "$REGION" \
+    | docker login --username AWS --password-stdin "$REGISTRY"
+fi
 
 # All four images need a builder that can build for a foreign platform and
 # export multi-platform results (the default "docker" driver builder cannot).
@@ -52,9 +84,11 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+digests=()
+
 for name in "${images[@]}"; do
   platforms="$(platforms_for "$name")"
-  ref="$REGISTRY/aad-$name:$TAG"
+  ref="${REGISTRY:+$REGISTRY/}aad-$name:$TAG"
   echo "=== building $ref ($platforms) ==="
 
   if [ "$PUSH" = "1" ]; then
@@ -62,6 +96,11 @@ for name in "${images[@]}"; do
       --provenance=false --sbom=false --push "./$name"
     echo "=== imagetools inspect $ref ==="
     docker buildx imagetools inspect --builder aad "$ref"
+    # Only the sha256: value, never the ref: ../results/images.json is committed
+    # and must carry no account data.
+    digests+=("aad-$name" "$(docker buildx imagetools inspect --builder aad \
+      --format '{{json .Manifest}}' "$ref" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')")
   else
     tar_path="$OUT_DIR/aad-$name.tar"
     docker buildx build --builder aad --platform "$platforms" --tag "$ref" \
@@ -100,3 +139,26 @@ print(",".join(sorted(platforms)))
     fi
   fi
 done
+
+if [ "$PUSH" = "1" ]; then
+  # The one thing the runner reads out of a push: which tag is in ECR. The
+  # registry is NOT in here - it carries the account id and it reaches the
+  # runner through the git-ignored results/<date>/ecr.json instead.
+  mkdir -p ../results
+  python3 -c '
+import json, sys, time
+tag, pairs = sys.argv[1], sys.argv[2:]
+json.dump({
+    "tag": tag,
+    "pushed": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    "digests": dict(zip(pairs[::2], pairs[1::2])),
+}, open("../results/images.json", "w"), indent=1, sort_keys=True)
+open("../results/images.json", "a").write("\n")
+' "$TAG" "${digests[@]}"
+  echo "=== wrote ../results/images.json (tag $TAG, ${#images[@]} image(s)) ==="
+  if [ "${#images[@]}" -ne 4 ]; then
+    echo "WARNING: only ${#images[@]} image(s) were built, so results/images.json" >&2
+    echo "         lists only those digests. Re-run without positional args before" >&2
+    echo "         committing it." >&2
+  fi
+fi

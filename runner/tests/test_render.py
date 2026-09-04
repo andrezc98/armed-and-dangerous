@@ -1,10 +1,14 @@
 """The Job templates render into valid YAML with nothing left unfilled."""
 
+import shutil
+
 import pytest
 import yaml
 
 import cell
 import config
+
+ECR = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
 
 
 def test_the_k6_job_is_valid_yaml_and_carries_the_env():
@@ -71,3 +75,39 @@ def test_cpuset_size_counts_ranges_and_singletons():
     assert cell.cpuset_size("0-15") == 16
     assert cell.cpuset_size("1-7") == 7
     assert cell.cpuset_size("2,4,6-8") == 5
+
+
+# --- the own images get their registry back at render time -------------------
+
+def test_a_job_template_renders_with_the_registry_and_tag_of_the_day():
+    """The templates say `aad-iperf3:UNSET` in git; nothing but the runner knows
+    which account they are pulled from."""
+    doc = yaml.safe_load(
+        cell.render(config.MANIFESTS / "workloads" / "net" / "base" / "iperf3-client-job.yaml",
+                    NAME="iperf3-client-arm-tuned-fwd-r1", CELL="arm-tuned")
+    )
+    image = doc["spec"]["template"]["spec"]["containers"][0]["image"]
+    assert image == f"{ECR}/aad-iperf3:2026-09-19"
+
+
+def test_rendering_without_a_registry_is_refused(monkeypatch):
+    """An empty cell.IMAGES used to render `None/aad-ycsb:None` and only fail in
+    the cluster, on a node that is already billing."""
+    monkeypatch.setattr(cell, "IMAGES", {})
+    with pytest.raises(RuntimeError, match="load_images"):
+        cell.render(config.MANIFESTS / "workloads" / "mongo" / "base" / "ycsb-load-job.yaml",
+                    NAME="ycsb-load-2026-09-19")
+
+
+@pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl is not installed")
+def test_an_overlay_renders_through_the_throwaway_kustomization():
+    """The images transformer runs from a temp dir outside the repo, so the
+    resources entry has to be a relative path: kustomize refuses an absolute one
+    with "new root ... cannot be absolute", and the cell would die after the node
+    group is already up."""
+    rendered = cell.kustomize_overlay("go", "x86-stock")
+    images = [doc["spec"]["template"]["spec"]["containers"][0]["image"]
+              for doc in yaml.safe_load_all(rendered)
+              if doc and doc["kind"] == "Deployment"]
+    assert images == [f"{ECR}/aad-go:2026-09-19"]
+    assert cell.UNSET_TAG not in rendered

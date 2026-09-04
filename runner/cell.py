@@ -14,8 +14,10 @@ than as a plugin system.
 
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -37,10 +39,27 @@ SCALE_DOWN_RETRIES = 3
 SCALE_DOWN_BACKOFF = 10
 JOB_DELETE_TIMEOUT = 60
 
-# The literal image tag every own image still carries until the gated GHCR push
-# happens (manifests/base/README.md). Reaching the cluster with it costs the
-# fifteen paid minutes an ImagePullBackOff takes to become obvious.
-PUSH_DATE = "PUSH_DATE"
+# The own images are written into the manifests by bare name and a sentinel tag
+# (`aad-java:UNSET`), so nothing in git carries the sandbox account id. The
+# registry and the tag only exist at render time: the registry comes from
+# results/<date>/ecr.json (git-ignored, it has the account id in it) and the tag
+# from results/images.json (committed, written by the gated push). Reaching the
+# cluster with the sentinel still on costs the fifteen paid minutes an
+# ImagePullBackOff takes to become obvious.
+UNSET_TAG = "UNSET"
+OWN_IMAGES = ("aad-java", "aad-go", "aad-iperf3", "aad-ycsb")
+IMAGES = {}  # {"registry": ..., "tag": ...}, filled once per run by load_images()
+_UNSET_IMAGE = re.compile(rf"({'|'.join(OWN_IMAGES)}):{UNSET_TAG}")
+
+# The throwaway kustomization the runner renders every overlay through: the
+# overlays name their images bare, this is what puts the registry back.
+# `resources` is a RELATIVE path on purpose - kustomize refuses an absolute one
+# ("new root ... cannot be absolute", kustomize v5.6.0 in kubectl 1.33.9).
+OVERLAY_KUSTOMIZATION = """resources:
+  - {overlay}
+images:
+{images}
+"""
 
 # The Job templates the runner renders itself, per workload: they are not part of
 # any kustomization, so `kubectl kustomize` does not see their image tags.
@@ -115,8 +134,10 @@ def kn(*args, **kw):
 
 def apply_stdin(yaml_text, what):
     # Parse before applying: a broken template render should fail here, in a
-    # millisecond, and not after a node group has been paid for.
-    yaml.safe_load(yaml_text)
+    # millisecond, and not after a node group has been paid for. safe_load_all
+    # and not safe_load, because a rendered overlay is a multi-document stream;
+    # it is a generator, so the list() is what actually parses.
+    list(yaml.safe_load_all(yaml_text))
     print(f"# apply {what}")
     kubectl("apply", "-f", "-", stdin=yaml_text)
 
@@ -141,7 +162,36 @@ CLUSTER_JSON_HELP = (
     "right after the apply (infra/README.md):\n"
     "    terraform -chdir=infra output -json > results/<date>/cluster.json"
 )
+ECR_JSON_HELP = (
+    "The runner never runs terraform. A human writes this file once per lab day, "
+    "right after the apply (infra/ecr/README.md):\n"
+    "    terraform -chdir=infra/ecr output -json > results/<date>/ecr.json"
+)
+IMAGES_JSON_HELP = (
+    "results/images.json is written by the gated push and committed:\n"
+    "    AWS_PROFILE=<sandbox> PUSH=1 apps/build-multiarch.sh\n"
+    "Pass --image-tag <tag> to point this cell at another tag that is in ECR."
+)
 FIXTURE_CLUSTER = config.RUNNER / "tests" / "fixtures" / "cluster.json"
+FIXTURE_ECR = config.RUNNER / "tests" / "fixtures" / "ecr.json"
+FIXTURE_IMAGES = config.RUNNER / "tests" / "fixtures" / "images.json"
+
+
+def read_json(path, fixture, help_text):
+    """One of the files a human leaves for the runner. Missing is fatal, except
+    under --dry-run, where the fixture stands in so the plan is readable without
+    a cluster (and says so)."""
+    if not path.exists() and config.DRY_RUN:
+        print(f"# {path} not found; --dry-run reads the fixture {fixture}")
+        path = fixture
+    if not path.exists():
+        raise SystemExit(f"{path} is missing.\n{help_text}")
+    return json.loads(path.read_text())
+
+
+def unwrap(raw):
+    """`terraform output -json` wraps every value in {"value": ..., "type": ...}."""
+    return {k: (v["value"] if isinstance(v, dict) and "value" in v else v) for k, v in raw.items()}
 
 
 def cluster_info(day_dir):
@@ -153,17 +203,57 @@ def cluster_info(day_dir):
     apply infrastructure is an orchestrator that can apply it by accident.
     """
     path = day_dir / "cluster.json"
-    if not path.exists() and config.DRY_RUN:
-        path = FIXTURE_CLUSTER
-        print(f"# {day_dir / 'cluster.json'} not found; --dry-run reads the fixture {path}")
-    if not path.exists():
-        raise SystemExit(f"{path} is missing.\n{CLUSTER_JSON_HELP}")
-    raw = json.loads(path.read_text())
-    info = {k: (v["value"] if isinstance(v, dict) and "value" in v else v) for k, v in raw.items()}
+    info = unwrap(read_json(path, FIXTURE_CLUSTER, CLUSTER_JSON_HELP))
     missing = [k for k in ("cluster_name", "nodegroup_names") if not info.get(k)]
     if missing:
         raise SystemExit(f"{path} has no {', '.join(missing)}.\n{CLUSTER_JSON_HELP}")
     return info
+
+
+def load_images(day_dir, override_tag=None):
+    """Where the own images live today: registry from ECR, tag from the push.
+
+    Two files because they have two lifetimes and two secrecy levels. The
+    registry is `<account>.dkr.ecr.<region>.amazonaws.com`, so it carries the
+    sandbox account id and its file is git-ignored; it is written once per lab
+    day from `terraform -chdir=infra/ecr output -json`. The tag is whatever the
+    last gated push produced, it is the same for every lab day until the next
+    push, and results/images.json has no account data in it, so that one IS
+    committed.
+    """
+    path = day_dir / "ecr.json"
+    registry = unwrap(read_json(path, FIXTURE_ECR, ECR_JSON_HELP)).get("registry")
+    if not registry:
+        raise SystemExit(f"{path} has no registry.\n{ECR_JSON_HELP}")
+
+    tag = override_tag
+    if not tag:
+        images_path = config.RESULTS / "images.json"
+        tag = read_json(images_path, FIXTURE_IMAGES, IMAGES_JSON_HELP).get("tag")
+        if not tag:
+            raise SystemExit(f"{images_path} has no tag.\n{IMAGES_JSON_HELP}")
+
+    IMAGES.update(registry=registry, tag=tag)
+    print(f"# own images: {registry}/<name>:{tag}")
+    return IMAGES
+
+
+def image_ref(name):
+    if not IMAGES:
+        raise RuntimeError(
+            f"{name} has no registry yet: load_images() has to run before anything renders"
+        )
+    return f"{IMAGES['registry']}/{name}:{IMAGES['tag']}"
+
+
+def rewrite_images(text):
+    """Put the registry and the tag back on the own images of a manifest.
+
+    The manifests name them bare with a sentinel tag so that git never carries an
+    account id; this is the one place that undoes that, for the Job templates the
+    runner renders itself. Overlays go through kustomize_overlay() instead.
+    """
+    return _UNSET_IMAGE.sub(lambda m: image_ref(m.group(1)), text)
 
 
 def scale(info, mng, size):
@@ -222,6 +312,36 @@ def wait_nodes(label, count, placeholder):
 
 def overlay(workload, cell):
     return str(config.MANIFESTS / "workloads" / workload / "overlays" / cell)
+
+
+def kustomize_overlay(workload, cell):
+    """The overlay rendered with the own images pointed at the sandbox ECR.
+
+    The overlays name their images bare (`aad-java:UNSET`) so that nothing in git
+    carries the account id. kustomize's images transformer is what puts the
+    registry and the tag back: "newName - Override the image name for images
+    whose image name matches name", "newTag - Override the image tag or digest"
+    (https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/images/).
+    It runs from a throwaway kustomization in a temp dir, so the repo stays free
+    of the account id even while a cell is running.
+
+    An entry the overlay does not use costs nothing: an images entry that matches
+    no image is simply not applied, which is why all four go in every time.
+    """
+    images = "\n".join(
+        f"  - name: {name}\n"
+        f"    newName: {IMAGES['registry']}/{name}\n"
+        f"    newTag: {IMAGES['tag']}"
+        for name in OWN_IMAGES
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()  # /var -> /private/var on macOS; relpath is lexical
+        rel = os.path.relpath(Path(overlay(workload, cell)).resolve(), root)
+        (root / "kustomization.yaml").write_text(
+            OVERLAY_KUSTOMIZATION.format(overlay=rel, images=images)
+        )
+        print(f"# kustomize overlay {workload}/{cell} with the own images of the day")
+        return kubectl("kustomize", str(root), capture=True, quiet=True)
 
 
 def sync_k6_scripts():
@@ -297,10 +417,16 @@ _PLACEHOLDER = re.compile(r"__[A-Z][A-Z_]*__")
 def render(template_path, **subs):
     """Fill a manifests/ Job template. Every __PLACEHOLDER__ must be known here:
     a template that grows one the runner does not pass would otherwise be applied
-    with the literal text in it."""
+    with the literal text in it.
+
+    The own image of the template gets its registry and tag in the same pass:
+    these templates are not part of any kustomization, so no images transformer
+    ever sees them.
+    """
     text = Path(template_path).read_text()
     for key, value in subs.items():
         text = text.replace(f"__{key}__", str(value))
+    text = rewrite_images(text)
     left = set(_PLACEHOLDER.findall(text))
     if left:
         raise RuntimeError(f"{Path(template_path).name} still has {sorted(left)}")
@@ -675,24 +801,25 @@ def budget_gate(day_dir, override, cost_md=cost.COST_MD):
     print(f"# budget: USD {spent:.2f} committed today, estimate {estimate:.2f}")
 
 
-def check_push_date(workload, cell):
-    """No cell starts while the manifests still say :PUSH_DATE.
+def check_images(workload, cell):
+    """No cell starts while anything still says :UNSET.
 
-    That placeholder is the image tag until the gated GHCR push happens
-    (manifests/base/README.md). It reaches the cluster as an ImagePullBackOff,
-    which is fifteen minutes of a paid 4xlarge before anyone reads it; rendering
-    the overlay here costs a second.
+    The sentinel tag is what the manifests carry in git; load_images() and the
+    two renderers are what replace it. One that survives reaches the cluster as
+    an ImagePullBackOff, which is fifteen minutes of a paid 4xlarge before anyone
+    reads it. Rendering the overlay and the workload's Job templates here costs a
+    second.
     """
-    texts = {f"overlay {workload}/{cell}": kubectl("kustomize", overlay(workload, cell),
-                                                   capture=True, quiet=True)}
+    texts = {f"overlay {workload}/{cell}": kustomize_overlay(workload, cell)}
     for rel in JOB_TEMPLATES.get(workload, ()):
-        texts[rel] = (config.MANIFESTS / rel).read_text()
-    left = sorted(what for what, text in texts.items() if PUSH_DATE in text)
+        texts[rel] = rewrite_images((config.MANIFESTS / rel).read_text())
+    left = sorted(what for what, text in texts.items() if f":{UNSET_TAG}" in text)
     if not left:
         return
-    message = (f"{PUSH_DATE} is still the image tag in {', '.join(left)}. Replace it with the "
-               "tag of the gated GHCR push (manifests/base/README.md) before scaling a node "
-               "group up.")
+    message = (f":{UNSET_TAG} is still the image tag in {', '.join(left)}. Every own image is "
+               f"one of {', '.join(OWN_IMAGES)} and gets its registry and tag from "
+               "results/<date>/ecr.json and results/images.json (runner/README.md); an image "
+               "the renderer does not know about has to be added to OWN_IMAGES.")
     if config.DRY_RUN:
         print(f"# (dry-run) this check would stop the cell: {message}")
         return
@@ -716,6 +843,7 @@ def run_cell(args):
         cell_dir.mkdir(parents=True, exist_ok=True)
 
     info = cluster_info(day_dir)
+    load_images(day_dir, args.image_tag)
     mng = config.node_cell(cell)
     nodes_wanted = spec.get("nodes", 1)
     label = f"aad/cell={mng}"
@@ -724,7 +852,7 @@ def run_cell(args):
     print(f"\n=== {date}  {workload}/{cell} on node group {info['nodegroup_names'][mng]} "
           f"({config.instance_type(cell)} x{nodes_wanted}) ===\n")
     budget_gate(day_dir, args.override_budget)
-    check_push_date(workload, cell)
+    check_images(workload, cell)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -742,7 +870,9 @@ def run_cell(args):
             kubectl("apply", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"))
             kn("rollout", "status", "daemonset/net-tuned", "--timeout=300s")
 
-        kubectl("apply", "-k", overlay(workload, cell))
+        # Not `apply -k`: the overlay only becomes appliable once the images
+        # transformer has run over it (kustomize_overlay).
+        apply_stdin(kustomize_overlay(workload, cell), f"overlay {workload}/{cell}")
         kn("rollout", "status", spec["resource"], "--timeout=900s")
 
         if workload == "net":
@@ -1029,6 +1159,8 @@ def parse_args(argv=None):
                         "terraform destroy")
     p.add_argument("--override-budget", action="store_true",
                    help="run even though the day already exceeds estimate_per_day_usd")
+    p.add_argument("--image-tag", dest="image_tag",
+                   help="tag of the own images in ECR (default: the tag in results/images.json)")
     p.add_argument("--slo-ms", type=float, dest="slo_ms")
     p.add_argument("--fixed-seconds", type=int, dest="fixed_seconds")
     p.add_argument("--warmup-seconds", type=int, dest="warmup_seconds")

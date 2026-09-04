@@ -223,27 +223,66 @@ def test_the_ycsb_ladder_is_judged_the_same_way():
     assert "ladder_never_crossed" in cell.uncrossed(128, 128, "threads")[0]
 
 
-# --- the image tag never reaches the cluster as a placeholder ----------------
+# --- the sentinel tag never reaches the cluster ------------------------------
 
-def test_a_manifest_still_tagged_push_date_stops_the_cell(monkeypatch):
+def test_a_manifest_still_tagged_unset_stops_the_cell(monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: "image: ghcr.io/x/aad-go:PUSH_DATE")
-    with pytest.raises(SystemExit, match="PUSH_DATE is still the image tag"):
-        cell.check_push_date("go", "x86-stock")
+    monkeypatch.setattr(cell, "kustomize_overlay", lambda *a: "image: aad-go:UNSET")
+    with pytest.raises(SystemExit, match=":UNSET is still the image tag"):
+        cell.check_images("go", "x86-stock")
 
 
-def test_a_manifest_with_a_real_tag_passes(monkeypatch):
+def test_a_rendered_overlay_passes(monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: "image: ghcr.io/x/aad-go:2026-09-19")
-    assert cell.check_push_date("go", "x86-stock") is None
-
-
-def test_a_dry_run_prints_the_push_date_check_instead_of_failing(plan):
-    # Every manifest in the repo still carries the placeholder today, so the
-    # plan has to stay readable while it does.
-    assert "(dry-run) this check would stop the cell" in plan(
-        "--workload", "mongo", "--cell", "x86-stock"
+    monkeypatch.setattr(
+        cell, "kustomize_overlay",
+        lambda *a: "image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/aad-go:2026-09-19",
     )
+    assert cell.check_images("go", "x86-stock") is None
+
+
+def test_the_job_templates_of_the_workload_are_checked_too(monkeypatch):
+    """The overlay is clean but the Job templates are not part of it, so an own
+    image the renderer does not know about has to be caught here."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kustomize_overlay", lambda *a: "image: registry/aad-iperf3:t")
+    monkeypatch.setattr(cell, "rewrite_images", lambda text: text)  # renderer went blind
+    with pytest.raises(SystemExit, match="iperf3-client-job.yaml"):
+        cell.check_images("net", "x86-stock")
+
+
+def test_a_dry_run_says_which_fixtures_it_read(plan):
+    """No cluster and no push yet, so the plan falls back to the fixtures and
+    the first lines of it have to say so."""
+    out = plan("--workload", "mongo", "--cell", "x86-stock")
+    assert "--dry-run reads the fixture" in out
+    assert "# own images: 123456789012.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-19" in out
+
+
+# --- registry and tag ---------------------------------------------------------
+
+def test_the_registry_comes_from_ecr_json_and_the_tag_from_images_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(config, "RESULTS", tmp_path)
+    (tmp_path / "ecr.json").write_text(json.dumps(
+        {"registry": {"value": "123456789012.dkr.ecr.us-east-1.amazonaws.com"}}))
+    (tmp_path / "images.json").write_text(json.dumps({"tag": "2026-10-03"}))
+    assert cell.load_images(tmp_path) == {
+        "registry": "123456789012.dkr.ecr.us-east-1.amazonaws.com", "tag": "2026-10-03"}
+
+
+def test_image_tag_overrides_images_json_and_does_not_need_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(config, "RESULTS", tmp_path)  # no images.json in it
+    (tmp_path / "ecr.json").write_text(json.dumps(
+        {"registry": {"value": "123456789012.dkr.ecr.us-east-1.amazonaws.com"}}))
+    assert cell.load_images(tmp_path, "2026-10-04")["tag"] == "2026-10-04"
+
+
+def test_a_missing_ecr_json_names_the_terraform_command(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    with pytest.raises(SystemExit, match="terraform -chdir=infra/ecr output -json"):
+        cell.load_images(tmp_path)
 
 
 # --- the cpuset control cannot pass by saying nothing ------------------------
