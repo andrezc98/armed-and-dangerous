@@ -41,6 +41,25 @@ workload corre en todas sus celdas; el clúster queda abajo entre días de lab.
 ## Reproducir
 (completar en el Task 12 con el orden real de corrida y el costo medido)
 
+### Imágenes multi-arch
+`apps/build-multiarch.sh` construye con `docker buildx` las cuatro imágenes
+(`aad-java`, `aad-go`, `aad-iperf3` en `linux/amd64,linux/arm64`; `aad-ycsb`
+solo en `linux/amd64`, porque el loader es x86). Prueba local sin tocar
+ningún registro (exporta un tarball OCI por imagen bajo `apps/build-out/` y
+valida que cada tarball tenga las plataformas esperadas):
+
+```
+PUSH=0 apps/build-multiarch.sh
+```
+
+Push a GHCR (`ghcr.io/andrezc98`) con `docker buildx imagetools inspect` al
+final de cada imagen para confirmar ambos manifests: **queda gated** hasta
+que el speaker lo autorice explícitamente.
+
+```
+PUSH=1 apps/build-multiarch.sh
+```
+
 ## Estructura
 ```
 apps/        java/ (spring-petclinic-rest sobre JDK 25), go/ (baseline stdlib),
