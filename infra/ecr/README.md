@@ -80,13 +80,26 @@ del nodo.**
 
 ## Reproducir
 
+El camino principal es CI, una sola vez:
+
+```bash
+gh workflow run infra.yml -f root=ecr -f action=apply   # GATED
+```
+
+El mismo apply desde la laptop (fallback). El estado vive en el bucket S3 que
+crea `infra/bootstrap/`, y lo único del backend que no está commiteado es el
+nombre del bucket:
+
 ```bash
 cd infra/ecr
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
 $EDITOR terraform.tfvars             # sandbox_account_id real
 
+cp backend.hcl.example backend.hcl   # backend.hcl está git-ignored
+$EDITOR backend.hcl                  # bucket = <state_bucket del bootstrap>
+
 export AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1   # el perfil tiene que contener "sandbox"
-terraform init
+terraform init -backend-config=backend.hcl
 terraform apply                      # GATED, y UNA sola vez
 ```
 
@@ -100,7 +113,9 @@ terraform output -json > ../../results/$(date +%F)/ecr.json
 ```
 
 Con los repositorios creados, el push de las imágenes (GATED, lo corre una
-persona) es:
+persona) sale por `gh workflow run images.yml`, que además commitea
+`results/images.json` solo. El mismo push desde la laptop, que es el fallback y
+la única forma de recuperar un re-push del mismo día, es:
 
 ```bash
 cd ../../apps

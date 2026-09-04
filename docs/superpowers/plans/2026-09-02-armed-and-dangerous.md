@@ -99,6 +99,43 @@ comentada dentro del script.
 - [x] **Step 5:** `outputs.tf` con los outputs de la interfaz. `terraform init && terraform validate` offline (sin credenciales); commitear `.terraform.lock.hcl`.
 - [ ] **Step 6:** Commit `feat(infra): per-cell node groups (smt-off, thp), loader/tools, karpenter nodepool`.
 
+### Task 4b: CI/CD de la infra (GHA + OIDC + S3) — HECHO (2026-09-04)
+
+**Estado (2026-09-04):** hecho. Nació del `apply` fallido del 2026-09-04, que
+además de los dos defectos reales dejó claro que el camino local es frágil: el
+estado vivía en la laptop y cada `apply` dependía de un perfil exportado a mano.
+
+- `infra/bootstrap/`: tercer root, se aplica **una sola vez y a mano** (nunca en
+  CI, porque es el que crea el bucket donde CI guardaría su estado). Crea el
+  bucket de estado (versionado, SSE-S3, acceso público bloqueado, versiones no
+  actuales que expiran a los 30 días, `force_destroy = false`), el proveedor OIDC
+  de GitHub y el rol `aws-aad-gha`.
+- `infra/` y `infra/ecr/` pasan a backend S3 con `use_lockfile` (bloqueo nativo
+  de S3, Terraform >= 1.10; la ruta DynamoDB está deprecada). Configuración
+  parcial: el nombre del bucket no se commitea y entra por `-backend-config`.
+- `.github/workflows/infra.yml` (plan/apply/destroy de cualquiera de los dos
+  roots, un grupo de concurrencia por root, environment `lab`, y los dos
+  `describe-volumes` del cierre antes de un destroy del root `lab`) y
+  `.github/workflows/images.yml` (build multi-arch, push y commit de
+  `results/images.json`). Los dos solo por `workflow_dispatch`.
+- Desvíos y agregados respecto del pedido: el nombre del bucket sale de
+  `bucket_prefix` del propio recurso S3 en vez de un `random_id` (mismo efecto,
+  un provider menos); `images.yml` no lleva inputs de tag ni de subconjunto (la
+  recuperación de un re-push del mismo día queda en el camino local); y se sumó
+  `var.cluster_admin_principal_arns`, porque con el `apply` en CI el creador del
+  clúster es el rol de CI y la laptop se quedaba sin `kubectl`.
+- Pendiente del lado humano: crear el repositorio en GitHub, confirmar el formato
+  del claim `sub` (los repos creados después del 2026-07-15 usan ids inmutables),
+  aplicar el bootstrap, setear las cinco variables y migrar los dos estados. Todo
+  el orden está en `infra/bootstrap/README.md`.
+
+**Files:** `infra/bootstrap/*`, `infra/versions.tf`, `infra/ecr/versions.tf`,
+`infra/{backend.hcl.example,ci.tfvars}`, `infra/ecr/{backend.hcl.example,ci.tfvars}`,
+`.github/workflows/{infra.yml,images.yml}`, `apps/build-multiarch.sh` (`AAD_CI=1`).
+
+- [x] **Step 1:** Bootstrap, backends, workflows, `AAD_CI=1`, docs.
+- [x] **Step 2:** `terraform validate` + `fmt -check` en los tres roots, `actionlint` sobre los dos workflows, `bash -n` + `shellcheck` sobre el script.
+
 ### Task 5: Manifiestos: observabilidad, perillas y workloads [SPEC §3, §3.5, §4]
 
 **Estado (2026-09-04, ronda de fixes 1):** implementado y validado offline (kustomize + kubeconform v0.8.0 sobre k8s 1.36.0). Desvíos: `java.aad.svc:9966` en vez de 8080 (es el puerto real de la app), tag centinela en las imágenes propias hasta el push gated (`PUSH_DATE` hasta el 2026-09-04, `aad-<x>:UNSET` con nombre pelado desde el cambio a ECR privado), sin paso de irqbalance (Bottlerocket no lo empaqueta), chart de Pyroscope 2.2.1 (appVersion 2.2.1; v2.3.0 aún no tiene chart), profiler pineado en 0.147.0, `nodeAffinity In` en los DaemonSets de perillas porque `nodeSelector` es solo igualdad, y los Jobs (YCSB e iperf3 cliente) quedan fuera de los kustomization como plantillas que renderiza el runner (con `__NAME__` propio, porque el pod template de un Job es inmutable).
@@ -135,6 +172,26 @@ Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a 
 - [ ] **Step 7:** Commit `feat(runner): cell orchestrator, knee, capture, cost ledger, analysis`.
 
 ### Task 6.5: Smoke gate (GATED, ~$8, medio día) [SPEC §3.5, §5]
+
+**Estado (2026-09-04, después del apply fallido).** El primer intento de este
+gate murió en el `apply` con dos defectos reales, los dos ya corregidos (Task 4b
+y el commit `fix(infra)` del mismo día):
+
+- el rol del driver EBS adjuntaba
+  `arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2`, que no
+  existe: V2 sí existe pero su ARN no lleva el tramo `service-role/`. Quedó la
+  política sin sufijo, que sí vive ahí;
+- la política del controlador de Karpenter pasaba los 6144 caracteres de una
+  managed policy (cuota L-ED111B8C, no ajustable). El submódulo va ahora con
+  `enable_inline_policy = true` y `enable_spot_termination = false`.
+
+Y el gate en sí se dispara ahora desde GitHub Actions
+(`gh workflow run infra.yml -f root=lab -f action=apply`), no desde la laptop:
+sigue igual de GATED. Antes de la primera corrida hay que completar los pasos
+humanos de la Task 4b (repositorio, claim `sub`, bootstrap, variables,
+migración del estado). El paso 6 de abajo pasa a ser
+`gh workflow run infra.yml -f root=lab -f action=destroy` después de
+`uv run cell --teardown-day`.
 
 **Estado (revisión final, 2026-09-04).** La revisión de rama completa encontró
 defectos transversales en las Tasks 2-6 y esta ola los corrigió antes del gate.

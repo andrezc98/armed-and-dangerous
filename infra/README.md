@@ -29,6 +29,7 @@ el de este directorio y solamente el de este directorio.
 | `ami_type` | `BOTTLEROCKET_x86_64` / `BOTTLEROCKET_ARM_64` | https://docs.aws.amazon.com/eks/latest/APIReference/API_Nodegroup.html |
 | Add-ons | `coredns`, `kube-proxy`, `vpc-cni`, `eks-pod-identity-agent`, `aws-ebs-csi-driver`, `metrics-server` | https://docs.aws.amazon.com/eks/latest/userguide/workloads-add-ons-available-eks.html y https://docs.aws.amazon.com/eks/latest/userguide/community-addons.html |
 | `configuration_values` del add-on EBS CSI | `controller.extraVolumeTags` | values del chart (`charts/aws-ebs-csi-driver/values.yaml`, `kubernetes-sigs/aws-ebs-csi-driver`); el add-on los toma tal cual vía `--configuration-values` (https://docs.aws.amazon.com/eks/latest/userguide/updating-an-add-on.html) |
+| Backend | S3 con `use_lockfile` (bloqueo nativo, Terraform >= 1.10) | https://developer.hashicorp.com/terraform/language/backend/s3 — `use_lockfile`: "Whether to use a lockfile for locking the state file. Defaults to `false`"; en la misma página "DynamoDB-based locking is deprecated and will be removed in a future minor version" |
 | Esperar a Karpenter antes de las CRD | `kubectl -n kube-system rollout status deploy/karpenter --timeout=5m` | https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_status/ — "By default 'rollout status' will watch the status of the latest rollout until it's done"; `--timeout` es "The length of time to wait before ending watch, zero means never" |
 
 Las tres CRD de Karpenter (`infra/karpenter/`) usan `karpenter.sh/v1` y
@@ -59,6 +60,16 @@ nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 
 ## Reproducir
 
+El camino principal es CI: `gh workflow run infra.yml -f root=lab -f action=apply`,
+que asume el rol `aws-aad-gha` por OIDC y toma los valores no sensibles de
+`ci.tfvars` y el resto de variables del repositorio. El orden completo del día
+está en el README raíz. Lo que sigue es el camino local, que sigue siendo válido
+y es el fallback.
+
+El estado ya no es local: vive en el bucket S3 que crea `infra/bootstrap/`. Lo
+único que no está commiteado del backend es el nombre del bucket, así que el
+`init` necesita `-backend-config`.
+
 ```bash
 # Primera línea del día de lab, siempre. El perfil sandbox tiene us-west-2 por
 # default y el lab vive en us-east-1: sin AWS_REGION, cada comando de la CLI
@@ -73,7 +84,10 @@ $EDITOR terraform.tfvars             # admin_cidrs y sandbox_account_id reales;
 # lab es el /32 de salida de la laptop y nada más:
 #   curl -s https://checkip.amazonaws.com
 
-terraform init
+cp backend.hcl.example backend.hcl   # backend.hcl está git-ignored
+$EDITOR backend.hcl                  # bucket = <terraform -chdir=bootstrap output -raw state_bucket>
+
+terraform init -backend-config=backend.hcl
 terraform apply                      # GATED: solo con autorización explícita
 # Si el plan corta con "These credentials belong to an account other than the
 # sandbox_account_id", el perfil exportado no es el del sandbox. Se revisa con
@@ -302,6 +316,19 @@ leído 2026-09-04). En ese mismo archivo `controller.extraCreateMetadata` viene 
 `kubernetes.io/created-for/pvc/namespace` — el segundo filtro del chequeo, que no
 depende de esta configuración
 (`PVCNamespaceTag`, `pkg/driver/constants.go` del mismo repo).
+
+**Quién es admin del clúster depende de quién hizo el `apply`.**
+`enable_cluster_creator_admin_permissions = true` le da el access entry de admin
+a la identidad que corrió el `apply`, y a nadie más. Con el `apply` en CI eso es
+el rol `aws-aad-gha`, no la laptop, y el primer `kubectl` del día responde
+`error: You must be logged in to the server (Unauthorized)`. Para eso está
+`var.cluster_admin_principal_arns` (lista vacía por default, que es exactamente
+el comportamiento viejo del camino local): cada ARN de la lista recibe un access
+entry con `arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy` y
+alcance `type = cluster` (EKS user guide, "Associate access policies with access
+entries"). Los ARNs llevan el id de cuenta, así que el valor no vive en el
+repositorio: llega como `TF_VAR_cluster_admin_principal_arns` desde la variable
+`CLUSTER_ADMIN_ARNS`.
 
 **El gate del sandbox no es solo un nombre de perfil.** `var.sandbox_account_id`
 (sin default, valor real en el `terraform.tfvars` git-ignored, placeholder
