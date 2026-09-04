@@ -54,8 +54,10 @@ cd infra/ecr && terraform init && terraform apply     # GATED
 # 2. Build multi-arch y push de las cuatro imágenes propias (GATED). Mergea en
 #    results/images.json un tag y un digest POR IMAGEN: ese archivo SÍ se
 #    commitea (no lleva datos de cuenta).
-cd ../../apps && AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1 PUSH=1 ./build-multiarch.sh
+cd ../../apps && AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1 PUSH=1 ./build-multiarch.sh
 git add ../results/images.json && git commit -m "build: push <fecha>"
+
+El nombre real del perfil debe contener `sandbox`: `require_sandbox()` (runner) y el script de build lo verifican.
 ```
 
 Por cada día de lab:
@@ -64,7 +66,7 @@ Por cada día de lab:
 # Primera línea del día, siempre: el perfil sandbox tiene us-west-2 por default y
 # el lab vive en us-east-1. Sin AWS_REGION, `aws` apunta a la región equivocada y
 # los chequeos de fuga del cierre devuelven vacío por el motivo equivocado.
-export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+export AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1
 
 cd infra && terraform apply                            # GATED
 mkdir -p ../results/$(date +%F)
@@ -149,7 +151,7 @@ realiza sin attestations de provenance ni SBOM (el script pasa
 attestations.
 
 ```
-AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1 PUSH=1 apps/build-multiarch.sh
+AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1 PUSH=1 apps/build-multiarch.sh
 ```
 
 El script mergea el resultado (un tag y un digest **por imagen**) en

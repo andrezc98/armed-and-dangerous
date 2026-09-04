@@ -64,4 +64,9 @@ variable "control_plane_availability_zone" {
   description = "AZ of the control plane subnet. Any standard AZ other than var.availability_zone (Local Zones do not count)."
   type        = string
   default     = "us-east-1b"
+
+  validation {
+    condition     = var.control_plane_availability_zone != var.availability_zone
+    error_message = "control_plane_availability_zone must differ from availability_zone (EKS requires control-plane subnets in two AZs)."
+  }
 }

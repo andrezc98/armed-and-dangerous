@@ -67,7 +67,7 @@ kubectl aperf --help
 ```bash
 # Primera línea del día de lab, siempre: el perfil sandbox tiene us-west-2 por
 # default y el lab vive en us-east-1.
-export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+export AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1
 
 cd runner
 uv sync

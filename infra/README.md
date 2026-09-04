@@ -63,7 +63,7 @@ nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 # Primera línea del día de lab, siempre. El perfil sandbox tiene us-west-2 por
 # default y el lab vive en us-east-1: sin AWS_REGION, cada comando de la CLI
 # apunta a la región equivocada.
-export AWS_PROFILE=sura-sandbox AWS_REGION=us-east-1
+export AWS_PROFILE=<perfil-sandbox> AWS_REGION=us-east-1
 
 cd infra
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
