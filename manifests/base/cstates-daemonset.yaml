@@ -1,0 +1,113 @@
+# C-states knob: PM QoS CPU latency request pinned at 0 us on the x86 tuned cells.
+#
+# Why this and not the AWS recipe: AWS documents the boot-time sledgehammer
+# ("Edit the GRUB_CMDLINE_LINUX_DEFAULT line and add the intel_idle.max_cstate=1
+# and processor.max_cstate=1 options to set C1 as the deepest C-state for idle
+# cores", https://docs.aws.amazon.com/linux/al2/ug/processor_state_control.html),
+# which needs a reboot. The kernel documents a runtime, revocable equivalent:
+# /dev/cpu_dma_latency, "the CPU latency QoS" device node, where "the process
+# needs to write an s32 value to the open device node" and "as long as the device
+# node is held open that process has a registered request on the parameter"
+# (https://www.kernel.org/doc/html/latest/power/pm_qos_interface.html, latency
+# unit is microseconds). Both verified 2026-09-04.
+#
+# So: write a raw 4-byte s32 zero (a bare ASCII "0" is NOT one of the two
+# documented formats; the other one is the 10-char hex string "0x00000000") and
+# keep fd 3 open for the life of the pod. Deleting the DaemonSet closes the fd
+# and returns the node to stock, which is exactly what the runner wants between
+# cells.
+#
+# PM QoS does not flip /sys/devices/system/cpu/cpu*/cpuidle/state*/disable, so
+# the readiness probe reads the device back instead: the aggregated target value
+# must be 0.
+#
+# Only x86: "AWS Graviton processors have built-in power saving modes and operate
+# at a fixed frequency. Therefore, they do not provide the ability for the
+# operating system to control C-states and P-states"
+# (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html),
+# and m8i.4xlarge is listed there under "C-states only". That asymmetry is the
+# point of the talk, not an omission.
+#
+# nodeAffinity In, not nodeSelector: "Kubernetes only schedules the Pod onto
+# nodes that have each of the labels you specify" - nodeSelector is equality
+# only, so a two-value match needs matchExpressions with operator In
+# (https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+# The aad/sut taint is custom, so the toleration is explicit: the DaemonSet
+# controller only injects tolerations for the node.kubernetes.io/* taints
+# (https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/).
+#
+# UNVERIFIED until the gate: whether Bottlerocket's default SELinux policy lets a
+# privileged pod write /dev/cpu_dma_latency. If it does not, the fallback is the
+# boot setting above, applied through the node group user data like THP already is.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cstates
+  namespace: aad
+spec:
+  selector:
+    matchLabels:
+      app: cstates
+  template:
+    metadata:
+      labels:
+        app: cstates
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: aad/cell
+                    operator: In
+                    values:
+                      - x86-tuned
+                      - x86-smtoff
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: pmqos
+          image: alpine:3.24.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # fd 3 stays open for the life of this shell; closing it drops the request.
+              exec 3>/dev/cpu_dma_latency
+              printf '\000\000\000\000' >&3
+              value=$(od -An -td4 -N4 /dev/cpu_dma_latency | tr -d ' ')
+              if [ "$value" != "0" ]; then
+                echo "PM QoS request did not take: /dev/cpu_dma_latency reads $value us"
+                exit 1
+              fi
+              echo "cpu_dma_latency = 0 us on $(hostname)"
+              sleep infinity
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test "$(od -An -td4 -N4 /dev/cpu_dma_latency | tr -d ' ')" = "0"
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: cpu-dma-latency
+              mountPath: /dev/cpu_dma_latency
+      volumes:
+        # The whole of /dev is not needed; the knob is one character device.
+        - name: cpu-dma-latency
+          hostPath:
+            path: /dev/cpu_dma_latency
+            type: CharDevice

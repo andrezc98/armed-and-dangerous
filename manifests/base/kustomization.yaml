@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespaces are written into each resource instead of set here: the StorageClass
+# is cluster scoped and the Namespace is itself the namespace.
+resources:
+  - namespace.yaml
+  - storageclass-default.yaml
+  - ebpf-profiler.yaml
+  - cstates-daemonset.yaml
+  - net-tuned-daemonset.yaml
+
+# pyroscope-values.yaml is a Helm values file, not a Kubernetes resource, so it
+# is installed with helm (see README.md) and not listed above.

@@ -1,0 +1,50 @@
+# iperf3 client, SUT to SUT, forward direction. Template applied by the runner,
+# which replaces __CELL__ with the cell it is measuring; it is not part of the
+# kustomization because the client must start after the server is ready and
+# because the two directions run one at a time.
+#
+# -P 8 -t 60 -J: eight parallel streams (the image ships iperf3 3.20, where -P
+# spawns one thread per stream), sixty seconds, JSON on stdout for the runner.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iperf3-client
+  namespace: aad
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: iperf3-client
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/cell: __CELL__
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: iperf3-server
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: iperf3
+          image: ghcr.io/andrezc98/aad-iperf3:PUSH_DATE
+          args:
+            - -c
+            - iperf3-server.aad.svc
+            - -P
+            - "8"
+            - -t
+            - "60"
+            - -J
+          resources:
+            # Requests only: a throttled generator would understate the SUT.
+            requests:
+              cpu: "8"
+              memory: 2Gi

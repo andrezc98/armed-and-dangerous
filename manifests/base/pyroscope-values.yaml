@@ -1,0 +1,55 @@
+# Values for the Pyroscope Helm chart. Install command in README.md.
+#
+# Chart grafana/pyroscope 2.2.1, appVersion 2.2.1 (helm search repo
+# grafana/pyroscope --versions, 2026-09-04). The image tag is deliberately NOT
+# overridden: the newest Pyroscope release is v2.3.0 (2026-08-24,
+# https://github.com/grafana/pyroscope/releases/tag/v2.3.0) but no chart ships it
+# yet, and running an appVersion the chart was not tested against is a worse
+# trade than being one minor behind. Recorded here and in README.md.
+#
+# Single binary: architecture.microservices.enabled defaults to false and
+# pyroscope.replicaCount to 1. One node, one profile store, one lab.
+
+# The chart bundles Grafana Alloy as a StatefulSet to self-profile Pyroscope.
+# The profiles this lab cares about come from the eBPF DaemonSet, and the tools
+# node is an m7g.large.
+alloy:
+  enabled: false
+
+pyroscope:
+  # Not on a SUT. The tools node group carries aad/role=tools and no taint.
+  nodeSelector:
+    aad/role: tools
+
+  # Guaranteed QoS on a 2 vCPU / 8 GiB m7g.large: Pyroscope gets half the node
+  # and can never be the reason a measurement moved.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  # storageClassName is left unset so the PVC lands on the cluster default,
+  # which storageclass-default.yaml points at gp3.
+  persistence:
+    enabled: true
+    size: 20Gi
+
+  # The profiler tags each sample with process.executable.name and no
+  # service_name, and service_name is the label Pyroscope indexes by. Rule copied
+  # verbatim from
+  # https://grafana.com/docs/pyroscope/latest/configure-client/opentelemetry/ebpf-profiler/
+  # ("Service name resolution", fetched 2026-09-04).
+  #
+  # structuredConfig is the chart's own override hook: templates/configmap.yaml
+  # renders `mergeOverwrite (tpl .Values.pyroscope.config . | fromYaml)
+  # .Values.pyroscope.structuredConfig`, so anything here wins over the chart's
+  # generated config.yaml. Checked in the 2.2.1 chart source, not assumed.
+  structuredConfig:
+    limits:
+      ingestion_relabeling_rules:
+        - action: labelmap
+          regex: ^process.executable.name$
+          replacement: service_name

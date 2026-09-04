@@ -1,0 +1,32 @@
+# Tuned Graviton: 16 threads for 16 physical cores. No SMT to oversubscribe.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: llama
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: arm-tuned
+  # Append -t instead of restating the whole args list, so a change to the base
+  # flags does not have to be made five times.
+  - target:
+      kind: Deployment
+      name: llama
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "-t"
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "16"

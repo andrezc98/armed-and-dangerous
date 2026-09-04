@@ -1,0 +1,18 @@
+# mongo.aad.svc:27017
+#
+# Headless: it is both the StatefulSet's governing Service and the address
+# go-ycsb dials. A single-replica headless Service resolves the name straight to
+# the pod IP, so one object does both jobs.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: aad
+spec:
+  clusterIP: None
+  selector:
+    app: mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo

@@ -1,0 +1,83 @@
+# MongoDB 8.0 on the SUT, deliberately in cache: 20M records (about 20 GB) into a
+# 40 GB WiredTiger cache on a 64 GiB node, so the run measures memory bandwidth
+# and not EBS.
+#
+# mongo:8.0.29 (2026-08-18, amd64 + arm64 on Docker Hub, verified 2026-09-04).
+# Floating 8.0 would move under the lab; the Windows-only variants of the same
+# release are amd64 and are not what this tag resolves to on Linux.
+#
+# args start with a flag on purpose: the official entrypoint prepends mongod when
+# the first argument starts with "-" ("set -- mongod \"$@\"") and appends
+# --bind_ip_all when no --bind_ip was given, both in
+# https://github.com/docker-library/mongo/blob/master/8.0/docker-entrypoint.sh
+# (read 2026-09-04).
+#
+# --wiredTigerCacheSizeGB is the documented way to size the cache inside a
+# container: "If you run mongod in a container ... that does not have access to
+# all of the RAM available in a system, you must set
+# storage.wiredTiger.engineConfig.cacheSizeGB ... to a value less than the amount
+# of RAM available in the container"
+# (https://www.mongodb.com/docs/manual/administration/production-notes/).
+# 40 of 56 GiB leaves room for the rest of mongod's footprint.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+  namespace: aad
+  labels:
+    app: mongo
+spec:
+  serviceName: mongo
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: mongo
+          image: mongo:8.0.29
+          args:
+            - --wiredTigerCacheSizeGB
+            - "40"
+          ports:
+            - name: mongo
+              containerPort: 27017
+          resources:
+            requests:
+              cpu: "15"
+              memory: 56Gi
+            limits:
+              cpu: "15"
+              memory: 56Gi
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --quiet
+                - --eval
+                - db.adminCommand("ping")
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # No storageClassName: the cluster default is gp3 (manifests/base).
+        resources:
+          requests:
+            storage: 200Gi

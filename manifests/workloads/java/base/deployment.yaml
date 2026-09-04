@@ -1,0 +1,53 @@
+# spring-petclinic-rest on JDK 25 (apps/java). One replica, one SUT node.
+#
+# Port 9966 with context path /petclinic/, both from the app's own
+# application.properties (server.port=9966,
+# server.servlet.context-path=/petclinic/), which is also what the image EXPOSEs.
+# The pom pulls spring-boot-starter-actuator, so the health endpoint lives under
+# the servlet context path: /petclinic/actuator/health.
+#
+# requests = limits: Guaranteed QoS, cpu 15 of the node's 16 so the profiler and
+# the knob DaemonSets still fit. Never applied on its own - every cell adds its
+# nodeSelector and its JAVA_TOOL_OPTIONS through an overlay.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java
+  namespace: aad
+  labels:
+    app: java
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: java
+  template:
+    metadata:
+      labels:
+        app: java
+    spec:
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: java
+          image: ghcr.io/andrezc98/aad-java
+          ports:
+            - name: http
+              containerPort: 9966
+          resources:
+            requests:
+              cpu: "15"
+              memory: 48Gi
+            limits:
+              cpu: "15"
+              memory: 48Gi
+          readinessProbe:
+            httpGet:
+              path: /petclinic/actuator/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 30

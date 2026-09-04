@@ -1,0 +1,34 @@
+# SMT off: the node group launches m8i.4xlarge with cpu_options
+# threads_per_core = 1, so the kubelet sees 8 vCPUs instead of 16 at the same
+# price. cpu drops to 7 for the same reason it is 15 elsewhere: leave one core
+# for the profiler and the C-states DaemonSet. Same tuned JVM flags as x86-tuned,
+# so the only variable between the two cells is SMT.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: x86-smtoff
+            containers:
+              - name: java
+                env:
+                  - name: JAVA_TOOL_OPTIONS
+                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages -XX:-TieredCompilation -XX:ReservedCodeCacheSize=64M -XX:InitialCodeCacheSize=64M"
+                resources:
+                  requests:
+                    cpu: "7"
+                  limits:
+                    cpu: "7"

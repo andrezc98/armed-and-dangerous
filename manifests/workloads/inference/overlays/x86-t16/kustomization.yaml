@@ -1,0 +1,34 @@
+# Same node group as x86-tuned (nodeSelector aad/cell: x86-tuned), 16 threads
+# instead of 8: the cost of oversubscribing SMT, measured rather than argued.
+# This is a cell of the inference workload, not a node group.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: llama
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: x86-tuned
+  # Append -t instead of restating the whole args list, so a change to the base
+  # flags does not have to be made five times.
+  - target:
+      kind: Deployment
+      name: llama
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "-t"
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "16"

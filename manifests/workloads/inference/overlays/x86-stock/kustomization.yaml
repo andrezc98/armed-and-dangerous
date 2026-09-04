@@ -1,0 +1,22 @@
+# Stock: no -t. The llama.cpp guidance for Graviton is to set n_threads
+# explicitly because the defaults are not the best ones, so the default is the
+# thing being measured here; it is read off the startup log, not assumed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: llama
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: x86-stock

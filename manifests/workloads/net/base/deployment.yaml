@@ -1,0 +1,56 @@
+# iperf3 server on the SUT. The client runs on a second node of the same node
+# group (the runner scales the cell's MNG to 2), so the traffic is m8i to m8i or
+# m9g to m9g and the number that means something is CPU per Gbps, not Gbps.
+#
+# Anti-affinity is declared on both sides, not only here: whichever pod the
+# scheduler places first, the other one is kept off its node. Server-side alone
+# is not enough, because the server is normally already running when the client
+# Job is created.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf3-server
+  namespace: aad
+  labels:
+    app: iperf3-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf3-server
+  template:
+    metadata:
+      labels:
+        app: iperf3-server
+    spec:
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: iperf3-client
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: iperf3
+          image: ghcr.io/andrezc98/aad-iperf3
+          # The image ENTRYPOINT is iperf3 (apps/iperf3/Dockerfile).
+          args:
+            - -s
+          ports:
+            - name: iperf3
+              containerPort: 5201
+          resources:
+            # This pod is the system under test, so its CPU is the measurement:
+            # Guaranteed QoS, 15 of 16 cores, one left for the profiler and the
+            # net-tuned DaemonSet. iperf3 barely allocates, hence 4Gi.
+            requests:
+              cpu: "15"
+              memory: 4Gi
+            limits:
+              cpu: "15"
+              memory: 4Gi

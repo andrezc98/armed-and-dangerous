@@ -1,0 +1,28 @@
+# Stock cell: fixed heap only. -Xms=-Xmx and G1 are controls in every cell, not
+# knobs; the tuned cells add the flags aws-graviton-getting-started/java.md warns
+# "may hurt other workloads" - testing that is the point.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: arm-stock
+            containers:
+              - name: java
+                env:
+                  - name: JAVA_TOOL_OPTIONS
+                    value: "-Xms24g -Xmx24g"

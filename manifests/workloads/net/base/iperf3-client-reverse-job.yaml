@@ -1,0 +1,50 @@
+# iperf3 client, SUT to SUT, reverse direction: -R makes the SUT the sender.
+# Same template contract as iperf3-client-job.yaml - the runner replaces __CELL__
+# and applies it after the forward run has finished.
+#
+# -P 8 -t 60 -J: eight parallel streams (the image ships iperf3 3.20, where -P
+# spawns one thread per stream), sixty seconds, JSON on stdout for the runner.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iperf3-client-reverse
+  namespace: aad
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: iperf3-client
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/cell: __CELL__
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: iperf3-server
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: iperf3
+          image: ghcr.io/andrezc98/aad-iperf3:PUSH_DATE
+          args:
+            - -c
+            - iperf3-server.aad.svc
+            - -P
+            - "8"
+            - -t
+            - "60"
+            - -J
+            - -R
+          resources:
+            # Requests only: a throttled generator would understate the SUT.
+            requests:
+              cpu: "8"
+              memory: 2Gi

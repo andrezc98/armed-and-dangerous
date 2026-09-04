@@ -1,0 +1,125 @@
+# OpenTelemetry eBPF profiler -> Pyroscope (OTLP profiles).
+#
+# Copied from Grafana's own Kubernetes example, which is the complete version of
+# the snippet on the docs page (the docs snippet omits the ConfigMap volume that
+# --config=/etc/otel/config.yaml needs). Both fetched 2026-09-04:
+#   https://grafana.com/docs/pyroscope/latest/configure-client/opentelemetry/ebpf-profiler/
+#   https://github.com/grafana/pyroscope/tree/main/examples/otel-collector/ebpf/kubernetes
+# Docs quote: "The collector must be started with the
+# --feature-gates=service.profilesSupport flag."
+#
+# Deltas from upstream, all deliberate:
+#   - namespace aad, exporter endpoint pyroscope.aad.svc:4040 (the chart's
+#     Service; release name "pyroscope" + chart name "pyroscope" collapse to the
+#     fullname "pyroscope", and pyroscope.service.port is 4040 in values.yaml).
+#   - no k8sattributes processor and therefore no ClusterRole: one workload pod
+#     per SUT node, so the executable name is already the whole attribution.
+#     Upstream's config/rbac add pod-level metadata if that ever stops being true.
+#   - image pinned to the tag the docs were written for, 0.147.0 (multi-arch
+#     amd64+arm64, verified on Docker Hub 2026-09-04). Docker Hub's newest stable
+#     is 0.160.0 (2026-09-02); the receiver/exporter/feature-gate shape at that
+#     tag was not diffed, so the reproducible tag wins.
+#
+# tolerations: operator Exists on purpose - the profiler runs on every node,
+# including the five SUT node groups tainted aad/sut=true:NoSchedule.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-ebpf-profiler
+  namespace: aad
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-ebpf-profiler-config
+  namespace: aad
+data:
+  config.yaml: |
+    receivers:
+      profiling:
+        samples_per_second: 97
+
+    exporters:
+      otlp_grpc:
+        endpoint: pyroscope.aad.svc:4040
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        profiles:
+          receivers: [profiling]
+          exporters: [otlp_grpc]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-ebpf-profiler
+  namespace: aad
+spec:
+  selector:
+    matchLabels:
+      app: otel-ebpf-profiler
+  template:
+    metadata:
+      labels:
+        app: otel-ebpf-profiler
+    spec:
+      hostPID: true
+      serviceAccountName: otel-ebpf-profiler
+      containers:
+        - name: profiler
+          image: otel/opentelemetry-collector-ebpf-profiler:0.147.0
+          args:
+            - "--config=/etc/otel/config.yaml"
+            - "--feature-gates=+service.profilesSupport"
+          env:
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "host.name=$(KUBERNETES_NODE_NAME)"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel/config.yaml
+              subPath: config.yaml
+            - name: sys-kernel
+              mountPath: /sys/kernel
+              readOnly: true
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: proc
+              mountPath: /proc
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-ebpf-profiler-config
+        - name: sys-kernel
+          hostPath:
+            path: /sys/kernel
+        - name: tracefs
+          hostPath:
+            path: /sys/kernel/tracing
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: proc
+          hostPath:
+            path: /proc
+      tolerations:
+        - operator: Exists

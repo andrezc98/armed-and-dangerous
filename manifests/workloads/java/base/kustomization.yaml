@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - deployment.yaml
+  - service.yaml
+
+# PUSH_DATE is a literal placeholder, not a tag that exists. apps/build-multiarch.sh
+# tags with $(date +%F) and the push to GHCR is gated on the speaker, so the real
+# tag is substituted here and committed once the images are pushed.
+images:
+  - name: ghcr.io/andrezc98/aad-java
+    newTag: PUSH_DATE

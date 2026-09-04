@@ -1,0 +1,27 @@
+# gp3 as the cluster default StorageClass.
+#
+# EKS ships a gp2 StorageClass marked default. MongoDB's PVC (200Gi) must land on
+# gp3, so this adds a gp3 class marked default. Two default classes is an error
+# state, so the gp2 annotation has to be flipped to "false" first; that is a
+# kubectl one-liner (documented in README.md) because gp2 exists before these
+# manifests do and is not ours to own.
+#
+# Verified 2026-09-04 against
+# https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/docs/parameters.md
+#   parameter "type": "io1, io2, gp2, gp3, sc1, st1, standard", default gp3
+# and the same repo's dynamic-provisioning example, which uses
+#   provisioner: ebs.csi.aws.com + volumeBindingMode: WaitForFirstConsumer
+# ("The WaitForFirstConsumer binding mode is recommended whenever possible for
+# dynamic provisioning" - it also keeps the volume in the same AZ as the SUT).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

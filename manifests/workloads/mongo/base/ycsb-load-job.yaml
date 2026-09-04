@@ -1,0 +1,45 @@
+# One-shot load of the YCSB dataset. Runs on the loader node group, never on a
+# SUT: the point is to measure the database, not the generator.
+#
+# 20M records is about 20 GB, which fits the 40 GB WiredTiger cache (SPEC 4).
+# The image entrypoint is go-ycsb, so args start at the subcommand, and
+# /workloads ships inside the image (apps/ycsb/Dockerfile).
+#
+# Applied by the runner, not by kustomize. Image tag PUSH_DATE is the same
+# placeholder as every other own image; substituted after the gated GHCR push.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ycsb-load
+  namespace: aad
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: ycsb-load
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/role: loader
+      containers:
+        - name: ycsb
+          image: ghcr.io/andrezc98/aad-ycsb:PUSH_DATE
+          args:
+            - load
+            - mongodb
+            - -P
+            - /workloads/workloada
+            - -p
+            - mongodb.url=mongodb://mongo.aad.svc:27017/ycsb?w=1
+            - -p
+            - recordcount=20000000
+            - --threads
+            - "64"
+          resources:
+            # Requests only, no limits: a throttled load generator would make the
+            # database look faster than it is. The loader node is dedicated and
+            # its own CPU is the run guard (SPEC 3).
+            requests:
+              cpu: "8"
+              memory: 4Gi

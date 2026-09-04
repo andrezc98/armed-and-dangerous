@@ -1,0 +1,50 @@
+# Go stdlib baseline (apps/go): net/http, JSON echo plus a small computation.
+# The quiet control - the workload where the answer is expected to be "the
+# architecture barely matters", which is itself a decision rule for the audience.
+#
+# No flag overlays: there is nothing to tune here, and that is the point. Only
+# the two stock cells exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go
+  namespace: aad
+  labels:
+    app: go
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go
+  template:
+    metadata:
+      labels:
+        app: go
+    spec:
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: go
+          image: ghcr.io/andrezc98/aad-go
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            # cpu 15 like every other SUT pod so the cells stay comparable.
+            # Memory is 8Gi rather than 48Gi: this server has no heap to size,
+            # and requests = limits still gives it Guaranteed QoS.
+            requests:
+              cpu: "15"
+              memory: 8Gi
+            limits:
+              cpu: "15"
+              memory: 8Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5

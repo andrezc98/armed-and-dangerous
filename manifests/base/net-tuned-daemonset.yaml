@@ -1,0 +1,156 @@
+# Network knob for the iperf3 cell: one ENA IRQ per core, no adaptive coalescing,
+# RPS confirmed off.
+#
+# All three come from the AWS Graviton performance runbook (fetched 2026-09-04,
+# https://raw.githubusercontent.com/aws/aws-graviton-getting-started/main/perfrunbook/optimization_recommendation.md):
+# "Disable irqbalance from dynamically moving IRQ processing between vCPUs and
+# set dedicated cores to process each IRQ", "Set to ethtool -C ethN adaptive-rx
+# off for a latency sensitive workload", and "Disable Receive Packet Steering
+# (RPS) to avoid contention and extra IPIs" verified through
+# /sys/class/net/ethN/queues/rx-N/rps_cpus. The ENA driver's own best-practices
+# doc (https://github.com/amzn/amzn-drivers, ENA_Linux_Best_Practices.rst) names
+# the per-queue IRQ lines ethN-Tx-Rx-<queue> and the same ethtool -C syntax.
+#
+# The irqbalance half of that advice does not apply here: Bottlerocket ships no
+# irqbalance package at all (checked 2026-09-04 against the 136 packages in
+# bottlerocket-os/bottlerocket-core-kit/packages; ethtool is there, irqbalance is
+# not). There is no daemon to stop, so stock already means "nobody is moving the
+# IRQs" and the knob is purely the affinity pin. The container still needs its
+# own ethtool: Bottlerocket's host binaries are not visible to workload pods.
+#
+# ponytail: apk add at container start instead of a purpose-built image. It costs
+# one apk call per pod start and keeps the repo at four images. If the SUT subnet
+# ever loses egress, bake alpine + ethtool into apps/ and drop the apk line.
+#
+# Host access is the ordinary Kubernetes way (privileged + hostNetwork + hostPID
+# + hostPath), not /.bottlerocket/rootfs, which is the admin/superpowered-host
+# container path. Bottlerocket's SECURITY_GUIDANCE.md calls this exact
+# combination "nearly unlimited access to the host" - which is the honest framing
+# for the talk: done deliberately, on two labelled cells, for the length of one
+# measurement.
+#
+# /proc and /sys are mounted under /host so the container keeps its own procfs.
+# hostNetwork puts the pod in the host's network namespace, which is what lets
+# ethtool address the node's eth0 directly.
+#
+# UNVERIFIED until the gate: the exact ENA IRQ naming on Bottlerocket's kernel
+# (the script fails loudly if no <iface>-Tx-Rx line matches), and whether the SUT
+# subnet has egress for apk.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: net-tuned
+  namespace: aad
+spec:
+  selector:
+    matchLabels:
+      app: net-tuned
+  template:
+    metadata:
+      labels:
+        app: net-tuned
+    spec:
+      hostNetwork: true
+      hostPID: true
+      # hostNetwork downgrades ClusterFirst to the node's resolv.conf, which is
+      # what apk needs anyway. Spelled out so it is a decision, not a default.
+      dnsPolicy: Default
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: aad/cell
+                    operator: In
+                    values:
+                      - x86-tuned
+                      - arm-tuned
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: net-tuned
+          image: alpine:3.24.1
+          env:
+            # Primary ENI of an EKS node with the VPC CNI.
+            - name: IFACE
+              value: eth0
+            # Alpine v3.24 main, both x86_64 and aarch64 (verified 2026-09-04,
+            # https://pkgs.alpinelinux.org/packages?name=ethtool&branch=v3.24).
+            - name: ETHTOOL_VERSION
+              value: 7.0-r0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              apk add --no-cache "ethtool=${ETHTOOL_VERSION}"
+
+              ncpu=$(grep -c '^processor' /host/proc/cpuinfo)
+              i=0
+              for irq in $(awk -F: '/'"${IFACE}"'-Tx-Rx/ { gsub(/ /, "", $1); print $1 }' /host/proc/interrupts); do
+                cpu=$((i % ncpu))
+                echo "${cpu}" > "/host/proc/irq/${irq}/smp_affinity_list"
+                echo "irq ${irq} -> cpu ${cpu}"
+                i=$((i + 1))
+              done
+              if [ "${i}" -eq 0 ]; then
+                echo "no ${IFACE}-Tx-Rx IRQ in /host/proc/interrupts; ENA naming changed"
+                exit 1
+              fi
+
+              ethtool -C "${IFACE}" adaptive-rx off
+
+              # RPS is a check, not a knob: the runbook says it should already be
+              # off ("RPS is not needed on Graviton2 and newer"). rps_cpus is a
+              # comma-grouped hex mask, so an all-zero mask is only '0' and ','.
+              for f in /host/sys/class/net/"${IFACE}"/queues/rx-*/rps_cpus; do
+                [ -e "${f}" ] || continue
+                if [ -n "$(tr -d ',0\n' < "${f}")" ]; then
+                  echo "RPS is enabled at ${f}: $(cat "${f}")"
+                  exit 1
+                fi
+              done
+
+              echo "${i} ${IFACE} IRQs pinned, adaptive-rx off, RPS clear on $(hostname)"
+              sleep infinity
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  irq=$(awk -F: '/'"${IFACE}"'-Tx-Rx/ { gsub(/ /, "", $1); print $1; exit }' /host/proc/interrupts)
+                  [ -n "${irq}" ]
+                  aff=$(cat "/host/proc/irq/${irq}/smp_affinity_list")
+                  # A pinned IRQ is one CPU: no range, no list.
+                  case "${aff}" in
+                    *,* | *-*) echo "irq ${irq} affinity is ${aff}"; exit 1 ;;
+                  esac
+                  ethtool -c "${IFACE}" | grep -q 'Adaptive RX: off'
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+            - name: host-sys
+              mountPath: /host/sys
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-sys
+          hostPath:
+            path: /sys

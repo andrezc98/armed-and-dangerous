@@ -1,0 +1,13 @@
+# llama.aad.svc:8080 (OpenAI-compatible API)
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama
+  namespace: aad
+spec:
+  selector:
+    app: llama
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

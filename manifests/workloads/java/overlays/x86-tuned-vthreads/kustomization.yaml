@@ -1,0 +1,27 @@
+# The x86-tuned cell with virtual threads on. Spring Boot maps the property
+# spring.threads.virtual.enabled to the relaxed-binding environment variable
+# SPRING_THREADS_VIRTUAL_ENABLED, so no image or config change is needed.
+# Stacks on the tuned overlay: everything else has to stay identical for the
+# comparison to mean anything.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../x86-tuned
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            containers:
+              - name: java
+                env:
+                  - name: SPRING_THREADS_VIRTUAL_ENABLED
+                    value: "true"

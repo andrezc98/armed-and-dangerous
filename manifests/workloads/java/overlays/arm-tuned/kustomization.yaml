@@ -1,0 +1,29 @@
+# Tuned cell: THP for heap and code cache, JIT without tiered compilation, code
+# cache pinned at 64M. Flags verbatim from
+# https://github.com/aws/aws-graviton-getting-started/blob/main/java.md (the same
+# set on both silicons, which is what makes stock-vs-tuned comparable).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: arm-tuned
+            containers:
+              - name: java
+                env:
+                  - name: JAVA_TOOL_OPTIONS
+                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages -XX:-TieredCompilation -XX:ReservedCodeCacheSize=64M -XX:InitialCodeCacheSize=64M"

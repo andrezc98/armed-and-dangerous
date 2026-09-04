@@ -1,0 +1,45 @@
+# Measured YCSB run. Template: the runner replaces the four placeholders and
+# applies one Job per repetition (knee search first, then the fixed run at 80% of
+# the knee, n times).
+#
+#   __WORKLOAD__        workloada (50/50) or workloadb (95/5)
+#   __OPERATIONCOUNT__  operations for this run
+#   __THREADS__         go-ycsb client threads
+#   __TARGET__          target ops/s, the throughput the run is pinned at
+#
+# Everything else is identical to ycsb-load-job.yaml on purpose.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ycsb-run
+  namespace: aad
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: ycsb-run
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/role: loader
+      containers:
+        - name: ycsb
+          image: ghcr.io/andrezc98/aad-ycsb:PUSH_DATE
+          args:
+            - run
+            - mongodb
+            - -P
+            - /workloads/__WORKLOAD__
+            - -p
+            - mongodb.url=mongodb://mongo.aad.svc:27017/ycsb?w=1
+            - -p
+            - operationcount=__OPERATIONCOUNT__
+            - --threads
+            - "__THREADS__"
+            - --target
+            - "__TARGET__"
+          resources:
+            requests:
+              cpu: "8"
+              memory: 4Gi
