@@ -26,6 +26,39 @@ helm upgrade --install pyroscope grafana/pyroscope \
   -f manifests/base/pyroscope-values.yaml
 ```
 
+## Karpenter (solo el día del arco o del clip)
+
+No es parte del `apply` de Terraform ni de la instalación de todos los días
+de lab: el chart se instala a mano desde la laptop, solo cuando toca correr el
+arco generacional (Task 8) o el clip de scale-from-zero (Task 9). El módulo
+`karpenter` de Terraform (`infra/karpenter.tf`) ya dejó listos el rol IAM, el
+rol de nodo, la asociación de pod identity para la SA `karpenter` en
+`kube-system` y el access entry; lo único que falta es el chart.
+
+```bash
+# El logout evita un 403 de una sesión vieja contra el registro público.
+helm registry logout public.ecr.aws || true
+
+helm install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  --version 1.14.1 \
+  -n kube-system \
+  -f manifests/base/karpenter-values.yaml \
+  --set settings.clusterName=aws-aad-eks-lab \
+  --set "settings.clusterEndpoint=$(aws eks describe-cluster --name aws-aad-eks-lab --region us-east-1 --query cluster.endpoint --output text)" \
+  --wait
+
+kubectl -n kube-system rollout status deploy/karpenter
+kubectl apply -f infra/karpenter/   # las dos EC2NodeClass y las dos NodePool
+```
+
+Al cerrar el arco o el clip, antes del `terraform destroy` del cierre del día
+(README raíz, sección "Reproducir" → "Cierre del día de lab"):
+
+```bash
+helm uninstall karpenter -n kube-system
+kubectl delete nodepool --all --ignore-not-found
+```
+
 El nombre del release importa: con `pyroscope` el chart resuelve su fullname a
 `pyroscope` y el Service queda en `pyroscope.aad.svc:4040`, que es exactamente el
 endpoint que el DaemonSet del profiler exporta por OTLP.

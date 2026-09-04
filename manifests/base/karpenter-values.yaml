@@ -1,0 +1,56 @@
+# Values for the Karpenter chart, installed from the laptop with the command
+# in README.md. Not a Terraform helm_release: see infra/karpenter.tf for why
+# (CI's runner cannot reach the EKS API behind endpoint_public_access_cidrs).
+# The module `karpenter` in Terraform still creates the IAM role, node role,
+# pod identity association for SA `karpenter` in `kube-system`, and the access
+# entry that this chart's ServiceAccount needs.
+#
+# Keys verified against `helm show values oci://public.ecr.aws/karpenter/karpenter
+# --version 1.14.1` (2026-09-04, digest sha256:91434e00fb102d6ee0d1bd34a44...):
+# chart defaults are replicas: 2, nodeSelector: {kubernetes.io/os: linux},
+# serviceAccount.name: "" (chart generates one from the release/fullname
+# template), settings.clusterName/clusterEndpoint: "", controller.resources: {}.
+
+# The tools node group is min = max = desired = 1 and the chart default of 2
+# replicas carries a required hostname podAntiAffinity, so the second pod
+# would sit Unschedulable forever against a podDisruptionBudget of
+# maxUnavailable: 1.
+replicas: 1
+nodeSelector:
+  kubernetes.io/os: linux
+  aad/role: tools
+dnsPolicy: Default
+serviceAccount:
+  # Matches the pod identity association the `karpenter` submodule creates for
+  # SA `karpenter` in `kube-system` (infra/karpenter.tf). The release name
+  # below (`karpenter`) already resolves the chart's own fullname template to
+  # the same value, so this is redundant but explicit.
+  name: karpenter
+settings:
+  clusterName: aws-aad-eks-lab
+  # Placeholder, not a real endpoint: the install command in README.md
+  # overrides it with --set "settings.clusterEndpoint=$(aws eks
+  # describe-cluster ...)". Left as a placeholder instead of "" so a `-f`
+  # without that --set fails on an invalid URL instead of silently falling
+  # back to the chart's own EKS DescribeCluster discovery
+  # (settings.eksControlPlane, which this chart run does not enable).
+  clusterEndpoint: __CLUSTER_ENDPOINT__
+# No settings.interruptionQueue: infra/karpenter.tf sets
+# enable_spot_termination = false in the karpenter submodule (every node in
+# this lab is on-demand), so there is no SQS queue to name. "Interruption
+# queue is the name of the SQS queue used for processing interruption events
+# from EC2. Interruption handling is disabled if not specified." / default ""
+# (chart values, aws/karpenter-provider-aws v1.14.1).
+controller:
+  # The chart's own default is `{}` (Burstable, unbounded). Every other
+  # workload sharing this m7g.large (2 vCPU / 8Gi) tools node already gets
+  # explicit resources (manifests/base/pyroscope-values.yaml,
+  # ebpf-profiler.yaml), so the controller does too, sized well under what
+  # Pyroscope (1 vCPU / 2Gi, Guaranteed) leaves free.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

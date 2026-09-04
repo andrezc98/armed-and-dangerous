@@ -20,7 +20,6 @@ el de este directorio y solamente el de este directorio.
 |---|---|---|
 | Terraform | `>= 1.15` (local 1.15.2; el módulo pide `>= 1.5.7`) | https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-eks/v21.25.0/versions.tf |
 | Provider `hashicorp/aws` | `~> 6.63` (6.63.0, 2026-09-03) | el mismo `versions.tf` exige `>= 6.59` |
-| Provider `hashicorp/helm` | `~> 3.3` (3.3.0) | https://registry.terraform.io/v1/providers/hashicorp/helm |
 | `terraform-aws-modules/eks/aws` | `~> 21.25` (21.25.0, 2026-08-14) | https://github.com/terraform-aws-modules/terraform-aws-eks/releases |
 | `terraform-aws-modules/vpc/aws` | `~> 6.7` (6.7.2, 2026-08-28; resuelve a 6.7.2) | https://api.github.com/repos/terraform-aws-modules/terraform-aws-vpc/releases/latest y https://raw.githubusercontent.com/terraform-aws-modules/terraform-aws-vpc/v6.7.2/variables.tf (pide `aws >= 6.28`, que el pin `~> 6.63` cumple) |
 | `kubernetes_version` | `1.36` (EKS 2026-06-02, soporte estándar hasta 2027-08-02) | https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html |
@@ -104,26 +103,32 @@ terraform output -json            > ../results/$(date +%F)/cluster.json
 terraform -chdir=ecr output -json > ../results/$(date +%F)/ecr.json
 
 aws eks update-kubeconfig --region us-east-1 --name aws-aad-eks-lab
+```
 
-# Las CRD de Karpenter recién existen después del apply, así que la NodePool y
-# las dos EC2NodeClass se aplican con kubectl, no con Terraform. El helm_release
-# lleva wait = false, así que el apply vuelve antes de que el controlador (y con
-# él sus CRD) estén arriba: hay que esperarlo o el kubectl falla con
-# "no matches for kind NodePool".
+El chart de Karpenter **no** lo instala este `apply`: se instala a mano desde
+la laptop, solo el día del arco o del clip (plan Tasks 8 y 9), con el comando y
+los values de `manifests/base/README.md`. Este módulo de Terraform deja listo
+todo lo que ese chart necesita (rol IAM, rol de nodo, pod identity association,
+access entry); recién después de instalarlo con Helm existen las CRD, y recién
+entonces se aplican con kubectl la NodePool y las dos EC2NodeClass de
+`infra/karpenter/` — hay que esperar el rollout del Deployment o el kubectl
+falla con "no matches for kind NodePool":
+
+```bash
 kubectl -n kube-system rollout status deploy/karpenter --timeout=5m
 kubectl apply -f karpenter/   # desde infra/; equivale a infra/karpenter/ desde la raíz
 ```
 
-Las dos NodePool se aplican **solo el día del arco o del clip** (plan Tasks 8 y
-9). Un día de lab normal no las necesita: el benchmark corre sobre las managed
-node groups y el runner es quien las escala.
+Un día de lab normal no necesita nada de esto: el benchmark corre sobre las
+managed node groups y el runner es quien las escala.
 
 Al final del día de lab, el orden canónico está en el README raíz, sección
-"Reproducir" → "Cierre del día de lab". En una línea: NodePools →
-`uv run cell --teardown-day` → esperar a que los dos `describe-volumes` devuelvan
-`[]` → `terraform destroy` (GATED) → `describe-instances` vacío. Ni los nodos de
-Karpenter ni el volumen EBS del driver CSI están en el estado de Terraform, y por
-eso van antes del destroy y no dentro de él.
+"Reproducir" → "Cierre del día de lab". En una línea: `helm uninstall karpenter`
+(si se instaló) → NodePools → `uv run cell --teardown-day` → esperar a que los
+dos `describe-volumes` devuelvan `[]` → `terraform destroy` (GATED) →
+`describe-instances` vacío. Ni el chart de Karpenter, ni sus nodos, ni el
+volumen EBS del driver CSI están en el estado de Terraform, y por eso van antes
+del destroy y no dentro de él.
 
 ## Decisiones que conviene conocer
 
@@ -353,7 +358,8 @@ submódulo, las dos por el mismo apply fallido del 2026-09-04:
   `false` no se crean, y las sentencias de interrupción salen de la política del
   controlador.
 
-Como no hay cola, el `helm_release` ya no manda `settings.interruptionQueue`. El
+Como no hay cola, `manifests/base/karpenter-values.yaml` ya no manda
+`settings.interruptionQueue`. El
 chart lo tolera: "Interruption queue is the name of the SQS queue used for
 processing interruption events from EC2. Interruption handling is disabled if not
 specified." con default `""` (`charts/karpenter/values.yaml`,
@@ -391,7 +397,10 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
   Con `terraform-aws-modules/eks//modules/karpenter` el init falla: una
   dirección de registro necesita tres o cuatro componentes.
 - El provider de Helm 3.x cambió `kubernetes` y `exec` de bloques a atributos
-  (`kubernetes = { ... exec = { ... } }`). La sintaxis de 2.x no compila.
+  (`kubernetes = { ... exec = { ... } }`). La sintaxis de 2.x no compila. (El
+  provider salió del todo el 2026-09-04: el chart de Karpenter se instala desde
+  la laptop, no con `helm_release` — ver la sección "Karpenter (solo el día del
+  arco o del clip)" de `manifests/base/README.md`.)
 - En el módulo v21 la entrada se llama `addons` y la salida `cluster_addons`.
   También `name` y `kubernetes_version`, no `cluster_name` ni `cluster_version`.
 - El submódulo de Karpenter agrega sufijo aleatorio al nombre del rol de nodo si
@@ -405,7 +414,12 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
 - `data.aws_ssm_parameter.value` viene marcado como sensible; para compararlo en
   una precondition se usa `insecure_value` (el parámetro es público).
 - `data.aws_ecrpublic_authorization_token` solo se emite en `us-east-1`, por eso
-  lleva `region` explícita.
+  llevaba `region` explícita. (Salió del código el 2026-09-04 junto con el
+  `helm_release`, que era su único consumidor. El `helm install` manual no pide
+  token: el límite real es el pull no autenticado, "Rate of unauthenticated
+  image pulls: 1 per second, not adjustable"
+  (https://docs.aws.amazon.com/AmazonECR/latest/public/public-service-quotas.html),
+  que una instalación manual y esporádica no roza.)
 - El ARN de la política del driver EBS decía
   `arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicyV2` y el apply
   del 2026-09-04 murió ahí con `NoSuchEntity`. V2 existe (creada el 2026-04-16),

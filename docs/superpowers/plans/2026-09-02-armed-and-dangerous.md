@@ -88,6 +88,8 @@ comentada dentro del script.
 
 **Estado (2026-09-04):** hecho, con dos desvíos: las cuatro celdas de red llevan `max_size = 2` (spec §4 escala la MNG de la celda a 2 para el cliente de iperf3; spec §3 decía `max=1`) y la NodePool/EC2NodeClass de Karpenter son YAML estático en `infra/karpenter/`, aplicado con `kubectl` después del `apply`, porque sus CRD no existen en tiempo de plan. Detalle en `infra/README.md`.
 
+**Estado (2026-09-04, controller ruling):** el `helm_release.karpenter` del Step 4 salió de Terraform (junto con el provider `helm` y la `data.aws_ecrpublic_authorization_token`): el runner de CI no llega al endpoint público de la API de EKS, así que el chart ahora se instala a mano desde la laptop. El módulo `karpenter` (IAM, pod identity association, access entry) sigue en Terraform. Detalle completo en la nota de Task 6.5 y en `manifests/base/README.md`.
+
 **Files:** `infra/{versions.tf,variables.tf,main.tf,nodegroups.tf,karpenter.tf,outputs.tf,example.tfvars}`, `infra/userdata/thp.toml`.
 
 **Interfaces (produce):** outputs `cluster_name`, `configure_kubectl`, `nodegroup_names` (map celda → nombre MNG), `karpenter_nodepool_names` (map arquitectura → NodePool); etiqueta de nodo `aad/cell=<celda>`; taint `aad/sut=true:NoSchedule` en SUT; label `aad/role=loader|tools`.
@@ -228,6 +230,20 @@ Lo que cambió, en orden de riesgo:
   gate técnico de cuenta sandbox en Terraform (`var.sandbox_account_id` +
   `aws_caller_identity`), y `kubectl rollout status deploy/karpenter` antes de
   aplicar las CRD de Karpenter.
+
+**Estado (controller ruling, 2026-09-04, tras la corrida de CI 33927518231).**
+El `helm_release.karpenter` de Terraform (`infra/karpenter.tf`) falló el apply
+con "Kubernetes cluster unreachable": el runner de GitHub Actions no llega al
+endpoint público de la API de EKS, que solo admite el `/32` de la laptop del
+speaker (`var.admin_cidrs`), y el mismo problema rompería el `destroy`. Se sacó
+el chart de Terraform: el módulo `karpenter` (rol IAM, rol de nodo, pod
+identity association para la SA `karpenter` en `kube-system`, access entry)
+sigue en Terraform y corre en CI; el chart se instala a mano desde la laptop,
+solo el día del arco o del clip, con el comando de
+`manifests/base/README.md` y los values de
+`manifests/base/karpenter-values.yaml`. El provider `helm` y la
+`data.aws_ecrpublic_authorization_token` (su único consumidor) salieron de
+`infra/versions.tf` e `infra/karpenter.tf`.
 
 Condición para Task 7. Todo con el clúster de un día de lab (`terraform apply` humano).
 

@@ -12,7 +12,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 ## Versiones probadas
 (se llena con cada corrida; verificar contra docs del día antes de confiar)
 
-- Terraform >= 1.15 + `terraform-aws-modules/eks/aws` 21.25.0, provider aws ~> 6.63, provider helm ~> 3.3, EKS 1.36 con Bottlerocket >= 1.64.0 (ver `infra/README.md`)
+- Terraform >= 1.15 + `terraform-aws-modules/eks/aws` 21.25.0, provider aws ~> 6.63, EKS 1.36 con Bottlerocket >= 1.64.0 (ver `infra/README.md`)
 - Imágenes propias en ECR privado de la cuenta sandbox: root `infra/ecr` (repos `IMMUTABLE`, scan on push, últimas 5 versiones; ver `infra/ecr/README.md`)
 - Karpenter v1.14.1 (chart OCI oficial) · Pyroscope chart 2.2.1 (appVersion 2.2.1; v2.3.0 no tiene chart aún) · k6 v2.2.0
 - OTel eBPF profiler `otel/opentelemetry-collector-ebpf-profiler` (tag del día) · APerf (`kubectl-aperf`) · metrics-server (addon EKS)
@@ -132,8 +132,10 @@ nodos de Karpenter ni el volumen EBS del driver CSI, porque ninguno de los dos
 está en el estado de Terraform, y el workflow no tiene `kubectl`.
 
 ```bash
-# 1. NodePools de Karpenter (existen solo en los días de arco / clip). Sus nodos
-#    no están en el estado de Terraform.
+# 1. Chart y NodePools de Karpenter (existen solo en los días de arco / clip).
+#    El chart se instaló a mano desde la laptop (manifests/base/README.md) y
+#    ni él ni sus nodos están en el estado de Terraform.
+helm uninstall karpenter -n kube-system --ignore-not-found
 kubectl delete nodepool --all --ignore-not-found
 kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 

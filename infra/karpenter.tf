@@ -44,53 +44,12 @@ module "karpenter" {
   tags = local.tags
 }
 
-# Anonymous pulls from public ECR are rate limited; the official example
-# authenticates with a token, which is only issued in us-east-1.
-data "aws_ecrpublic_authorization_token" "token" {
-  region = "us-east-1"
-}
-
-resource "helm_release" "karpenter" {
-  name      = "karpenter"
-  namespace = "kube-system"
-
-  repository          = "oci://public.ecr.aws/karpenter"
-  repository_username = data.aws_ecrpublic_authorization_token.token.user_name
-  repository_password = data.aws_ecrpublic_authorization_token.token.password
-  chart               = "karpenter"
-  version             = "1.14.1"
-
-  # The chart's own affinity already keeps the controller off Karpenter nodes;
-  # this pins it to the tools node group so it never shares a SUT.
-  values = [
-    <<-EOT
-    # The tools node group is min = max = desired = 1 and the chart defaults to
-    # "# -- Number of replicas." / "replicas: 2"
-    # (charts/karpenter/values.yaml, aws/karpenter-provider-aws v1.14.1) with a
-    # required hostname podAntiAffinity, so the second pod would sit
-    # Unschedulable forever against a podDisruptionBudget of maxUnavailable: 1.
-    replicas: 1
-    nodeSelector:
-      kubernetes.io/os: linux
-      aad/role: tools
-    dnsPolicy: Default
-    settings:
-      clusterName: ${module.eks.cluster_name}
-      clusterEndpoint: ${module.eks.cluster_endpoint}
-    # No settings.interruptionQueue on purpose, and no default to fall back on:
-    # "Interruption queue is the name of the SQS queue used for processing
-    # interruption events from EC2. Interruption handling is disabled if not
-    # specified." / `interruptionQueue: ""` (charts/karpenter/values.yaml,
-    # aws/karpenter-provider-aws v1.14.1), and the Deployment template only emits
-    # the INTERRUPTION_QUEUE env var inside `{{- with .Values.settings.interruptionQueue }}`
-    # (charts/karpenter/templates/deployment.yaml, same tag), so an absent value
-    # is a supported configuration and not a rendering error. There is no queue
-    # any more: enable_spot_termination = false above.
-    EOT
-  ]
-
-  # The NodePool and EC2NodeClasses are plain YAML under infra/karpenter/,
-  # applied with kubectl after this release: their CRDs do not exist at plan
-  # time on a fresh cluster.
-  wait = false
-}
+# The chart itself is installed from the laptop, not by Terraform (see
+# manifests/base/karpenter-values.yaml and manifests/base/README.md): CI's
+# GitHub runner cannot reach the EKS API behind endpoint_public_access_cidrs
+# (the speaker laptop's /32), so `helm_release` here failed apply with
+# "Kubernetes cluster unreachable" (controller ruling, 2026-09-04, CI run
+# 33927518231), and the same problem would break `destroy`. This module still
+# creates everything the chart's ServiceAccount needs at apply time: the IAM
+# role, the node IAM role, the pod identity association for SA `karpenter` in
+# `kube-system`, and the access entry.
