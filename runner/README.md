@@ -84,9 +84,13 @@ persona, no el runner:
    después del `apply` (ver `infra/README.md`):
 
    ```bash
-   mkdir -p results/$(date -u +%F)
-   terraform -chdir=infra output -json > results/$(date -u +%F)/cluster.json
+   mkdir -p results/$(date +%F)
+   terraform -chdir=infra output -json > results/$(date +%F)/cluster.json
    ```
+
+   `date +%F` (local, sin `-u`) a propósito: el runner escribe en la fecha local,
+   así que un `date -u +%F` aquí crearía el directorio de mañana después de las
+   19:00 en Lima y el runner buscaría el `cluster.json` en el de hoy.
 
    Si falta, o si no trae `cluster_name` y `nodegroup_names`, el runner corta con
    ese mismo comando en el mensaje. En `--dry-run` cae en el fixture

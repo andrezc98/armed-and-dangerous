@@ -72,8 +72,8 @@ terraform apply                      # GATED: solo con autorización explícita
 # El runner nunca ejecuta terraform. Los nombres del clúster y de las node
 # groups se los deja escritos una persona, una vez por día de lab, en el
 # directorio del día; sin ese archivo el runner se niega a arrancar.
-mkdir -p ../results/$(date -u +%F)
-terraform output -json > ../results/$(date -u +%F)/cluster.json
+mkdir -p ../results/$(date +%F)
+terraform output -json > ../results/$(date +%F)/cluster.json
 
 aws eks update-kubeconfig --region us-east-1 --name aws-aad-eks-lab
 
