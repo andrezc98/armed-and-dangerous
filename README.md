@@ -13,6 +13,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 (se llena con cada corrida; verificar contra docs del día antes de confiar)
 
 - Terraform >= 1.15 + `terraform-aws-modules/eks/aws` 21.25.0, provider aws ~> 6.63, provider helm ~> 3.3, EKS 1.36 con Bottlerocket >= 1.64.0 (ver `infra/README.md`)
+- Imágenes propias en ECR privado de la cuenta sandbox: root `infra/ecr` (repos `IMMUTABLE`, scan on push, últimas 5 versiones; ver `infra/ecr/README.md`)
 - Karpenter v1.14.1 (chart OCI oficial) · Pyroscope chart 2.2.1 (appVersion 2.2.1; v2.3.0 no tiene chart aún) · k6 v2.2.0
 - OTel eBPF profiler `otel/opentelemetry-collector-ebpf-profiler` (tag del día) · APerf (`kubectl-aperf`) · metrics-server (addon EKS)
 - Apps (verificado y probado en local 2026-09-03, ver `apps/*/Dockerfile`): `spring-petclinic-rest` master@`4cd8e1b0` (v4.0.2, Boot 4.1.1) sobre `eclipse-temurin:25.0.4_7-jre-noble`, build `maven:3.9.16-eclipse-temurin-25-noble` · Go `golang:1.27.1` + `gcr.io/distroless/static-debian13:nonroot` · `alpine:3.24.1` + iperf3 3.20-r0 · go-ycsb v1.0.3 · k6 `grafana/k6:2.2.0` (imagen oficial, amd64+arm64)
@@ -40,6 +41,37 @@ workload corre en todas sus celdas; el clúster queda abajo entre días de lab.
 
 ## Reproducir
 (completar en el Task 12 con el orden real de corrida y el costo medido)
+
+### Orden
+
+Una sola vez, para toda la gira de charlas:
+
+```bash
+# 1. Los cuatro repositorios ECR privados de la cuenta sandbox. Root de
+#    Terraform aparte, con estado propio, y NO se destruye entre días de lab.
+cd infra/ecr && terraform init && terraform apply     # GATED
+
+# 2. Build multi-arch y push de las cuatro imágenes propias (GATED). Escribe
+#    results/images.json con el tag y un digest por imagen: ese archivo SÍ se
+#    commitea (no lleva datos de cuenta).
+cd ../../apps && AWS_PROFILE=<perfil-sandbox> PUSH=1 ./build-multiarch.sh
+git add ../results/images.json && git commit -m "build: push <fecha>"
+```
+
+Por cada día de lab:
+
+```bash
+cd infra && terraform apply                            # GATED
+mkdir -p ../results/$(date +%F)
+terraform output -json             > ../results/$(date +%F)/cluster.json
+terraform -chdir=ecr output -json  > ../results/$(date +%F)/ecr.json
+# Los dos archivos están git-ignored: llevan el id de cuenta.
+
+aws eks update-kubeconfig --region us-east-1 --name aws-aad-eks-lab
+kubectl apply -k manifests/base                        # ver manifests/base/README.md
+cd ../runner && uv run cell --workload java --cell arm-tuned --runs 3
+# ...el resto de las celdas del día, y al terminar el cierre de abajo.
+```
 
 ### Cierre del día de lab (orden canónico)
 
@@ -69,7 +101,8 @@ aws ec2 describe-volumes \
   --filters Name=tag:kubernetes.io/created-for/pvc/namespace,Values=aad \
   --query 'Volumes[].VolumeId'
 
-# 4. Recién ahora el destroy (GATED, lo corre una persona).
+# 4. Recién ahora el destroy (GATED, lo corre una persona). Es el de `infra/` y
+#    solamente el de `infra/`: NO destruir `infra/ecr`, ahí viven las imágenes.
 cd infra && terraform destroy
 
 # 5. Verificación final: cero instancias.
@@ -98,21 +131,32 @@ valida que cada tarball tenga las plataformas esperadas):
 PUSH=0 apps/build-multiarch.sh
 ```
 
-Push a GHCR (`ghcr.io/andrezc98`) con `docker buildx imagetools inspect` al
-final de cada imagen para confirmar ambos manifests: **queda gated** hasta
-que el speaker lo autorice explícitamente. El push se realiza sin attestations
-de provenance ni SBOM (el script pasa `--provenance=false --sbom=false`);
-quitar las dos flags si se requieren attestations.
+Push a los repositorios **ECR privados** de la cuenta sandbox (`infra/ecr`),
+con `docker buildx imagetools inspect` al final de cada imagen para confirmar
+ambos manifests: **queda gated** hasta que el speaker lo autorice
+explícitamente. El script deriva el registro en el momento
+(`aws sts get-caller-identity` + `aws ecr get-login-password`) y exige un
+`AWS_PROFILE` cuyo nombre contenga `sandbox`, igual que el runner. El push se
+realiza sin attestations de provenance ni SBOM (el script pasa
+`--provenance=false --sbom=false`); quitar las dos flags si se requieren
+attestations.
 
 ```
-PUSH=1 apps/build-multiarch.sh
+AWS_PROFILE=<perfil-sandbox> PUSH=1 apps/build-multiarch.sh
 ```
+
+Los manifiestos no llevan el registro: nombran las imágenes por nombre pelado y
+tag centinela (`aad-java:UNSET`) para que el id de cuenta no entre a git, y el
+runner les pone registro y tag al renderizar. El detalle está en
+`manifests/base/README.md` y en `runner/README.md`. El espejo en ECR Public para
+que la audiencia pueda hacer `docker pull` es opcional (plan Task 12).
 
 ## Estructura
 ```
 apps/        java/ (spring-petclinic-rest sobre JDK 25), go/ (baseline stdlib),
-             iperf3/, ycsb/ (go-ycsb, amd64 para loader), build-multiarch.sh (buildx → GHCR)
+             iperf3/, ycsb/ (go-ycsb, amd64 para loader), build-multiarch.sh (buildx → ECR)
 infra/       Terraform: EKS 21.25.0, 7 MNG (5 SUT por celda + loader + tools), Karpenter, metrics-server
+infra/ecr/   Terraform aparte (estado propio, se aplica una vez): los 4 repos ECR privados
 manifests/   base/ (Pyroscope, profiler eBPF, DaemonSets de perillas: C-states y red, StorageClass)
              workloads/<java|mongo|inference|net|go>/ (kustomize base + overlays por celda)
 runner/      Python 3.13 + uv: cell.py (orquestador), knee.py, capture.py, cost.py, analysis/, k6/*.js, tests/

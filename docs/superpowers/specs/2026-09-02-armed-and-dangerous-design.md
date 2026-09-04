@@ -105,6 +105,8 @@ Criterio de diseño v2: apps con footprint de código real (CMP333 mostró que l
 
 Todas las imágenes propias construidas con **buildx `--platform linux/amd64,linux/arm64`**, manifiesto multi-arch en GHCR (repo público desde el día 1; fallback ECR del sandbox si GHCR complica). El pipeline de build multi-arch es parte del entregable de la charla, no plomería.
 
+> **Nota 2026-09-04 (decisión del speaker):** el registro pasa a ser **ECR privado de la cuenta sandbox**, no GHCR. Es una charla de AWS Community Day y el registro que la audiencia espera es ECR; además el pull sale del endpoint regional con el rol IAM del nodo, sin secreto de registro en el clúster ni salida a un registro externo un día pago. Los repositorios viven en el root `infra/ecr` (aplicado una vez, no se destruye entre días de lab) y los manifiestos nombran las imágenes por nombre pelado con tag centinela (`aad-java:UNSET`) para que el id de cuenta no entre a git. Un **espejo en ECR Public** para que la audiencia pueda hacer `docker pull` queda como opcional del Task 12. GHCR sigue documentado en `apps/build-multiarch.sh` como alternativa comentada.
+
 ## 5. Harness y metodología (narrada, no escondida)
 
 - **Dos corridas por celda, en este orden** (Graviton perf runbook, "throughput at breaking latency"; la misma regla de aceptación que Atlassian describió en CMP307): (1) **knee**: k6 `ramping-arrival-rate` (o threadcount escalonado en YCSB) hasta que p99 cruza el SLO del workload → capacidad y $ por unidad de trabajo; (2) **fija**: `constant-arrival-rate` al 80% del knee, 8 min, con APerf grabando y el profiler activo → contadores y flame graphs. Se narra: "primero encontramos dónde se rompe, después lo miramos por dentro a carga estable".

@@ -12,6 +12,11 @@ __pycache__/
 
 # results: committed JSONs live in results/<fecha>/; huge raw exports do not
 results/raw-large/
+# ...and neither do the two terraform outputs a human leaves for the runner:
+# both carry the sandbox account id. results/images.json is NOT here on purpose,
+# it only has the tag and the digests.
+results/*/cluster.json
+results/*/ecr.json
 
 # secrets / local
 .env

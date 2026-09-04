@@ -9,6 +9,11 @@ la corrida y las devuelve a 0. Terraform no se ejecuta nunca desde el runner.
 > solamente cuando el speaker lo autoriza. Escalar una celda de 0 a 1 está
 > igual de gated que un `apply`.
 
+Los repositorios ECR de las imágenes propias **no** están acá: viven en
+`infra/ecr/`, que es un root de Terraform con estado propio, se aplica una sola
+vez y **no se destruye entre días de lab**. El `terraform destroy` del cierre es
+el de este directorio y solamente el de este directorio.
+
 ## Versiones fijadas (verificadas el 2026-09-04)
 
 | Qué | Valor | Fuente |
@@ -71,9 +76,13 @@ terraform apply                      # GATED: solo con autorización explícita
 
 # El runner nunca ejecuta terraform. Los nombres del clúster y de las node
 # groups se los deja escritos una persona, una vez por día de lab, en el
-# directorio del día; sin ese archivo el runner se niega a arrancar.
+# directorio del día; sin ese archivo el runner se niega a arrancar. El registro
+# de las imágenes propias sale del otro root, el mismo día y de la misma forma
+# (infra/ecr/README.md). Los dos archivos están git-ignored: llevan el id de
+# cuenta.
 mkdir -p ../results/$(date +%F)
-terraform output -json > ../results/$(date +%F)/cluster.json
+terraform output -json            > ../results/$(date +%F)/cluster.json
+terraform -chdir=ecr output -json > ../results/$(date +%F)/ecr.json
 
 aws eks update-kubeconfig --region us-east-1 --name aws-aad-eks-lab
 
@@ -98,6 +107,27 @@ Karpenter ni el volumen EBS del driver CSI están en el estado de Terraform, y p
 eso van antes del destroy y no dentro de él.
 
 ## Decisiones que conviene conocer
+
+**El pull desde ECR ya está permitido; no se agrega ninguna política.** El rol
+IAM de los nodos lo arma el módulo y ya trae adjunta la política de pull.
+Verificado en el código del módulo 21.25.0 que está bajado en
+`.terraform/modules/` (2026-09-04):
+
+- managed node groups → `modules/eks-managed-node-group/main.tf`,
+  `aws_iam_role_policy_attachment.this` adjunta `AmazonEKSWorkerNodePolicy` y
+  **`AmazonEC2ContainerRegistryReadOnly`**;
+- nodos de Karpenter → `modules/karpenter/main.tf`,
+  `aws_iam_role_policy_attachment.node` adjunta `AmazonEKSWorkerNodePolicy` y
+  **`AmazonEC2ContainerRegistryPullOnly`**.
+
+`AmazonEC2ContainerRegistryPullOnly` permite `ecr:GetAuthorizationToken`,
+`ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer` y `ecr:BatchImportUpstreamImage`
+sobre `"Resource": "*"`
+(https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEC2ContainerRegistryPullOnly.html);
+`AmazonEC2ContainerRegistryReadOnly` es un superconjunto
+(https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEC2ContainerRegistryReadOnly.html).
+Alcanza para bajar las cuatro imágenes de `infra/ecr` sin política de repositorio
+y sin ningún secreto de registro en el clúster.
 
 **Una sola AZ para todo lo que mide.** Se crea una subnet pública en `var.availability_zone`
 y ahí viven las siete node groups y los nodos de Karpenter: loader y SUT siempre

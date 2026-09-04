@@ -57,7 +57,7 @@
 
 **Files:** `apps/java/{Dockerfile,README.md}`, `apps/go/{main.go,main_test.go,Dockerfile}`, `apps/iperf3/Dockerfile`, `apps/ycsb/Dockerfile`, `runner/k6/{java.js,go.js,inference.js}`.
 
-**Interfaces (produce):** imágenes `ghcr.io/<owner>/aad-java:<fecha>`, `aad-go:<fecha>`, `aad-iperf3:<fecha>`, `aad-ycsb:<fecha>`; contrato Java = endpoints de PetClinic REST; contrato Go = `GET /api/echo?n=<int>` que devuelve JSON `{ "n": n, "sum": <suma de 1..n> }`; scripts k6 leen `TARGET_URL`, `RATE`, `DURATION`, `MODE=knee|fixed` de env.
+**Interfaces (produce):** imágenes `aad-java:<fecha>`, `aad-go:<fecha>`, `aad-iperf3:<fecha>`, `aad-ycsb:<fecha>` en el ECR privado del sandbox (nota 2026-09-04 en Task 3; los manifiestos las nombran peladas con tag centinela `UNSET`); contrato Java = endpoints de PetClinic REST; contrato Go = `GET /api/echo?n=<int>` que devuelve JSON `{ "n": n, "sum": <suma de 1..n> }`; scripts k6 leen `TARGET_URL`, `RATE`, `DURATION`, `MODE=knee|fixed` de env.
 
 - [x] **Step 1 (VERIFY):** `spring-petclinic-rest` — versión de Spring Boot del repo y si soporta JDK 25; tag exacto de la imagen base `eclipse-temurin:25-jre` multi-arch del día; nombre de la propiedad de virtual threads en esa versión de Boot (`spring.threads.virtual.enabled`); endpoints reales (`/api/owners`, `/api/pets/{id}`, `/api/visits`) leyendo el OpenAPI del proyecto. Anotar todo en `apps/java/README.md` con fecha.
 - [x] **Step 2:** `apps/java/Dockerfile` multi-stage: build del jar de PetClinic REST (perfil H2 en memoria) + runtime JDK 25; `JAVA_TOOL_OPTIONS` vacío por defecto (las flags stock/tuned las pone el overlay, no la imagen). **Time-box 2 h**: si JDK 25 + Boot no compila, escribir `apps/java-min/` (JDK 25 `HttpServer` + Jackson: `POST /api/transform` recibe JSON de 2 KB, lo parsea, ordena un arreglo interno, serializa) y documentar la decisión en README.
@@ -67,11 +67,22 @@
 - [x] **Step 6:** Smoke local en Mac: `docker build` de las cuatro imágenes (arm64 local), `docker run` Java y Go, `k6 run` 30 s en `MODE=fixed` contra cada uno, `iperf3 -s` / `-c localhost` entre dos contenedores. Anotar versiones resultantes en README.
 - [x] **Step 7:** Commit `feat(apps): petclinic jdk25 image, go baseline, iperf3, ycsb, k6 scenarios`.
 
-### Task 3: buildx multi-arch + GHCR [SPEC §4]
+### Task 3: buildx multi-arch + registro propio [SPEC §4]
 
-- [x] **Step 1:** `apps/build-multiarch.sh`: `docker buildx build --platform linux/amd64,linux/arm64 --push` para `aad-java`, `aad-go`, `aad-iperf3` y `--platform linux/amd64` para `aad-ycsb`; tag = fecha ISO; `docker buildx imagetools inspect` al final para probar que ambos manifests existen. Fallback comentado: ECR del sandbox.
-- [ ] **Step 2 (GATED push):** ejecutar con `GITHUB_TOKEN` local contra GHCR público. Guardar la salida de `imagetools inspect` en `results/images-<fecha>.txt`. Nota (2026-09-04): el script empuja sin attestations de provenance/SBOM (`--provenance=false --sbom=false`); si se quieren, quitar las dos flags antes de este paso.
-- [x] **Step 3:** Commit `build: multi-arch pipeline (buildx, GHCR)`.
+**Nota 2026-09-04 (decisión del speaker):** el registro es **ECR privado del
+sandbox**, no GHCR (ver la nota de la spec §4). Los repositorios se crean en el
+root `infra/ecr` (cuatro `aws_ecr_repository` `IMMUTABLE`, scan on push, política
+de ciclo de vida que conserva las últimas 5 versiones etiquetadas) y
+`apps/build-multiarch.sh` con `PUSH=1` deriva el registro en el momento
+(`aws sts get-caller-identity` + `aws ecr get-login-password`), exige un
+`AWS_PROFILE` con `sandbox` en el nombre y escribe `results/images.json` (tag +
+digests, sin datos de cuenta) que **sí** se commitea. GHCR queda como alternativa
+comentada dentro del script.
+
+- [x] **Step 1:** `apps/build-multiarch.sh`: `docker buildx build --platform linux/amd64,linux/arm64 --push` para `aad-java`, `aad-go`, `aad-iperf3` y `--platform linux/amd64` para `aad-ycsb`; tag = fecha ISO; `docker buildx imagetools inspect` al final para probar que ambos manifests existen. Alternativa comentada: GHCR.
+- [x] **Step 1b (2026-09-04):** root `infra/ecr` con los cuatro repositorios, el mismo gate de cuenta sandbox que `infra/`, y outputs `registry` y `repository_urls`. El rol IAM de los nodos ya trae la política de pull del módulo eks 21.25.0 (`AmazonEC2ContainerRegistryReadOnly` en los MNG, `AmazonEC2ContainerRegistryPullOnly` en Karpenter): no se agrega nada.
+- [ ] **Step 2 (GATED push):** ejecutar con el perfil sandbox contra ECR privado: `AWS_PROFILE=<perfil-sandbox> PUSH=1 apps/build-multiarch.sh`. Commitear el `results/images.json` que deja (tag + digests). Nota (2026-09-04): el script empuja sin attestations de provenance/SBOM (`--provenance=false --sbom=false`); si se quieren, quitar las dos flags antes de este paso.
+- [x] **Step 3:** Commit `build: multi-arch pipeline (buildx, GHCR)`, y `refactor: own images in private ECR, not GHCR` (2026-09-04).
 
 ### Task 4: Infra EKS (Terraform) [SPEC §3, §3.5]
 
@@ -90,7 +101,7 @@
 
 ### Task 5: Manifiestos: observabilidad, perillas y workloads [SPEC §3, §3.5, §4]
 
-**Estado (2026-09-04, ronda de fixes 1):** implementado y validado offline (kustomize + kubeconform v0.8.0 sobre k8s 1.36.0). Desvíos: `java.aad.svc:9966` en vez de 8080 (es el puerto real de la app), tag `PUSH_DATE` como placeholder literal en las imágenes propias hasta el push gated a GHCR, sin paso de irqbalance (Bottlerocket no lo empaqueta), chart de Pyroscope 2.2.1 (appVersion 2.2.1; v2.3.0 aún no tiene chart), profiler pineado en 0.147.0, `nodeAffinity In` en los DaemonSets de perillas porque `nodeSelector` es solo igualdad, y los Jobs (YCSB e iperf3 cliente) quedan fuera de los kustomization como plantillas que renderiza el runner (con `__NAME__` propio, porque el pod template de un Job es inmutable).
+**Estado (2026-09-04, ronda de fixes 1):** implementado y validado offline (kustomize + kubeconform v0.8.0 sobre k8s 1.36.0). Desvíos: `java.aad.svc:9966` en vez de 8080 (es el puerto real de la app), tag centinela en las imágenes propias hasta el push gated (`PUSH_DATE` hasta el 2026-09-04, `aad-<x>:UNSET` con nombre pelado desde el cambio a ECR privado), sin paso de irqbalance (Bottlerocket no lo empaqueta), chart de Pyroscope 2.2.1 (appVersion 2.2.1; v2.3.0 aún no tiene chart), profiler pineado en 0.147.0, `nodeAffinity In` en los DaemonSets de perillas porque `nodeSelector` es solo igualdad, y los Jobs (YCSB e iperf3 cliente) quedan fuera de los kustomization como plantillas que renderiza el runner (con `__NAME__` propio, porque el pod template de un Job es inmutable).
 
 Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a ser un CONTROL de las cinco celdas (`infra/userdata/base.toml`: `settings.kubernetes.cpu-manager-policy = "static"` + `kube-reserved.cpu`), así que el pod SUT es dueño de 15 vCPU exclusivos y el overlay de inferencia `x86-t16` se renombró a **`x86-t15`** con `-t 15`, igual que `arm-tuned`: **t=15 = vCPU exclusivos del pod (2026-09-04)**. El DaemonSet de red salió del `kustomization` de base (era una perilla aplicada a todas las celdas tuned).
 
@@ -152,7 +163,7 @@ Lo que cambió, en orden de riesgo:
   `cpuset_unreadable` y aborta; la celda de Go, que es distroless, lo reporta por
   `/healthz` (`runtime.NumCPU()`) leído por el proxy de Services; una colección de
   Mongo a medio cargar es `partial_dataset` y no se mide.
-- **Plata y tiempo**: preflight de `PUSH_DATE` antes del `scale()`, fecha del día
+- **Plata y tiempo**: preflight del centinela `:UNSET` antes del `scale()`, fecha del día
   de lab en hora local, salida de APerf a `run-<i>/aperf/aperf.log` (era un pipe
   que nadie leía), Jobs etiquetados `aad/cell` y borrados al cerrar la celda,
   gate técnico de cuenta sandbox en Terraform (`var.sandbox_account_id` +
@@ -203,7 +214,8 @@ Condición para Task 7. Todo con el clúster de un día de lab (`terraform apply
 
 ### Task 12: README final [SPEC §1]
 
-- [ ] **Step 1:** Versiones pinneadas con fecha de verificación, costo real del lab, orden de corrida completo (sección "Reproducir": apply → gate → días 1 y 2 → arco → destroy), deltas/gotchas (StorageClass default, TOML de Bottlerocket para THP, cpuidle en guest, APerf en Bottlerocket, simbolización del profiler, capacidad m9g.4xlarge por AZ) — patrón "Deltas EKS vs kind" del kcd README.
+- [ ] **Step 1:** Versiones pinneadas con fecha de verificación, costo real del lab, orden de corrida completo (sección "Reproducir": `infra/ecr` apply → push → apply → gate → días 1 y 2 → arco → destroy), deltas/gotchas (StorageClass default, TOML de Bottlerocket para THP, cpuidle en guest, APerf en Bottlerocket, simbolización del profiler, capacidad m9g.4xlarge por AZ) — patrón "Deltas EKS vs kind" del kcd README.
+- [ ] **Step 1b (opcional, 2026-09-04):** espejo en **ECR Public** de las cuatro imágenes, para que la audiencia pueda hacer `docker pull` sin cuenta. Es un `aws_ecrpublic_repository` en `infra/ecr` (recordar que la API de ECR Public solo se sirve en `us-east-1`) más un push extra en `build-multiarch.sh`. No hace falta para correr el lab; es material de charla.
 - [ ] **Step 2:** Commit `docs: final README with real cost and deltas`.
 
 ---
