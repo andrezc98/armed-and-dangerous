@@ -54,7 +54,9 @@ PUSH=0 apps/build-multiarch.sh
 
 Push a GHCR (`ghcr.io/andrezc98`) con `docker buildx imagetools inspect` al
 final de cada imagen para confirmar ambos manifests: **queda gated** hasta
-que el speaker lo autorice explícitamente.
+que el speaker lo autorice explícitamente. El push realiza sin attestations
+de provenance ni SBOM (el script pasa `--provenance=false --sbom=false`);
+quitar las dos flags si se requieren attestations.
 
 ```
 PUSH=1 apps/build-multiarch.sh

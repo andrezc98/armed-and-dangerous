@@ -70,7 +70,7 @@
 ### Task 3: buildx multi-arch + GHCR [SPEC §4]
 
 - [x] **Step 1:** `apps/build-multiarch.sh`: `docker buildx build --platform linux/amd64,linux/arm64 --push` para `aad-java`, `aad-go`, `aad-iperf3` y `--platform linux/amd64` para `aad-ycsb`; tag = fecha ISO; `docker buildx imagetools inspect` al final para probar que ambos manifests existen. Fallback comentado: ECR del sandbox.
-- [ ] **Step 2 (GATED push):** ejecutar con `GITHUB_TOKEN` local contra GHCR público. Guardar la salida de `imagetools inspect` en `results/images-<fecha>.txt`.
+- [ ] **Step 2 (GATED push):** ejecutar con `GITHUB_TOKEN` local contra GHCR público. Guardar la salida de `imagetools inspect` en `results/images-<fecha>.txt`. Nota (2026-09-04): el script empuja sin attestations de provenance/SBOM (`--provenance=false --sbom=false`); si se quieren, quitar las dos flags antes de este paso.
 - [x] **Step 3:** Commit `build: multi-arch pipeline (buildx, GHCR)`.
 
 ### Task 4: Infra EKS (Terraform) [SPEC §3, §3.5]
