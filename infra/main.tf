@@ -113,6 +113,29 @@ resource "terraform_data" "bottlerocket_supports_thp" {
 }
 
 ################################################################################
+# Sandbox gate: are these the credentials the lab is allowed to spend?
+################################################################################
+
+# The runner already refuses to run without an AWS_PROFILE whose name contains
+# "sandbox" (runner/config.py require_sandbox), but a profile name is a string a
+# human types. This is the technical half of the same rule: the account these
+# credentials actually resolve to has to be the one written down in the
+# git-ignored terraform.tfvars, or the plan stops before it creates a cluster in
+# somebody else's account.
+data "aws_caller_identity" "current" {}
+
+resource "terraform_data" "sandbox_account" {
+  input = var.sandbox_account_id
+
+  lifecycle {
+    precondition {
+      condition     = data.aws_caller_identity.current.account_id == var.sandbox_account_id
+      error_message = "These credentials belong to an account other than the sandbox_account_id in terraform.tfvars. Check which one is in use with `aws sts get-caller-identity` and export the sandbox AWS_PROFILE; do not widen this gate."
+    }
+  }
+}
+
+################################################################################
 # Availability zone gate: does this AZ offer the four instance types at all?
 ################################################################################
 
@@ -215,6 +238,22 @@ module "eks" {
         role_arn        = aws_iam_role.ebs_csi.arn
         service_account = "ebs-csi-controller-sa"
       }]
+      # The provider's default_tags never reach a volume the CSI driver
+      # provisions: Terraform does not create it, the driver's own CreateVolume
+      # call does. Without this the end-of-day leak check
+      # (`describe-volumes --filters Name=tag:Project,...`) comes back [] with a
+      # 200Gi gp3 still billing. The add-on's configuration schema is the Helm
+      # chart's values, where the key is controller.extraVolumeTags: "Extra
+      # volume tags to attach to each dynamically provisioned volume"
+      # (charts/aws-ebs-csi-driver/values.yaml, kubernetes-sigs/aws-ebs-csi-driver
+      # master, read 2026-09-04; the same file has controller.extraCreateMetadata
+      # default true, which is what also puts kubernetes.io/created-for/pvc/*
+      # on the volume - the second filter of that leak check).
+      configuration_values = jsonencode({
+        controller = {
+          extraVolumeTags = local.tags
+        }
+      })
     }
     # Community add-on (owner "community"), no IAM of any kind. Feeds
     # `kubectl top`, the loader CPU guard and the CPU-per-Gbps number.

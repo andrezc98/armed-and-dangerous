@@ -15,6 +15,16 @@ variable "cluster_name" {
   }
 }
 
+variable "sandbox_account_id" {
+  description = "The 12-digit sandbox account this lab may spend in. No default on purpose: the real value lives in the git-ignored terraform.tfvars and terraform_data.sandbox_account refuses to plan against any other account."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.sandbox_account_id))
+    error_message = "sandbox_account_id must be the 12 digits of an AWS account id."
+  }
+}
+
 variable "admin_cidrs" {
   description = "CIDRs allowed to reach the public EKS API endpoint. On lab day this is the speaker's egress /32 and nothing else."
   type        = list(string)

@@ -125,6 +125,40 @@ Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a 
 
 ### Task 6.5: Smoke gate (GATED, ~$8, medio día) [SPEC §3.5, §5]
 
+**Estado (revisión final, 2026-09-04).** La revisión de rama completa encontró
+defectos transversales en las Tasks 2-6 y esta ola los corrigió antes del gate.
+Lo que cambió, en orden de riesgo:
+
+- **La celda de inferencia no arrancaba**: el calentamiento hacía `.get` sobre
+  `spec["ladder"]`, que en inferencia es `None`. Ahora calienta con la misma
+  forma con la que mide (`MODE=saturate`, 4 VUs) y hay un dry-run por workload,
+  inferencia incluida, en `tests/test_cell.py`.
+- **La escalera del knee se juzga escalón por escalón** (`knee.step_reasons`,
+  thresholds nuevos sobre `http_reqs{rate:R}` y `http_req_failed{rate:R}` en
+  `k6/lib.js`). La regla de corrida entera queda solo para las corridas fijas:
+  aplicada a la escalera rechazaba justamente las que encontraban el knee, porque
+  arriba del knee la escalera **tiene** que romperse. Un knee que cae en el tope
+  de la escalera se rechaza con `ladder_never_crossed`.
+- **Fuga de EBS**: el add-on EBS CSI va con
+  `configuration_values = { controller.extraVolumeTags }` (los `default_tags` del
+  provider no llegan a un volumen que crea el driver) y el chequeo de fin de día
+  son ahora dos `describe-volumes`, el segundo con la etiqueta que el driver
+  escribe solo. El orden del cierre vive en un solo lugar, el README raíz.
+- **Perilla de C-states**: el valor es la latencia de salida de C1, no 0 (ver la
+  nota fechada en SPEC §3.5). El paso 1 de este gate ya leía
+  `cpuidle/state*/name`; ahora además hay que anotar `state1/latency`, que es el
+  número que el DaemonSet escribe.
+- **Controles que podían pasar en silencio**: un `cpuset` ilegible marca
+  `cpuset_unreadable` y aborta; la celda de Go, que es distroless, lo reporta por
+  `/healthz` (`runtime.NumCPU()`) leído por el proxy de Services; una colección de
+  Mongo a medio cargar es `partial_dataset` y no se mide.
+- **Plata y tiempo**: preflight de `PUSH_DATE` antes del `scale()`, fecha del día
+  de lab en hora local, salida de APerf a `run-<i>/aperf/aperf.log` (era un pipe
+  que nadie leía), Jobs etiquetados `aad/cell` y borrados al cerrar la celda,
+  gate técnico de cuenta sandbox en Terraform (`var.sandbox_account_id` +
+  `aws_caller_identity`), y `kubectl rollout status deploy/karpenter` antes de
+  aplicar las CRD de Karpenter.
+
 Condición para Task 7. Todo con el clúster de un día de lab (`terraform apply` humano).
 
 - [ ] **Step 1:** Escalar `x86-tuned` y `arm-tuned` a 1. Anotar el **stock real** leyendo en cada nodo (pod privileged): `/sys/kernel/mm/transparent_hugepage/enabled`, `nproc`, `lscpu` (threads per core), `/sys/devices/system/cpu/cpu0/cpuidle/state*/name` (¿hay > C1 en m8i?), presencia de `irqbalance`. Comprobar que el nodo tuned muestra `[always]` y que `x86-smtoff` (escalar aparte) muestra 8 CPUs.

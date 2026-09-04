@@ -3,6 +3,12 @@
 
 vpc_id = "vpc-000000000000example"
 
+# The account the apply is allowed to run in. Terraform compares it with
+# aws_caller_identity and stops the plan if they differ, so a mistyped
+# AWS_PROFILE cannot build the lab somewhere else. Replace with the real sandbox
+# account id in terraform.tfvars; this placeholder is not an account.
+sandbox_account_id = "000000000000"
+
 # Every node group and every Karpenter node lives in this one subnet/AZ.
 subnet_cidr       = "10.0.240.0/24"
 availability_zone = "us-east-1a"

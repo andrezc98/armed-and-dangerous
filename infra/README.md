@@ -22,6 +22,8 @@ la corrida y las devuelve a 0. Terraform no se ejecuta nunca desde el runner.
 | Bottlerocket | variante `aws-k8s-1.36`, mínimo **1.64.0** para THP | https://bottlerocket.dev/en/os/1.64.x/api/settings/kernel/ |
 | `ami_type` | `BOTTLEROCKET_x86_64` / `BOTTLEROCKET_ARM_64` | https://docs.aws.amazon.com/eks/latest/APIReference/API_Nodegroup.html |
 | Add-ons | `coredns`, `kube-proxy`, `vpc-cni`, `eks-pod-identity-agent`, `aws-ebs-csi-driver`, `metrics-server` | https://docs.aws.amazon.com/eks/latest/userguide/workloads-add-ons-available-eks.html y https://docs.aws.amazon.com/eks/latest/userguide/community-addons.html |
+| `configuration_values` del add-on EBS CSI | `controller.extraVolumeTags` | values del chart (`charts/aws-ebs-csi-driver/values.yaml`, `kubernetes-sigs/aws-ebs-csi-driver`); el add-on los toma tal cual vía `--configuration-values` (https://docs.aws.amazon.com/eks/latest/userguide/updating-an-add-on.html) |
+| Esperar a Karpenter antes de las CRD | `kubectl -n kube-system rollout status deploy/karpenter --timeout=5m` | https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/kubectl_rollout_status/ — "By default 'rollout status' will watch the status of the latest rollout until it's done"; `--timeout` es "The length of time to wait before ending watch, zero means never" |
 
 Las tres CRD de Karpenter (`infra/karpenter/`) usan `karpenter.sh/v1` y
 `karpenter.k8s.aws/v1`: son las únicas versiones que sirve el chart 1.14.1
@@ -54,7 +56,8 @@ nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 ```bash
 cd infra
 cp example.tfvars terraform.tfvars   # terraform.tfvars está git-ignored
-$EDITOR terraform.tfvars             # vpc_id, CIDRs, AZs y admin_cidrs reales
+$EDITOR terraform.tfvars             # vpc_id, CIDRs, AZs, admin_cidrs y
+                                     # sandbox_account_id reales
 # admin_cidrs es la lista que puede llegar al endpoint público de la API. En el
 # lab es el /32 de salida de la laptop y nada más:
 #   curl -s https://checkip.amazonaws.com
@@ -62,6 +65,9 @@ $EDITOR terraform.tfvars             # vpc_id, CIDRs, AZs y admin_cidrs reales
 export AWS_PROFILE=<perfil-sandbox>  # tiene que contener "sandbox"
 terraform init
 terraform apply                      # GATED: solo con autorización explícita
+# Si el plan corta con "These credentials belong to an account other than the
+# sandbox_account_id", el perfil exportado no es el del sandbox. Se revisa con
+# `aws sts get-caller-identity`; no se toca el gate.
 
 # El runner nunca ejecuta terraform. Los nombres del clúster y de las node
 # groups se los deja escritos una persona, una vez por día de lab, en el
@@ -72,32 +78,24 @@ terraform output -json > ../results/$(date -u +%F)/cluster.json
 aws eks update-kubeconfig --region us-east-1 --name aws-aad-eks-lab
 
 # Las CRD de Karpenter recién existen después del apply, así que la NodePool y
-# las dos EC2NodeClass se aplican con kubectl, no con Terraform.
+# las dos EC2NodeClass se aplican con kubectl, no con Terraform. El helm_release
+# lleva wait = false, así que el apply vuelve antes de que el controlador (y con
+# él sus CRD) estén arriba: hay que esperarlo o el kubectl falla con
+# "no matches for kind NodePool".
+kubectl -n kube-system rollout status deploy/karpenter --timeout=5m
 kubectl apply -f karpenter/   # desde infra/; equivale a infra/karpenter/ desde la raíz
 ```
 
-Al final del día de lab:
+Las dos NodePool se aplican **solo el día del arco o del clip** (plan Tasks 8 y
+9). Un día de lab normal no las necesita: el benchmark corre sobre las managed
+node groups y el runner es quien las escala.
 
-```bash
-# Primero los nodos de Karpenter: no están en el estado de Terraform y el
-# destroy no los toca.
-kubectl delete nodepool aad-arc-amd64 aad-arc-arm64 --ignore-not-found
-kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
-
-# Después el StatefulSet de Mongo y sus PVC. El volumen EBS lo provisionó
-# dinámicamente el driver CSI: tampoco está en el estado y el destroy no lo ve.
-kubectl delete -n aad sts mongo
-kubectl delete pvc -n aad --all
-aws ec2 describe-volumes \
-  --filters Name=tag:Project,Values=armed-and-dangerous \
-  --query 'Volumes[].VolumeId'
-# tiene que devolver [] ANTES del destroy
-
-terraform destroy                    # GATED igual que el apply
-aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous \
-  Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId'
-# tiene que devolver []
-```
+Al final del día de lab, el orden canónico está en el README raíz, sección
+"Reproducir" → "Cierre del día de lab". En una línea: NodePools →
+`uv run cell --teardown-day` → esperar a que los dos `describe-volumes` devuelvan
+`[]` → `terraform destroy` (GATED) → `describe-instances` vacío. Ni los nodos de
+Karpenter ni el volumen EBS del driver CSI están en el estado de Terraform, y por
+eso van antes del destroy y no dentro de él.
 
 ## Decisiones que conviene conocer
 
@@ -199,7 +197,7 @@ Esa asimetría es material de slide, no una omisión.
 **El endpoint público solo para la laptop del speaker.** El módulo trae
 `endpoint_public_access_cidrs` en `["0.0.0.0/0"]` por default ("List of CIDR
 blocks which can access the Amazon EKS public API server endpoint",
-`variables.tf` de v21.25.0). Acá se pasa `var.admin_cidrs`, sin default, para
+`variables.tf` de v21.25.0). Aquí se pasa `var.admin_cidrs`, sin default, para
 que el `apply` falle si nadie decidió quién entra.
 
 **La AZ se verifica antes de crear nada.**
@@ -217,11 +215,38 @@ un `validation` que solo acepta `aws-aad-eks-lab` y cuyo mensaje nombra los dos
 archivos. Renderizar los YAML con `templatefile` sería más maquinaria de la que
 el lab necesita.
 
-**EBS CSI con Pod Identity.** Sin el driver ningún PVC liga y el StatefulSet de
-MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
+**EBS CSI con Pod Identity, y sus etiquetas.** Sin el driver ningún PVC liga y el
+StatefulSet de MongoDB queda en Pending (fue el golpe del clúster de kcd). El rol
 `aws-aad-ebs-csi` confía en `pods.eks.amazonaws.com` y lleva
 `AmazonEBSCSIDriverPolicyV2`, que alcanza porque el driver etiqueta solo lo que
 provisiona dinámicamente.
+
+El add-on además va con `configuration_values`:
+
+```hcl
+configuration_values = jsonencode({ controller = { extraVolumeTags = local.tags } })
+```
+
+`default_tags` del provider **no** llega a esos volúmenes: los crea el
+`CreateVolume` del driver, no Terraform. Sin esa configuración el chequeo de fuga
+del final del día (`describe-volumes --filters Name=tag:Project,...`) devolvía
+`[]` con un gp3 de 200Gi todavía facturando. El esquema de configuración del
+add-on son los values del chart, donde la clave es `controller.extraVolumeTags`
+("Extra volume tags to attach to each dynamically provisioned volume",
+`charts/aws-ebs-csi-driver/values.yaml` de `kubernetes-sigs/aws-ebs-csi-driver`,
+leído 2026-09-04). En ese mismo archivo `controller.extraCreateMetadata` viene en
+`true`, que es lo que hace que el volumen lleve también
+`kubernetes.io/created-for/pvc/namespace` — el segundo filtro del chequeo, que no
+depende de esta configuración
+(`PVCNamespaceTag`, `pkg/driver/constants.go` del mismo repo).
+
+**El gate del sandbox no es solo un nombre de perfil.** `var.sandbox_account_id`
+(sin default, valor real en el `terraform.tfvars` git-ignored, placeholder
+`000000000000` en `example.tfvars`) se compara con
+`data.aws_caller_identity.current.account_id` en una precondition, al lado del
+gate de AZ. El runner ya exige un `AWS_PROFILE` cuyo nombre contenga `sandbox`,
+pero un nombre de perfil es una cadena que alguien escribe: esta es la mitad
+técnica de la misma regla.
 
 **Karpenter no provisiona el benchmark.** Está para dos slides: el arco
 generacional y el clip de scale-from-zero. Elige por precio entre los tipos
@@ -272,7 +297,7 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
 ## Pendiente de verificar el día del apply
 
 - La versión de Bottlerocket publicada para `aws-k8s-1.36`. Si es menor a
-  1.64.0 el plan corta solo; el fallback está comentado en `thp.toml`. Ojo con
+  1.64.0 el plan corta solo; el fallback está comentado en `thp.toml`. Atención con
   el alcance: el gate prueba que la AMI fijada soporta la perilla, no que el
   nodo la tenga puesta. Antes de medir cualquier celda tuned hay que leerlo en
   el nodo, y si no dice `[always]` la corrida no vale.

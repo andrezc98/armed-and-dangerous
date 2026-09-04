@@ -41,6 +41,52 @@ workload corre en todas sus celdas; el clúster queda abajo entre días de lab.
 ## Reproducir
 (completar en el Task 12 con el orden real de corrida y el costo medido)
 
+### Cierre del día de lab (orden canónico)
+
+Este es el único lugar donde vive el orden: `infra/README.md`,
+`manifests/base/README.md` y `runner/README.md` apuntan aquí en vez de repetirlo.
+Cada paso existe porque el siguiente no lo cubre — `terraform destroy` no ve los
+nodos de Karpenter ni el volumen EBS del driver CSI, porque ninguno de los dos
+está en el estado de Terraform.
+
+```bash
+# 1. NodePools de Karpenter (existen solo en los días de arco / clip). Sus nodos
+#    no están en el estado de Terraform.
+kubectl delete nodepool --all --ignore-not-found
+kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
+
+# 2. Todo lo que el runner dejó vivo en el clúster: StatefulSet de Mongo, PVCs,
+#    Jobs de k6/YCSB/iperf3 y la perilla de red. Repite el paso 1 por las dudas
+#    e imprime este checklist al terminar.
+cd runner && AWS_PROFILE=<perfil-sandbox> uv run cell --teardown-day
+
+# 3. Esperar a que los volúmenes desaparezcan de verdad. Las DOS listas tienen
+#    que devolver [] ANTES del destroy (--teardown-day ya las corre una vez;
+#    repetirlas hasta que estén vacías):
+aws ec2 describe-volumes --filters Name=tag:Project,Values=armed-and-dangerous \
+  --query 'Volumes[].VolumeId'
+aws ec2 describe-volumes \
+  --filters Name=tag:kubernetes.io/created-for/pvc/namespace,Values=aad \
+  --query 'Volumes[].VolumeId'
+
+# 4. Recién ahora el destroy (GATED, lo corre una persona).
+cd infra && terraform destroy
+
+# 5. Verificación final: cero instancias.
+aws ec2 describe-instances --filters Name=tag:Project,Values=armed-and-dangerous \
+  Name=instance-state-name,Values=running \
+  --query 'Reservations[].Instances[].InstanceId'
+```
+
+Por qué dos filtros de volúmenes: `default_tags` del provider no llega a un
+volumen creado por el driver CSI (lo crea su propio `CreateVolume`, no
+Terraform). El `Project` aparece porque el add-on va configurado con
+`controller.extraVolumeTags` (`infra/main.tf`); el segundo filtro usa la etiqueta
+que el driver escribe por su cuenta
+(`kubernetes.io/created-for/pvc/namespace`, `pkg/driver/constants.go` de
+`kubernetes-sigs/aws-ebs-csi-driver`), así que el chequeo sigue en pie aunque esa
+configuración se pierda.
+
 ### Imágenes multi-arch
 `apps/build-multiarch.sh` construye con `docker buildx` las cuatro imágenes
 (`aad-java`, `aad-go`, `aad-iperf3` en `linux/amd64,linux/arm64`; `aad-ycsb`

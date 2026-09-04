@@ -50,6 +50,6 @@ precios no hay guard, y sin guard el presupuesto es una nota al pie.
 `fixed_hours_per_day` son las horas que el clúster estuvo vivo de punta a punta
 (del `terraform apply` al `terraform destroy`). Es lo que se le cobra al loader,
 al nodo de tools y al control plane, que nunca bajan a cero mientras el clúster
-existe. Las celdas SUT no entran acá: cada una se cobra por los minutos que su
+existe. Las celdas SUT no entran aquí: cada una se cobra por los minutos que su
 node group estuvo sobre `desired=0`, y eso lo registra el runner en
 `results/<fecha>/<workload>/<celda>/cell.json`.
