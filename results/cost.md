@@ -27,14 +27,14 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
 
 | instance | usd_per_hour | captured (date, source) |
 |---|---|---|
-| m8i.4xlarge | TODO | TODO |
-| m9g.4xlarge | TODO | TODO |
-| c7i.4xlarge | TODO | TODO |
-| m7g.large | TODO | TODO |
-| eks-control-plane | TODO | TODO |
+| m8i.4xlarge | 0.84672 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
+| m9g.4xlarge | 0.78272 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
+| c7i.4xlarge | 0.714 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
+| m7g.large | 0.0816 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
+| eks-control-plane | 0.10 | 2026-09-04, https://aws.amazon.com/eks/pricing/ (standard support, por clúster-hora) |
 
 - estimate_per_day_usd: 80
-- fixed_hours_per_day: TODO
+- fixed_hours_per_day: 6
 
 `estimate_per_day_usd` es el presupuesto del día declarado ANTES de encender
 nada. Está en 80 desde el 2026-09-04, cuando el speaker relajó el techo de $200
