@@ -12,7 +12,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 ## Versiones probadas
 (se llena con cada corrida; verificar contra docs del día antes de confiar)
 
-- Terraform + `terraform-aws-modules/eks/aws` 21.25.0, provider aws ~> 6.53
+- Terraform >= 1.15 + `terraform-aws-modules/eks/aws` 21.25.0, provider aws ~> 6.63, provider helm ~> 3.3, EKS 1.36 con Bottlerocket >= 1.64.0 (ver `infra/README.md`)
 - Karpenter v1.14.1 (chart OCI oficial) · Pyroscope 2.3.0 · k6 v2.2.0
 - OTel eBPF profiler `otel/opentelemetry-collector-ebpf-profiler` (tag del día) · APerf (`kubectl-aperf`) · metrics-server (addon EKS)
 - Apps (verificado y probado en local 2026-09-03, ver `apps/*/Dockerfile`): `spring-petclinic-rest` master@`4cd8e1b0` (v4.0.2, Boot 4.1.1) sobre `eclipse-temurin:25.0.4_7-jre-noble`, build `maven:3.9.16-eclipse-temurin-25-noble` · Go `golang:1.27.1` + `gcr.io/distroless/static-debian13:nonroot` · `alpine:3.24.1` + iperf3 3.20-r0 · go-ycsb v1.0.3 · k6 `grafana/k6:2.2.0` (imagen oficial, amd64+arm64)

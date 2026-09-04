@@ -1,0 +1,47 @@
+# Generational arc (SPEC section 6) and the scale-from-zero clip. Applied with
+# kubectl after `terraform apply`, because these CRDs do not exist until the
+# Karpenter chart is installed.
+#
+# The arc walks m5 -> m6i -> m7i -> m8i and m6g -> m7g -> m8g -> m9g by patching
+# the instance-family requirement one generation at a time, for example:
+#   kubectl patch nodepool aad-arc --type merge -p \
+#     '{"spec":{"template":{"spec":{"requirements":[
+#        {"key":"karpenter.k8s.aws/instance-family","operator":"In","values":["m7g"]},
+#        {"key":"karpenter.k8s.aws/instance-size","operator":"In","values":["4xlarge"]},
+#        {"key":"karpenter.sh/capacity-type","operator":"In","values":["on-demand"]}]}}}}'
+#
+# Karpenter picks by price among the allowed types; it has no performance
+# signal. That is said out loud on stage, and it is why the family list is
+# closed instead of open.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: aad-arc
+spec:
+  template:
+    metadata:
+      labels:
+        aad/role: arc
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: aad-bottlerocket-amd64
+      requirements:
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m5", "m6i", "m7i", "m8i", "m6g", "m7g", "m8g", "m9g"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["4xlarge"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      # Lab safety net: a forgotten arc node terminates itself the same day.
+      expireAfter: 8h
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 1m
+  limits:
+    # One .4xlarge is 16 vCPU, so this caps the arc at a single node at a time.
+    cpu: "16"

@@ -1,0 +1,33 @@
+# Bottlerocket user data for the tuned cells (x86-tuned, x86-smtoff, arm-tuned).
+#
+# This is raw TOML: with a BOTTLEROCKET_* ami_type and no custom AMI, the module
+# ships bootstrap_extra_args as the entire user data and EKS merges it over its
+# own settings ("The configuration that you provide in your user data overrides
+# any settings that are configured by Amazon EKS"), so the [settings.*] headers
+# have to be here.
+#
+# Transparent Huge Pages "always": the Graviton perf runbook asks for it, and
+# MongoDB 8.0 production notes now recommend THP enabled (a reversal from 7.0).
+# Runtime setting, no reboot, no kernel command line. Added in Bottlerocket
+# 1.64.0; terraform_data.bottlerocket_supports_thp in main.tf fails the plan if
+# the published AMI is older.
+#
+# Do not use bracketed headers with quoted keys here (for example
+# [settings.kernel.hugepages.static."2Mi"]): EKS does not support that TOML.
+
+[settings.kernel.hugepages.transparent]
+enabled = "always"
+# Unset defrag would derive from enabled and become "madvise", which is not what
+# "always" is supposed to mean for a memory-hungry SUT.
+defrag = "defer+madvise"
+
+# Fallback for Bottlerocket < 1.64.0, where the setting above does not exist.
+# Costs one extra reboot on the node's first boot (watch the cell change time).
+# reboot-to-reconcile only reboots when the value actually changes, so there is
+# no boot loop.
+#
+# [settings.boot]
+# reboot-to-reconcile = true
+#
+# [settings.boot.kernel-parameters]
+# "transparent_hugepage" = ["always"]

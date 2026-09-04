@@ -1,0 +1,28 @@
+# One EC2NodeClass per architecture. The bottlerocket@latest alias resolves the
+# AMI per architecture on its own, so either class can in fact provision either
+# silicon; they are kept apart so the ARM half of the arc can be pointed at its
+# own class and its instances carry the matching aad/arch tag in the bill.
+#
+# The karpenter.sh/discovery value is var.cluster_name (default
+# aws-aad-eks-lab). Change one and change the other.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: aad-bottlerocket-amd64
+spec:
+  # Created by the karpenter submodule with node_iam_role_use_name_prefix=false.
+  role: aws-aad-karpenter-node
+  amiSelectorTerms:
+    - alias: bottlerocket@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: aws-aad-eks-lab
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: aws-aad-eks-lab
+  tags:
+    Project: armed-and-dangerous
+    Environment: lab
+    Owner: andres-zeballos
+    ManagedBy: karpenter
+    aad/arch: amd64
