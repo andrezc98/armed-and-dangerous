@@ -1137,7 +1137,9 @@ VOLUME_LEAK_FILTERS = (
 def describe_volumes():
     for tag_filter in VOLUME_LEAK_FILTERS:
         sh(["aws", "ec2", "describe-volumes", "--region", config.REGION,
-            "--filters", tag_filter,
+            # status=available: the nodes' root disks carry the Project tag
+            # and vanish with the instances; a leak is a detached volume.
+            "--filters", tag_filter, "Name=status,Values=available",
             "--query", "Volumes[].VolumeId"])
 
 

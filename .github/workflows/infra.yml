@@ -117,13 +117,16 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
+          # Only detached volumes count: the nodes' root disks carry the Project
+          # tag too and go away with the instances (gate day 2026-09-04).
           for filter in \
             "Name=tag:Project,Values=armed-and-dangerous" \
             "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=aad"
           do
-            echo "=== describe-volumes --filters $filter ==="
+            echo "=== describe-volumes --filters $filter status=available ==="
             left="$(aws ec2 describe-volumes --region "$AWS_REGION" \
-              --filters "$filter" --query 'Volumes[].VolumeId' --output text)"
+              --filters "$filter" "Name=status,Values=available" \
+              --query 'Volumes[].VolumeId' --output text)"
             if [ -n "$left" ]; then
               echo "STILL THERE: $left" >&2
               fail=1
