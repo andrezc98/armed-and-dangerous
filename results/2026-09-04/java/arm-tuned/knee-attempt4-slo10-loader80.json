@@ -1,0 +1,33 @@
+{
+ "unit": "rps",
+ "knee": 60000,
+ "slo_ms": 10.0,
+ "series": [
+  [
+   20000,
+   0.6171699600000009
+  ],
+  [
+   30000,
+   0.9070789900000009
+  ],
+  [
+   40000,
+   2.3204020200000124
+  ],
+  [
+   50000,
+   3.984651740000001
+  ],
+  [
+   60000,
+   5.921999079999972
+  ]
+ ],
+ "invalid_steps": {},
+ "invalid": [
+  "ladder_never_crossed: the top step (60000 rps) still met the SLO; raise the top of the ladder (--rate-max, or --threads for mongo) and run the cell again",
+  "loader node CPU 80% > 70% during the knee"
+ ],
+ "loader_peak_percent": 80
+}

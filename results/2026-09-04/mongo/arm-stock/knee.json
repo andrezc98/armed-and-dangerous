@@ -1,0 +1,28 @@
+{
+ "unit": "threads",
+ "knee": 128,
+ "ops": 169743.5,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.481
+  ],
+  [
+   32,
+   0.716
+  ],
+  [
+   64,
+   1.52
+  ],
+  [
+   128,
+   3.223
+  ]
+ ],
+ "invalid": [
+  "ladder_never_crossed: the top step (128 threads) still met the SLO; raise the top of the ladder (--rate-max, or --threads for mongo) and run the cell again"
+ ],
+ "loader_peak_percent": 61
+}
