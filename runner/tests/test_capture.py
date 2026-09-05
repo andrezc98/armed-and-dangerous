@@ -61,3 +61,18 @@ def test_the_top_json_fixture_has_the_shape_the_parser_produces():
     """Guards the stats fixture against drifting away from the real parser."""
     fixture = json.loads((FIXTURES / "top-net.json").read_text())
     assert set(fixture[0]) == set(_sample())
+
+
+def test_parse_top_keeps_only_the_cell_nodes_and_the_loader():
+    """kubectl top node is called without names (it accepts only one), so the
+    parser has to drop the tools node and other cells itself."""
+    node_text = (
+        "ip-tools        49m   2%   775Mi  10%\n"
+        "ip-loader      3200m  20%  700Mi   2%\n"
+        "ip-sut         9000m  57%  30000Mi 48%\n"
+        "ip-other-cell   12m   0%   690Mi   1%\n"
+    )
+    s = capture.parse_top(node_text, "", "ip-sut", "ip-loader", keep={"ip-sut", "ip-loader"})
+    assert s["loader_cpu_percent"] == 20 and s["loader_cpu_millicores"] == 3200
+    assert s["node_cpu_percent"] == 57
+    assert set(s["nodes"]) == {"ip-sut"}

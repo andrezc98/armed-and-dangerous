@@ -124,7 +124,7 @@ def flamegraph(service, start, end, out_path):
             forward.terminate()
 
 
-def parse_top(node_text, pod_text, sut, loader):
+def parse_top(node_text, pod_text, sut, loader, keep=None):
     """One sample out of the two `kubectl top` outputs. Pure, so it is testable.
 
     Every cell node lands in `nodes`, because the net cell runs on two of them
@@ -138,6 +138,8 @@ def parse_top(node_text, pod_text, sut, loader):
         if not m:
             continue  # '<unknown>' when metrics-server has no sample for the node yet
         name, millicores, percent = m.group(1), int(m.group(2)), int(m.group(3))
+        if keep is not None and name not in keep:
+            continue  # tools node, other cells: not this cell's business
         if name == loader:
             sample["loader_cpu_millicores"], sample["loader_cpu_percent"] = millicores, percent
             continue
@@ -155,15 +157,18 @@ def parse_top(node_text, pod_text, sut, loader):
 
 def _top(nodes, sut, loader):
     """One sample: every cell node's CPU, the loader's, and the measured pod's."""
+    # `kubectl top node` takes ONE name (or -l); with several it errors out and
+    # the guard sampled nothing (found on the 2026-09-04 gate: loader_peak 0
+    # during a 40k rps ladder). List every node and keep the ones we want.
     node_text = config.sh(
-        ["kubectl", "top", "node", *nodes, loader, "--no-headers"],
+        ["kubectl", "top", "node", "--no-headers"],
         capture=True, quiet=True, check=False,
     )
     pod_text = config.sh(
         ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers"],
         capture=True, quiet=True, check=False,
     )
-    return parse_top(node_text, pod_text, sut, loader)
+    return parse_top(node_text, pod_text, sut, loader, keep=set(nodes) | {loader})
 
 
 class TopSampler:
