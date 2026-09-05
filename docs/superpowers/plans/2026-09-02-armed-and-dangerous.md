@@ -175,6 +175,8 @@ Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a 
 
 ### Task 6.5: Smoke gate (GATED, ~$8, medio día) [SPEC §3.5, §5]
 
+**Estado 2026-09-04 (gate ejecutado):** pasó completo; lecturas, números n=1 y decisiones en `results/profiler-gate.md` (commit 46e5058). Cambios que salen del gate antes de Task 7: profiler eBPF pinneado a 0.160.0 (0.147.0 no carga en kernel 6.18); loader `c7i.8xlarge` (el 4xlarge satura a ~60k rps); SLO de Java p99 < 10 ms y escalera 20k→120k; hilos de Mongo hasta 512; regla de `dropped_iterations` como tasa (> 0.1 %); `--teardown-day` desinstala Pyroscope antes de borrar PVCs; guard de destroy solo cuenta volúmenes `available`. La infra se aplica y destruye desde GitHub Actions (OIDC + backend S3): ver README "Reproducir".
+
 **Estado (2026-09-04, después del apply fallido).** El primer intento de este
 gate murió en el `apply` con dos defectos reales, los dos ya corregidos (Task 4b
 y el commit `fix(infra)` del mismo día):
@@ -247,12 +249,12 @@ solo el día del arco o del clip, con el comando de
 
 Condición para Task 7. Todo con el clúster de un día de lab (`terraform apply` humano).
 
-- [ ] **Step 1:** Escalar `x86-tuned` y `arm-tuned` a 1. Anotar el **stock real** leyendo en cada nodo (pod privileged): `/sys/kernel/mm/transparent_hugepage/enabled`, `nproc`, `lscpu` (threads per core), `/sys/devices/system/cpu/cpu0/cpuidle/state*/name` (¿hay > C1 en m8i?), presencia de `irqbalance`. Comprobar que el nodo tuned muestra `[always]` y que `x86-smtoff` (escalar aparte) muestra 8 CPUs.
-- [ ] **Step 2:** Aplicar profiler + Pyroscope; deploy Java en ambas arquitecturas, 15 min de carga fija. ¿Frames Java legibles (no solo `[unknown]`) en AMBAS? ¿Mongo y llama nativos resuelven símbolos? Si Java no pasa: fallback async-profiler vía OTel SDK solo para Java, documentado.
-- [ ] **Step 3:** `kubectl aperf` en cada SUT durante 2 min de carga: ¿graba en Bottlerocket (perf, `/boot`, PMU en guest)? Generar un `aperf report` comparando x86 vs arm. Si no graba: anotar la limitación; el porqué se sostiene con knee + flame graphs.
-- [ ] **Step 4:** Mongo: `ycsb-load` completo + 5 min de `workloadb`; `pages read into cache` debe quedar plano. Red: iperf3 60 s m9g↔m9g con y sin DaemonSet tuned; el readiness del DaemonSet debe pasar.
-- [ ] **Step 5:** Knee de Java en `arm-tuned` con el guard del loader activo: CPU del loader < 70% en el knee o subir la talla de `loader` antes de Task 7.
-- [ ] **Step 6:** Escalar todo a 0, `terraform destroy`, verificar 0 instancias. Commit `results/profiler-gate.md` con cada lectura y decisión: `results: smoke gate <fecha>`.
+- [x] **Step 1:** Escalar `x86-tuned` y `arm-tuned` a 1. Anotar el **stock real** leyendo en cada nodo (pod privileged): `/sys/kernel/mm/transparent_hugepage/enabled`, `nproc`, `lscpu` (threads per core), `/sys/devices/system/cpu/cpu0/cpuidle/state*/name` (¿hay > C1 en m8i?), presencia de `irqbalance`. Comprobar que el nodo tuned muestra `[always]` y que `x86-smtoff` (escalar aparte) muestra 8 CPUs.
+- [x] **Step 2:** Aplicar profiler + Pyroscope; deploy Java en ambas arquitecturas, 15 min de carga fija. ¿Frames Java legibles (no solo `[unknown]`) en AMBAS? ¿Mongo y llama nativos resuelven símbolos? Si Java no pasa: fallback async-profiler vía OTel SDK solo para Java, documentado.
+- [x] **Step 3:** `kubectl aperf` en cada SUT durante 2 min de carga: ¿graba en Bottlerocket (perf, `/boot`, PMU en guest)? Generar un `aperf report` comparando x86 vs arm. Si no graba: anotar la limitación; el porqué se sostiene con knee + flame graphs.
+- [x] **Step 4:** Mongo: `ycsb-load` completo + 5 min de `workloadb`; `pages read into cache` debe quedar plano. Red: iperf3 60 s m9g↔m9g con y sin DaemonSet tuned; el readiness del DaemonSet debe pasar.
+- [x] **Step 5:** Knee de Java en `arm-tuned` con el guard del loader activo: CPU del loader < 70% en el knee o subir la talla de `loader` antes de Task 7.
+- [x] **Step 6:** Escalar todo a 0, `terraform destroy`, verificar 0 instancias. Commit `results/profiler-gate.md` con cada lectura y decisión: `results: smoke gate <fecha>`.
 
 ### Task 7: Corrida completa del laboratorio (GATED, ~$25-35, dos días de lab) [SPEC §4-5]
 
