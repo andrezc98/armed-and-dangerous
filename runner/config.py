@@ -124,12 +124,20 @@ WORKLOADS = {
         # Pyroscope labels a profile by process.executable.name (the chart's
         # ingestion_relabeling_rules in manifests/base/pyroscope-values.yaml).
         "service_name": "java",
-        "slo_ms": 100,  # CMP333 acceptance rule
+        # Smoke gate 2026-09-04: CMP333's 100 ms was for a heavier Groovy app;
+        # PetClinic reads stay under 13 ms at 100k rps on Graviton, so a 100 ms
+        # knee sits beyond what one loader can offer.
+        "slo_ms": 10,
         # RAMP_SECONDS is in the ladder and not only a lib.js default because the
         # runner needs the held seconds of a step to judge whether the generator
         # delivered it (knee.step_reasons); k6 gets the same number as env.
-        "ladder": {"RATE_START": 200, "RATE_STEP": 400, "RATE_MAX": 6000,
-                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5},
+        # 10k start: x86-smtoff has 7 vCPUs and must not cross on the first step.
+        # 5k steps: x86-tuned read 3.9 ms at 30k and 11.5 ms at 40k at the gate,
+        # so 10k steps would round its knee down by a quarter. The VU budget is
+        # the one the gate needed near 100k rps (lib.js defaults starve it).
+        "ladder": {"RATE_START": 10000, "RATE_STEP": 5000, "RATE_MAX": 120000,
+                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5,
+                   "PREALLOC_VUS": 2000, "MAX_VUS": 16000},
         "fixed_seconds": 480,
         "warmup_seconds": 180,
         "cells": ["x86-stock", "x86-tuned", "x86-smtoff", "arm-stock", "arm-tuned",
@@ -146,8 +154,13 @@ WORKLOADS = {
         # (<service>:<port> of the k8s apiserver proxy URL form).
         "cpus_proxy": "go:8080",
         "slo_ms": 20,
-        "ladder": {"RATE_START": 1000, "RATE_STEP": 1000, "RATE_MAX": 20000,
-                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5},
+        # Sized from an estimate, not a measurement (Go did not run at the gate):
+        # ECHO_N 1e6 adds is ~0.3 ms of CPU, so 15 vCPUs top out near 50k rps.
+        # With the old 5e4 the knee was in the hundreds of thousands, past both
+        # this ladder and the loader. The first Go cell of the day confirms it.
+        "ladder": {"RATE_START": 5000, "RATE_STEP": 5000, "RATE_MAX": 100000,
+                   "STAGE_SECONDS": 60, "RAMP_SECONDS": 5,
+                   "PREALLOC_VUS": 2000, "MAX_VUS": 16000},
         "fixed_seconds": 480,
         "warmup_seconds": 60,
         "cells": ["x86-stock", "arm-stock"],
@@ -176,13 +189,17 @@ WORKLOADS = {
         "resource": "statefulset/mongo",
         "service_name": "mongod",
         "slo_ms": 5,  # READ p99
-        "threads": [16, 32, 64, 128],
+        # arm-stock read 3.2 ms at 128 threads at the gate and never crossed 5 ms.
+        "threads": [16, 32, 64, 128, 256, 512],
         "recordcount": 20000000,  # same value as ycsb-load-job.yaml, on purpose
         "workload_file": "workloadb",  # 95/5 read heavy; the load itself is workloada
         # The knee jobs run unthrottled (--target 0), so their length is
-        # operationcount / achieved OPS. Sized for roughly a minute per step at
-        # the throughput the gate measures; the gate tunes it.
-        "knee_operationcount": 2000000,
+        # operationcount / achieved OPS. The gate measured 130-170k ops/s, where
+        # 2M lasted 10-15 s per step; 10M is roughly a minute.
+        "knee_operationcount": 10000000,
+        # A warm-up pass stays at the old 2M: warm_pages is judged per pass, and a
+        # cold first pass has to finish inside warmup_seconds + 900.
+        "warm_operationcount": 2000000,
         "fixed_seconds": 480,
         "warmup_seconds": 300,
         "warm_pages": 1000,  # 'pages read into cache' delta per pass that counts as flat

@@ -19,6 +19,8 @@ replicas: 1
 nodeSelector:
   kubernetes.io/os: linux
   aad/role: tools
+# Resolve through the node's VPC resolver, not CoreDNS: the controller has to
+# reach the EC2/SSM/pricing endpoints even while CoreDNS is not scheduled yet.
 dnsPolicy: Default
 serviceAccount:
   # Matches the pod identity association the `karpenter` submodule creates for

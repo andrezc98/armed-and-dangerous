@@ -63,12 +63,20 @@ def test_invalid_reasons_flags_failures_and_dropped_iterations():
         "metrics": {
             "http_req_failed": {"values": {"rate": 0.05}},
             "dropped_iterations": {"values": {"count": 12}},
+            "iterations": {"values": {"count": 988}},
         }
     }
     assert knee.invalid_reasons(bad) == [
         "http_req_failed rate 0.050 > 0.01",
-        "dropped_iterations count 12 > 0",
+        "dropped_iterations 12 = 0.0120 of the offered iterations > 0.001",
     ]
+
+
+def test_a_fixed_run_survives_the_drops_of_vu_spin_up():
+    """The smoke gate's fixed runs dropped 7547 of 15.35M (0.05 %)."""
+    gate = {"metrics": {"dropped_iterations": {"values": {"count": 7547}},
+                        "iterations": {"values": {"count": 15350000}}}}
+    assert knee.invalid_reasons(gate) == []
 
 
 # --- the ladder is judged per step, not as a whole -----------------------------

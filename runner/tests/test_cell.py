@@ -16,7 +16,7 @@ COST_MD = """| instance | usd_per_hour | captured (date, source) |
 |---|---|---|
 | m8i.4xlarge | 1.00 | 2026-09-11, aws pricing |
 | m9g.4xlarge | 2.00 | 2026-09-11, aws pricing |
-| c7i.4xlarge | 0.50 | 2026-09-11, aws pricing |
+| c7i.8xlarge | 0.50 | 2026-09-11, aws pricing |
 | m7g.large | 0.10 | 2026-09-11, aws pricing |
 | eks-control-plane | 0.10 | 2026-09-11, aws pricing |
 
@@ -151,6 +151,20 @@ def test_the_mongo_teardown_plan_does_not_delete_the_overlay(plan):
     out = plan("--workload", "mongo", "--cell", "x86-stock")
     assert "kubectl delete -k" not in out
     assert "mongo overlay kept" in out
+
+
+def test_fixed_and_warmup_runs_carry_the_ladder_vu_budget():
+    """At the gate the budget came from --env, which reached every run; as a
+    ladder default it has to reach the non-ladder runs too."""
+    assert cell.vu_budget(config.WORKLOADS["java"]) == {"PREALLOC_VUS": 2000, "MAX_VUS": 16000}
+    assert cell.vu_budget(config.WORKLOADS["inference"]) == {}
+
+
+def test_teardown_removes_pyroscope_before_its_pvc(plan):
+    """With the Pyroscope pod still mounting it, `delete pvc` hangs on the
+    pvc-protection finalizer (smoke gate 2026-09-04)."""
+    out = plan("--teardown-day")
+    assert out.index("helm uninstall pyroscope") < out.index("delete pvc --all")
 
 
 def test_every_other_workload_still_deletes_its_overlay(plan):

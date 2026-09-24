@@ -256,7 +256,7 @@ en `runner/README.md` y en `infra/ecr/README.md`.
 | Componente | Pin | Fuente |
 |---|---|---|
 | Chart Pyroscope | `grafana/pyroscope` 2.2.1 (appVersion 2.2.1) | `helm search repo grafana/pyroscope --versions` |
-| Profiler eBPF | `otel/opentelemetry-collector-ebpf-profiler:0.147.0` | docs de Grafana y `examples/otel-collector/ebpf/kubernetes` del repo de Pyroscope |
+| Profiler eBPF | `otel/opentelemetry-collector-ebpf-profiler:0.160.0` | Docker Hub 2026-09-02; el 0.147.0 de las docs de Grafana no arranca en kernel 6.18 (`failed to load perf_unwind_ruby`, smoke gate 2026-09-04) |
 | MongoDB | `mongo:8.0.29` | Docker Hub, amd64 + arm64 |
 | llama.cpp server | `ghcr.io/ggml-org/llama.cpp:server-b10775` | API de GHCR, amd64 + arm64 + s390x |
 | Modelo | `unsloth/Llama-3.1-8B-Instruct-GGUF` / `Llama-3.1-8B-Instruct-Q4_0.gguf`, sha256 `88e2c600…ab0eaa` | cabeceras `x-linked-size` / `x-linked-etag` de Hugging Face |

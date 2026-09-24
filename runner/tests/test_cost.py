@@ -12,7 +12,7 @@ COST_MD = """# Tarifas
 |---|---|---|
 | m8i.4xlarge | 1.00 | 2026-09-11, aws pricing |
 | m9g.4xlarge | 2.00 | 2026-09-11, aws pricing |
-| c7i.4xlarge | 0.50 | 2026-09-11, aws pricing |
+| c7i.8xlarge | 0.50 | 2026-09-11, aws pricing |
 | m7g.large | 0.10 | 2026-09-11, aws pricing |
 | eks-control-plane | 0.10 | 2026-09-11, aws pricing |
 

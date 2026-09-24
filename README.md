@@ -26,7 +26,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
  runner (Mac, sin terraform) ── escala MNG de la celda 0→1 ── aplica overlay (nodeSelector aad/cell)
         │
         ▼
- loader c7i.4xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
+ loader c7i.8xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
                                                    x86-stock | x86-tuned | x86-smtoff  (m8i.4xlarge)
                                                    arm-stock | arm-tuned               (m9g.4xlarge)
                                                       │            │
@@ -139,7 +139,8 @@ helm uninstall karpenter -n kube-system --ignore-not-found
 kubectl delete nodepool --all --ignore-not-found
 kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 
-# 2. Todo lo que el runner dejó vivo en el clúster: StatefulSet de Mongo, PVCs,
+# 2. Todo lo que el runner dejó vivo en el clúster: StatefulSet de Mongo, el
+#    chart de Pyroscope (antes de su PVC; se reinstala el día siguiente), PVCs,
 #    Jobs de k6/YCSB/iperf3 y la perilla de red. Repite el paso 1 por las dudas
 #    e imprime este checklist al terminar.
 cd runner && uv run cell --teardown-day

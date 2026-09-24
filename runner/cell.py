@@ -547,6 +547,14 @@ def k6_summary(logs):
 
 # --- workload steps ----------------------------------------------------------
 
+def vu_budget(spec):
+    """The ladder's VU budget, for the warmup and fixed runs as well: a fixed run
+    at 80 % of a 90k knee on the lib.js defaults (200 preallocated) drops
+    iterations while k6 grows VUs and lands over knee.FIXED_MAX_DROPPED."""
+    ladder = spec.get("ladder") or {}
+    return {k: ladder[k] for k in ("PREALLOC_VUS", "MAX_VUS") if k in ladder}
+
+
 def k6_env(spec, mode, extra):
     env = {"TARGET_URL": spec["target_url"], "MODE": mode, "SLO_MS": spec["slo_ms"]}
     env.update(extra)
@@ -767,7 +775,7 @@ def mongo_prepare(spec, cell, meta, date, reload=False):
         name = f"ycsb-run-{cell}-warm{attempt}"
         run_job(
             name,
-            ycsb_job_yaml(name, cell, spec, 64, 0, spec["knee_operationcount"]),
+            ycsb_job_yaml(name, cell, spec, 64, 0, spec["warm_operationcount"]),
             spec["warmup_seconds"] + 900,
         )
         delta = mongo_pages_read() - before
@@ -949,7 +957,7 @@ def run_cell(args):
             run_job(
                 name,
                 k6_job_yaml(name, cell, spec["script"],
-                            k6_env(spec, mode, {**load, **args.env})),
+                            k6_env(spec, mode, {**vu_budget(spec), **load, **args.env})),
                 spec["warmup_seconds"] + 300,
             )
 
@@ -1095,7 +1103,7 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
     else:
         rate = int(0.8 * kneed["knee"]) if kneed else spec["ladder"]["RATE_START"]
         env = k6_env(spec, "fixed", {
-            "RATE": rate, "DURATION": f"{spec['fixed_seconds']}s", **args.env,
+            **vu_budget(spec), "RATE": rate, "DURATION": f"{spec['fixed_seconds']}s", **args.env,
         })
         run_meta["rate"] = rate
         out_name = "k6.json"
@@ -1167,6 +1175,10 @@ def teardown_day():
     kubectl("delete", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"),
             "--ignore-not-found")
     kn("delete", "sts", "mongo", "--ignore-not-found")
+    # Pyroscope before its PVC: while its pod mounts the volume, the
+    # pvc-protection finalizer holds `delete pvc` forever (smoke gate 2026-09-04).
+    config.sh(["helm", "uninstall", "pyroscope", "-n", config.NAMESPACE, "--ignore-not-found",
+        "--wait"])
     kn("delete", "pvc", "--all")
     describe_volumes()
     print("\n# both lists above must be [] BEFORE `terraform destroy`, which a human runs.")

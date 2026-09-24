@@ -177,6 +177,8 @@ Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a 
 
 **Estado 2026-09-04 (gate ejecutado):** pasó completo; lecturas, números n=1 y decisiones en `results/profiler-gate.md` (commit 46e5058). Cambios que salen del gate antes de Task 7: profiler eBPF pinneado a 0.160.0 (0.147.0 no carga en kernel 6.18); loader `c7i.8xlarge` (el 4xlarge satura a ~60k rps); SLO de Java p99 < 10 ms y escalera 20k→120k; hilos de Mongo hasta 512; regla de `dropped_iterations` como tasa (> 0.1 %); `--teardown-day` desinstala Pyroscope antes de borrar PVCs; guard de destroy solo cuenta volúmenes `available`. La infra se aplica y destruye desde GitHub Actions (OIDC + backend S3): ver README "Reproducir".
 
+**Estado 2026-09-24 (lote post-gate aplicado):** los cambios de arriba están en el código, con tres correcciones tras revisarlos contra los archivos crudos del gate: escalera de Java 10k→120k de a 5k (a pasos de 10k el knee de x86-tuned, entre 30k y 40k, se redondea un 25 % hacia abajo; empezar en 20k arriesgaba que `x86-smtoff` cruzara en el primer escalón) con presupuesto de VUs 2000/16000 por defecto en escalera, warmup y corridas fijas; Mongo a 10M operaciones por escalón (con 2M cada escalón duró 10-15 s, no un minuto) e hilos 16→512; Go con `ECHO_N` 1e6 y escalera 5k→100k (**estimado, sin medir**: con 5e4 el knee quedaba por encima del loader; la primera celda Go del día 1 lo confirma). Antes del día 1: cuota de vCPU on-demand ≥ 66 (loader 32 + tools 2 + dos nodos SUT en la celda de red).
+
 **Estado (2026-09-04, después del apply fallido).** El primer intento de este
 gate murió en el `apply` con dos defectos reales, los dos ya corregidos (Task 4b
 y el commit `fix(infra)` del mismo día):

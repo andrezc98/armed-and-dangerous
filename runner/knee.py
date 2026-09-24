@@ -26,6 +26,11 @@ _STEP_SUBMETRIC = re.compile(r"^(http_reqs|http_req_failed|http_req_duration)\{r
 STEP_MIN_DELIVERED = 0.95
 STEP_MAX_FAILED = 0.01
 
+# A fixed run of 8 min at ~30k rps dropped 0.05 % of its iterations at the smoke
+# gate, with 2000 VUs preallocated and 664 in use at peak: stragglers, not a
+# generator that fell behind. Above this share the generator set the number.
+FIXED_MAX_DROPPED = 0.001
+
 # go-ycsb prints one line per operation kind plus TOTAL:
 #   READ   - Takes(s): 20.0, Count: 19024, OPS: 951.2, Avg(us): 402, ... 99th(us): 1300, ...
 _YCSB_LINE = re.compile(r"^(\w+)\s+-\s+(.*)$")
@@ -137,8 +142,11 @@ def invalid_reasons(summary):
     if failed > 0.01:
         reasons.append(f"http_req_failed rate {failed:.3f} > 0.01")
     dropped = metrics.get("dropped_iterations", {}).get("values", {}).get("count", 0)
-    if dropped > 0:
-        reasons.append(f"dropped_iterations count {dropped:.0f} > 0")
+    done = metrics.get("iterations", {}).get("values", {}).get("count", 0)
+    share = dropped / (dropped + done) if dropped else 0
+    if share > FIXED_MAX_DROPPED:
+        reasons.append(f"dropped_iterations {dropped:.0f} = {share:.4f} of the offered "
+                       f"iterations > {FIXED_MAX_DROPPED}")
     return reasons
 
 

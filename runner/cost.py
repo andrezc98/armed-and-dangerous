@@ -14,7 +14,7 @@ COST_MD = Path(__file__).resolve().parent.parent / "results" / "cost.md"
 
 # Charged for the whole lab day rather than per cell: the loader and tools node
 # groups sit at desired=1 from apply to destroy, and so does the control plane.
-FIXED_PER_DAY = ("c7i.4xlarge", "m7g.large", "eks-control-plane")
+FIXED_PER_DAY = ("c7i.8xlarge", "m7g.large", "eks-control-plane")
 
 # Instance names start with a letter, so the |---|---| separator row never matches.
 _ROW = re.compile(r"^\|\s*([A-Za-z][\w.-]*)\s*\|\s*([^|\s]+)\s*\|")

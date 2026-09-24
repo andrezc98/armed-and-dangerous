@@ -29,7 +29,7 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
 |---|---|---|
 | m8i.4xlarge | 0.84672 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
 | m9g.4xlarge | 0.78272 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
-| c7i.4xlarge | 0.714 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
+| c7i.8xlarge | 1.428 | 2026-09-24, aws pricing get-products (us-east-1, Linux, Shared, Used) |
 | m7g.large | 0.0816 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
 | eks-control-plane | 0.10 | 2026-09-04, https://aws.amazon.com/eks/pricing/ (standard support, por clúster-hora) |
 
