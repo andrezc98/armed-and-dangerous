@@ -81,13 +81,28 @@ def test_parse_top_keeps_only_the_cell_nodes_and_the_loader():
 def test_a_metrics_interval_lands_in_every_step_it_overlaps():
     t0 = 1_800_000_000
     windows = capture.ladder_windows(t0, 60, [10000, 20000])
-    assert windows == {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120)}
+    slack = capture.K6_START_SLACK_SECONDS
+    assert windows == {10000: (t0, t0 + 60 + slack), 20000: (t0 + 60, t0 + 120 + slack)}
     samples = [{"ts": "x", "loader_cpu_percent": p, "loader_window": [t0 + b, t0 + e]}
                for b, e, p in ((0, 20, 10), (50, 70, 50), (130, 150, 99))]
     split = capture.by_overlap(samples, windows, "loader")
     assert [s["loader_cpu_percent"] for s in split[10000]] == [10, 50]
     assert [s["loader_cpu_percent"] for s in split[20000]] == [50]  # 130 s is past the ladder
     assert capture.loader_peak(split[20000]) == 50
+
+
+def test_the_tail_of_a_step_is_still_that_steps_load():
+    """k6 starts its scenario seconds after the container, so a step's load runs
+    past its nominal end; a metrics window starting just after it still counts."""
+    t0 = 1_800_000_000
+    windows = capture.ladder_windows(t0, 60, [10000, 20000])
+    late = [{"ts": "x", "loader_cpu_percent": 95, "loader_window": [t0 + 62, t0 + 80]}]
+    assert capture.by_overlap(late, windows, "loader")[10000] == late
+
+
+def test_an_unobserved_loader_has_no_peak_rather_than_zero():
+    assert capture.loader_peak([{"ts": "x", "loader_cpu_percent": None}]) is None
+    assert capture.loader_peak([]) is None
 
 
 NODE_METRICS = json.dumps({"kind": "NodeMetricsList", "apiVersion": "metrics.k8s.io/v1beta1",

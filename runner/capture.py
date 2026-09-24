@@ -231,14 +231,16 @@ def _top(nodes, sut, loader, allocatable):
     body = config.sh(["kubectl", "get", "--raw", "/apis/metrics.k8s.io/v1beta1/nodes",
                       "--request-timeout=5s"], capture=True, quiet=True, check=False)
     pod_text = config.sh(
-        ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers"],
+        ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers",
+         "--request-timeout=5s"],
         capture=True, quiet=True, check=False,
     )
     sample = parse_node_metrics(body, allocatable, sut, loader, keep)
     if sample is None:
         # `kubectl top node` takes ONE name (or -l); with several it errors out
         # and the guard sampled nothing (2026-09-04 gate). List all, keep ours.
-        node_text = config.sh(["kubectl", "top", "node", "--no-headers"],
+        node_text = config.sh(["kubectl", "top", "node", "--no-headers",
+                               "--request-timeout=5s"],
                               capture=True, quiet=True, check=False)
         sample = parse_top(node_text, "", sut, loader, keep=keep)
         sample["source"] = "kubectl-top"
@@ -293,13 +295,18 @@ def _epoch(ts):
     return datetime.fromisoformat(ts).timestamp()
 
 
+K6_START_SLACK_SECONDS = 5
+
+
 def ladder_windows(start, stage_seconds, steps):
     """{step: (begin, end)} in epoch seconds for a k6 ladder whose container
     started at `start` (its startedAt, node clock): lib.js holds step i from
     start + i x STAGE_SECONDS for STAGE_SECONDS, ramp included. The scenario
-    itself starts a few seconds after the container; attributing a metrics
-    interval to every step it overlaps (by_overlap) absorbs that."""
-    return {step: (start + i * stage_seconds, start + (i + 1) * stage_seconds)
+    itself starts a few seconds after the container (2000 VUs to preallocate),
+    so each step's end is stretched by K6_START_SLACK_SECONDS: the load of the
+    last seconds of a step is then still judged as that step's."""
+    return {step: (start + i * stage_seconds,
+                   start + (i + 1) * stage_seconds + K6_START_SLACK_SECONDS)
             for i, step in enumerate(steps)}
 
 
@@ -352,7 +359,9 @@ def net_coverage(per):
 
 
 def loader_peak(samples):
-    return max((s.get("loader_cpu_percent") or 0 for s in samples), default=0)
+    """Highest loader CPU seen, or None when nothing was observed: a missing
+    reading written as 0 would read as an idle loader in meta.json."""
+    return max((s["loader_cpu_percent"] for s in loader_observed(samples)), default=None)
 
 
 def loader_observed(samples):

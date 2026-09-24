@@ -737,7 +737,7 @@ def loader_guard(result, samples):
                 for step, in_step in capture.by_overlap(samples, windows).items()}
         guarded = [step for step in windows if ended_by is None or step <= ended_by["step"]]
         unobserved = [step for step in guarded if not split[step]]
-        peak = max((peaks[step] for step in guarded if peaks[step] is not None), default=0)
+        peak = max((peaks[step] for step in guarded if peaks[step] is not None), default=None)
         where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
     else:
         unobserved = [] if observed else ["the whole ladder"]
@@ -745,7 +745,7 @@ def loader_guard(result, samples):
     result["loader_peak_percent"] = peak
     reasons = [] if config.DRY_RUN else [
         f"capacity_unresolved: no loader telemetry for step {step}" for step in unobserved]
-    if peak > config.LOADER_CPU_GUARD_PERCENT:
+    if peak is not None and peak > config.LOADER_CPU_GUARD_PERCENT:
         reasons.append(f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}% "
                        f"during the knee, {where}")
     return reasons
@@ -762,7 +762,7 @@ def fixed_loader_guard(workload, samples):
     if not observed:
         return ["loader_unobserved: no loader CPU sample during the run"]
     peak = capture.loader_peak(observed)
-    if peak > config.LOADER_CPU_GUARD_PERCENT:
+    if peak is not None and peak > config.LOADER_CPU_GUARD_PERCENT:
         return [f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}%"]
     return []
 

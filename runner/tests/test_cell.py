@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import pytest
 import yaml
 
+import capture
 import cell
 import config
 
@@ -542,7 +543,7 @@ def test_a_crossing_is_a_knee_and_keeps_its_reason(monkeypatch, tmp_path):
     assert list(result["invalid_steps"]) == [30000]  # 40000 is past the crossing
     # The ladder's clock, from the container's startedAt: 60 s per step.
     t0 = datetime.fromisoformat("2026-10-01T15:00:00Z").timestamp()
-    assert result["windows"][30000] == (t0 + 120, t0 + 180)
+    assert result["windows"][30000] == (t0 + 120, t0 + 180 + capture.K6_START_SLACK_SECONDS)
 
 
 def _samples(t0, pairs):
