@@ -38,9 +38,10 @@ NODE_GONE_TIMEOUT = 600  # the cell is billed until the instance actually goes a
 SCALE_DOWN_RETRIES = 3
 SCALE_DOWN_BACKOFF = 10
 JOB_DELETE_TIMEOUT = 60
-# Idle node CPU sampled before the first iperf3 direction of a net run. 30 s so
-# that at least one metrics-API window (15-20 s) lies wholly inside it.
-NET_BASELINE_SECONDS = 30
+# Idle node CPU sampled before the first iperf3 direction of a net run. 60 s so
+# that two or three whole metrics-API windows (15-20 s each) lie inside it; 30 s
+# could hold a single one and leave the baseline missing on most runs.
+NET_BASELINE_SECONDS = 60
 
 # The own images are written into the manifests by bare name and a sentinel tag
 # (`aad-java:UNSET`), so nothing in git carries the sandbox account id. The

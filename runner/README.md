@@ -215,7 +215,7 @@ de los knees por corrida). En Mongo la latencia es el p99 de READ y el
 throughput (y el costo por kop) es TOTAL OPS: `--target` limita todas las
 operaciones y el 5 % de updates de `workloadb` también es carga que el servidor
 llevó. `cpu_per_gbps` es **por sentido**: antes de la primera dirección el
-runner deja 30 s al nodo SUT en reposo (con APerf ya grabando) como línea base,
+runner deja 60 s al nodo SUT en reposo (con APerf ya grabando) como línea base,
 registra la ventana de cada dirección desde el `startedAt` del cliente más
 `-t 60` (`net_windows` en `meta.json`, con las medianas por ventana en
 `net_cpu_cores`), y el cociente es la CPU mediana del nodo en la ventana de esa
