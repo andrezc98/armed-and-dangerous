@@ -38,6 +38,9 @@ NODE_GONE_TIMEOUT = 600  # the cell is billed until the instance actually goes a
 SCALE_DOWN_RETRIES = 3
 SCALE_DOWN_BACKOFF = 10
 JOB_DELETE_TIMEOUT = 60
+# Idle node CPU sampled before the first iperf3 direction of a net run: one
+# `kubectl top` sample at the sampler's 10 s interval.
+NET_BASELINE_SECONDS = 10
 
 # The own images are written into the manifests by bare name and a sentinel tag
 # (`aad-java:UNSET`), so nothing in git carries the sandbox account id. The
@@ -856,7 +859,14 @@ def mongo_int(js):
 
 
 def mongo_pages_read():
-    return mongo_int('db.serverStatus().wiredTiger.cache["pages read into cache"]') or 0
+    """WiredTiger's 'pages read into cache' counter. Unreadable fails the cell:
+    read as 0, two unreadable samples are a delta of 0, which is exactly what a
+    warm cache looks like, and the cell would go on to measure EBS."""
+    value = mongo_int('db.serverStatus().wiredTiger.cache["pages read into cache"]')
+    if value is None and not config.DRY_RUN:
+        raise RuntimeError("cache_unreadable: mongosh returned no 'pages read into cache'; "
+                           "the warm-up control cannot pass by saying nothing")
+    return value or 0
 
 
 MONGO_DROP = 'db.getSiblingDB("ycsb").usertable.drop()'
@@ -1179,6 +1189,9 @@ def run_cell(args):
                 with sampler() as top:
                     measure(spec, workload, cell, i, run_dir, run_meta, args)
                 run_meta["loader_peak_percent"] = top.peak_loader_percent
+                if run_meta.get("net_windows"):
+                    run_meta["net_cpu_cores"] = capture.window_cores(top.samples,
+                                                                     run_meta["net_windows"])
                 if spec.get("actuator"):
                     run_meta["actuator"] = capture.actuator_stats(top.samples)
                 if not config.DRY_RUN:
@@ -1252,12 +1265,29 @@ def no_summary(run_meta, name):
 def measure(spec, workload, cell, i, run_dir, run_meta, args):
     """One measured run at 80 % of the knee."""
     if workload == "net":
+        # CPU per Gbps is per direction: the node CPU of each direction's own
+        # window, minus what the node burns idle (aperf and the DaemonSets
+        # included) in the NET_BASELINE_SECONDS before the first one. The
+        # TopSampler around this call provides the samples; stats and meta read
+        # them per window (capture.window_cores).
+        begin = now()
+        if not config.DRY_RUN:
+            time.sleep(NET_BASELINE_SECONDS)
+        windows = {"baseline": [begin, now()]}
         for reverse, out_name in ((False, "iperf.json"), (True, "iperf-reverse.json")):
+            begin = now()
             name, logs = iperf_run(cell, i, reverse)
+            # The client's own start and -t, not the Job's apply-to-done span,
+            # which also holds the pod's scheduling and teardown.
+            started = job_started(name)
+            windows["rev" if reverse else "fwd"] = (
+                [started, started + spec["fixed_seconds"]] if started is not None else [begin, now()]
+            )
             if not logs:
                 no_summary(run_meta, name)
             elif not config.DRY_RUN:
                 (run_dir / out_name).write_text(logs)
+        run_meta["net_windows"] = windows
         return
 
     kneefile = run_dir.parent / "knee.json"

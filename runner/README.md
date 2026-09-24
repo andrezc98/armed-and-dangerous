@@ -210,15 +210,24 @@ uv run python -m analysis.charts ../results/<fecha> --out /tmp/figs
 ```
 
 `stats.summarize` devuelve mediana y min/max por celda más `usd_per_kop`,
-`usd_per_mtok` y `cpu_per_gbps` cuando hay tarifa. `cpu_per_gbps` es una razón
-entre dos cosas medidas en ventanas distintas y conviene leerla así: **CPU
-mediana del nodo SUT sobre TODA la ventana de la celda de red** (las muestras de
-`kubectl top` cubren la corrida de ida y la de vuelta) dividida por los **Gbps de
-la corrida de ida** (`iperf.json`). Es un indicador comparable entre celdas
-—las dos puntas son del mismo tipo de instancia— y no un costo de CPU por Gbps
-instantáneo. Sin tarifa capturada
-(`results/cost.md` todavía en `TODO`) esos campos simplemente no aparecen: un
-precio inventado en un slide de costo es un número equivocado, no aproximado.
+`usd_per_mtok` y `cpu_per_gbps` cuando hay tarifa, y `capacity` (mediana/min/max
+de los knees por corrida). En Mongo la latencia es el p99 de READ y el
+throughput (y el costo por kop) es TOTAL OPS: `--target` limita todas las
+operaciones y el 5 % de updates de `workloadb` también es carga que el servidor
+llevó. `cpu_per_gbps` es **por sentido**: antes de la primera dirección el
+runner deja 10 s al nodo SUT en reposo (con APerf ya grabando) como línea base,
+registra la ventana de cada dirección desde el `startedAt` del cliente más
+`-t 60` (`net_windows` en `meta.json`, con las medianas por ventana en
+`net_cpu_cores`), y el cociente es la CPU mediana del nodo en la ventana de esa
+dirección **menos la línea base**, sobre los Gbps de esa misma dirección
+(`cpu_per_gbps` para la ida, `cpu_per_gbps_reverse` para la vuelta). Las
+muestras de `kubectl top` llegan con el retraso de la ventana de
+metrics-server, así que la mediana, y no el promedio, es lo que se lee.
+Resultados viejos sin ventanas caen a la cuenta anterior (CPU de toda la
+corrida sobre los Gbps de ida). Sin tarifa capturada
+(`results/cost.md` todavía en `TODO`) los campos de costo simplemente no
+aparecen: un precio inventado en un slide de costo es un número equivocado, no
+aproximado.
 
 ## Lo que el runner registra para el gate
 
@@ -317,7 +326,9 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   que dos muestras seguidas se diferencien en menos de 1000 páginas
   (`--warm-pages`), con un tope de 20 minutos de reloj (`--warm-max-min`); si se
   llega al tope la celda se marca `cache_not_warm` y aborta, porque esa corrida
-  mediría EBS y no memoria.
+  mediría EBS y no memoria. Un contador ilegible no cuenta como 0 (dos lecturas
+  vacías darían delta 0, que es justo lo que parece una cache caliente): la
+  celda aborta con `cache_unreadable`.
 - **minutos por celda**: lo único que se factura por celda, y lo que consume el
   ledger.
 

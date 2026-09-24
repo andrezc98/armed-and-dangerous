@@ -238,6 +238,15 @@ def by_window(samples, windows):
     return out
 
 
+def window_cores(samples, windows):
+    """{key: median SUT node CPU in cores over the samples in that window, or
+    None for a window no sample landed in}."""
+    return {key: (median(s["node_cpu_millicores"] for s in in_window) / 1000.0
+                  if in_window else None)
+            for key, in_window in by_window(
+                [s for s in samples if "node_cpu_millicores" in s], windows).items()}
+
+
 def loader_peak(samples):
     return max((s.get("loader_cpu_percent", 0) for s in samples), default=0)
 

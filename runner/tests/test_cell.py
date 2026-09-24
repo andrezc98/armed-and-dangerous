@@ -761,3 +761,27 @@ def test_without_it_in_the_log_the_same_binary_is_probed_in_the_pod(monkeypatch)
 def test_a_system_info_nobody_printed_is_recorded_as_missing(monkeypatch):
     monkeypatch.setattr(cell, "kn", lambda *a, **k: "")
     assert cell.llama_system_info(config.WORKLOADS["inference"]) == "missing"
+
+
+# --- small correctness fixes (2026-09-24) ------------------------------------
+
+def test_an_unreadable_cache_counter_fails_the_warmup_closed(monkeypatch):
+    """Read as 0, two unreadable samples are a delta of 0: a 'warm' cache."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "mongo_int", lambda js: None)
+    with pytest.raises(RuntimeError, match="cache_unreadable"):
+        cell.mongo_pages_read()
+
+
+def test_a_net_run_records_an_idle_baseline_and_each_direction_window(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cell, "iperf_run", lambda c, i, reverse: (f"iperf-{reverse}", "{}"))
+    starts = iter(["2026-10-01T15:00:20Z", "2026-10-01T15:01:30Z"])
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: next(starts))
+    meta = {}
+    cell.measure(dict(config.WORKLOADS["net"]), "net", "arm-tuned", 1, tmp_path, meta, None)
+    t = datetime.fromisoformat("2026-10-01T15:00:20Z").timestamp()
+    windows = meta["net_windows"]
+    assert set(windows) == {"baseline", "fwd", "rev"}
+    assert windows["fwd"] == [t, t + 60] and windows["rev"] == [t + 70, t + 130]

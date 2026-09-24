@@ -88,14 +88,16 @@ def test_cpu_per_gbps_from_iperf_plus_top(tmp_path):
     assert round(s["cpu_per_gbps"], 4) == 0.0468
 
 
-def test_mongo_uses_the_read_line_of_ycsb(tmp_path):
+def test_mongo_latency_is_read_p99_and_throughput_is_total_ops(tmp_path):
+    """--target throttles every operation and workloadb is 95/5, so READ OPS
+    under-reported what the server carried by the 5 % of updates."""
     cell = tmp_path / "mongo" / "x86-tuned"
     (cell / "run-1").mkdir(parents=True)
     shutil.copy(FIXTURES / "ycsb-t64.txt", cell / "run-1" / "ycsb.txt")
     s = stats.summarize(cell, usd_per_hour=1.0)
-    assert s["rps"]["median"] == 951.2
+    assert s["rps"]["median"] == 1001.1
     assert s["p99_ms"]["median"] == 1.3
-    assert round(s["usd_per_kop"], 8) == round(1.0 / (951.2 * 3.6), 8)
+    assert round(s["usd_per_kop"], 8) == round(1.0 / (1001.1 * 3.6), 8)
 
 
 def test_an_empty_cell_directory_summarizes_to_zero_runs(tmp_path):
@@ -194,3 +196,32 @@ def test_old_results_without_run_knees_fall_back_to_the_coarse_knee(tmp_path):
     cell = _k6_cell(tmp_path)
     (cell / "knee.json").write_text(json.dumps({"knee": 30000, "slo_ms": 10, "unit": "rps"}))
     assert stats.summarize(cell)["capacity"] == {"median": 30000, "min": 30000, "max": 30000}
+
+
+# --- net: CPU per Gbps per direction, over the idle node ---------------------
+
+def test_cpu_per_gbps_is_per_direction_over_an_idle_baseline(tmp_path):
+    from datetime import UTC, datetime
+    cell = tmp_path / "net" / "arm-tuned"
+    run = cell / "run-1"
+    run.mkdir(parents=True)
+    shutil.copy(FIXTURES / "iperf3-forward.json", run / "iperf.json")
+    shutil.copy(FIXTURES / "iperf3-forward.json", run / "iperf-reverse.json")
+    t0 = 1_800_000_000
+
+    def sample(sec, millicores):
+        return {"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(),
+                "node_cpu_millicores": millicores}
+
+    # idle 500m; forward 2500m; reverse 4500m (plus one stray idle sample)
+    (run / "top.json").write_text(json.dumps(
+        [sample(1, 500)] + [sample(15 + 10 * k, 2500) for k in range(6)]
+        + [sample(85 + 10 * k, 4500) for k in range(6)] + [sample(140, 500)]))
+    (run / "meta.json").write_text(json.dumps({"net_windows": {
+        "baseline": [t0, t0 + 10], "fwd": [t0 + 12, t0 + 72], "rev": [t0 + 80, t0 + 140]}}))
+    s = stats.summarize(cell)
+    assert s["node_cpu_baseline_cores"]["median"] == 0.5
+    assert s["node_cpu_cores_forward"]["median"] == 2.0
+    assert s["node_cpu_cores_reverse"]["median"] == 4.0
+    assert round(s["cpu_per_gbps"], 5) == round(2.0 / 170.774255733856, 5)
+    assert round(s["cpu_per_gbps_reverse"], 5) == round(4.0 / 170.774255733856, 5)

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from statistics import median
 
+import capture  # window_cores: the same per-window CPU the runner writes into meta.json
 import knee  # one-way: the parsers live next to the knee search that first needs them
 
 # Below this many valid runs a median is one number with no spread behind it, so
@@ -61,6 +62,7 @@ def summarize(cell_dir, usd_per_hour=None):
         out["usd_per_hour"] = usd_per_hour
 
     p99, rps, tok_s, gbps, gbps_rev, cores, run_knees = [], [], [], [], [], [], []
+    net_fwd, net_rev, net_idle = [], [], []
     for run in sorted(p for p in cell_dir.glob("run-*") if p.is_dir()):
         # The runner already judged this run while it had the cluster in front of
         # it: a saturated loader, a cpuset that was not exclusive, a Job that
@@ -97,14 +99,27 @@ def summarize(cell_dir, usd_per_hour=None):
             if reasons:
                 out["excluded"].append({"run": run.name, "reasons": reasons})
                 continue
-            read = parsed["READ"]
-            p99.append(read["99th(us)"] / 1000.0)
-            rps.append(read["OPS"])
+            # READ p99 is the latency the SLO is about; the throughput (and the
+            # cost per kop) is TOTAL, because --target throttles every operation
+            # and workloadb's 5 % updates are load the server carried too.
+            p99.append(parsed["READ"]["99th(us)"] / 1000.0)
+            rps.append(parsed["TOTAL"]["OPS"])
         elif (run / "iperf.json").exists():
             gbps.append(_read_json(run / "iperf.json")["end"]["sum_received"]["bits_per_second"] / 1e9)
             reverse = _read_json(run / "iperf-reverse.json")
             if reverse:
                 gbps_rev.append(reverse["end"]["sum_received"]["bits_per_second"] / 1e9)
+            # Per direction, idle baseline subtracted (cell.measure); runs from
+            # before the windows existed fall back to the whole-run median below.
+            windows = meta.get("net_windows")
+            if windows:
+                per = capture.window_cores(_read_json(run / "top.json") or [], windows)
+                if per.get("baseline") is not None:
+                    net_idle.append(per["baseline"])
+                    if per.get("fwd") is not None:
+                        net_fwd.append(per["fwd"] - per["baseline"])
+                    if per.get("rev") is not None and reverse:
+                        net_rev.append(per["rev"] - per["baseline"])
         else:
             continue
         out["runs"] += 1
@@ -138,10 +153,21 @@ def summarize(cell_dir, usd_per_hour=None):
         out["gbps_reverse"] = _spread(gbps_rev)
     if cores:
         out["node_cpu_cores"] = _spread(cores)
-        if gbps:
-            # The number that means something on a 4xlarge pair: both sides are
-            # the same instance type, so Gbps alone only reports the ENA.
+        if gbps and not net_fwd:
+            # Old results: whole-run CPU (both directions) over forward Gbps.
             out["cpu_per_gbps"] = out["node_cpu_cores"]["median"] / out["gbps"]["median"]
+    # The number that means something on a 4xlarge pair: both sides are the same
+    # instance type, so Gbps alone only reports the ENA. Each direction's CPU is
+    # read in its own window, over the idle node.
+    if net_idle:
+        out["node_cpu_baseline_cores"] = _spread(net_idle)
+    if net_fwd and gbps:
+        out["node_cpu_cores_forward"] = _spread(net_fwd)
+        out["cpu_per_gbps"] = out["node_cpu_cores_forward"]["median"] / out["gbps"]["median"]
+    if net_rev and gbps_rev:
+        out["node_cpu_cores_reverse"] = _spread(net_rev)
+        out["cpu_per_gbps_reverse"] = (out["node_cpu_cores_reverse"]["median"]
+                                       / out["gbps_reverse"]["median"])
     if out["runs"] < MIN_RUNS:
         out["insufficient_runs"] = True
     return out
