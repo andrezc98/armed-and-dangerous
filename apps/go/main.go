@@ -1,5 +1,5 @@
 // Go baseline for ARMed and Dangerous: a stdlib net/http JSON service with a
-// small amount of compute per request. It is the "silent baseline" cell: the
+// small amount of real work per request (allocate, fill, sort, pick). It is the "silent baseline" cell: the
 // workload class where silicon should barely matter (spec section 4).
 package main
 
@@ -9,16 +9,18 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 )
 
-// maxN bounds the per-request loop so a single call stays in the microsecond
-// range; the load generator controls the rate, not the request size.
-const maxN = 10_000_000
+// maxN bounds the per-request slice: every request allocates 8 bytes per
+// element, so 1e6 is 8 MB of garbage per call at most. The load generator
+// controls the rate, not the request size (runner/k6/go.js sets n).
+const maxN = 1_000_000
 
 type echoResponse struct {
-	N   int64 `json:"n"`
-	Sum int64 `json:"sum"`
+	N      int64  `json:"n"`
+	Median uint64 `json:"median"`
 }
 
 // healthResponse doubles as the cpuset control for this cell. The image is
@@ -32,24 +34,37 @@ type healthResponse struct {
 	CPUs int `json:"cpus"`
 }
 
-// sumTo returns 1+2+...+n with an explicit loop on purpose: the point of the
-// baseline is a little real CPU work per request, not a closed-form formula.
-func sumTo(n int64) int64 {
-	var s int64
-	for i := int64(1); i <= n; i++ {
-		s += i
+// medianOfSorted fills n values from a 64-bit LCG (Knuth's MMIX constants,
+// fixed seed, so every request with the same n does the same work and returns
+// the same answer), sorts them with slices.Sort and returns the upper median,
+// s[n/2]; 0 for n = 0.
+//
+// Why not the old 1+2+...+n loop: a dependent add chain is one instruction per
+// iteration, a microbenchmark of the adder that says nothing about a server.
+// This one allocates, writes memory, branches on data (pdqsort) and makes the
+// GC work, which is what a JSON service's request path looks like.
+func medianOfSorted(n int) uint64 {
+	if n == 0 {
+		return 0
 	}
-	return s
+	s := make([]uint64, n)
+	x := uint64(42)
+	for i := range s {
+		x = x*6364136223846793005 + 1442695040888963407
+		s[i] = x
+	}
+	slices.Sort(s)
+	return s[n/2]
 }
 
 func echoHandler(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(r.URL.Query().Get("n"), 10, 64)
 	if err != nil || n < 0 || n > maxN {
-		http.Error(w, `{"error":"n must be an integer in [0, 10000000]"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"n must be an integer in [0, 1000000]"}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(echoResponse{N: n, Sum: sumTo(n)}); err != nil {
+	if err := json.NewEncoder(w).Encode(echoResponse{N: n, Median: medianOfSorted(int(n))}); err != nil {
 		log.Printf("encode: %v", err)
 	}
 }

@@ -5,23 +5,32 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
+// The medians below were computed by hand from the LCG in medianOfSorted
+// (x = x*6364136223846793005 + 1442695040888963407 mod 2^64, seed 42): the
+// first five values are 10481999410520546993, 4159066171780167020,
+// 7615522811268512075, 11628791489956661374, 12546512532490043765, so n=3
+// sorts to [4159..., 7615..., 10481...] and n=5 puts 10481... in the middle.
 func TestEcho(t *testing.T) {
 	tests := []struct {
-		name    string
-		query   string
-		status  int
-		wantN   int64
-		wantSum int64
+		name       string
+		query      string
+		status     int
+		wantN      int64
+		wantMedian uint64
+		checkValue bool
 	}{
-		{"zero", "n=0", http.StatusOK, 0, 0},
-		{"ten", "n=10", http.StatusOK, 10, 55},
-		{"missing", "", http.StatusBadRequest, 0, 0},
-		{"not a number", "n=abc", http.StatusBadRequest, 0, 0},
-		{"negative", "n=-1", http.StatusBadRequest, 0, 0},
-		{"too large", "n=10000001", http.StatusBadRequest, 0, 0},
+		{"zero", "n=0", http.StatusOK, 0, 0, true},
+		{"three", "n=3", http.StatusOK, 3, 7615522811268512075, true},
+		{"five", "n=5", http.StatusOK, 5, 10481999410520546993, true},
+		{"maxN is accepted", "n=1000000", http.StatusOK, maxN, 0, false},
+		{"missing", "", http.StatusBadRequest, 0, 0, false},
+		{"not a number", "n=abc", http.StatusBadRequest, 0, 0, false},
+		{"negative", "n=-1", http.StatusBadRequest, 0, 0, false},
+		{"maxN+1 is rejected", "n=1000001", http.StatusBadRequest, 0, 0, false},
 	}
 	srv := httptest.NewServer(newMux())
 	defer srv.Close()
@@ -43,8 +52,20 @@ func TestEcho(t *testing.T) {
 			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 				t.Fatal(err)
 			}
-			if got.N != tc.wantN || got.Sum != tc.wantSum {
-				t.Fatalf("got %+v, want n=%d sum=%d", got, tc.wantN, tc.wantSum)
+			if got.N != tc.wantN || (tc.checkValue && got.Median != tc.wantMedian) {
+				t.Fatalf("got %+v, want n=%d median=%d", got, tc.wantN, tc.wantMedian)
+			}
+		})
+	}
+}
+
+// Sizes k6 might ask for, to calibrate runner/k6/go.js ECHO_N:
+//   go test -bench Median -run '^$'
+func BenchmarkMedian(b *testing.B) {
+	for _, n := range []int{1_000, 5_000, 10_000, 20_000} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			for b.Loop() {
+				medianOfSorted(n)
 			}
 		})
 	}

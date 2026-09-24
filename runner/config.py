@@ -155,9 +155,11 @@ WORKLOADS = {
         "cpus_proxy": "go:8080",
         "slo_ms": 20,
         # Sized from an estimate, not a measurement (Go did not run at the gate):
-        # ECHO_N 1e6 adds is ~0.3 ms of CPU, so 15 vCPUs top out near 50k rps.
-        # With the old 5e4 the knee was in the hundreds of thousands, past both
-        # this ladder and the loader. The first Go cell of the day confirms it.
+        # since 2026-09-24 a request sorts ECHO_N uint64 (apps/go), and ECHO_N
+        # 10000 is ~0.2-0.3 ms of CPU (runner/k6/go.js says how that was
+        # estimated), so 15 vCPUs top out near 50k rps. The calibration day
+        # confirms it. The aad-go image in ECR still serves the old add loop:
+        # rebuild and re-push it (images workflow, PUSH=1) before the lab.
         "ladder": {"RATE_START": 5000, "RATE_STEP": 5000, "RATE_MAX": 100000,
                    "STAGE_SECONDS": 60, "RAMP_SECONDS": 5,
                    "PREALLOC_VUS": 2000, "MAX_VUS": 16000},
