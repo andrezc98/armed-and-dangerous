@@ -171,6 +171,36 @@ def _top(nodes, sut, loader):
     return parse_top(node_text, pod_text, sut, loader, keep=set(nodes) | {loader})
 
 
+def _epoch(ts):
+    return datetime.fromisoformat(ts).timestamp()
+
+
+def ladder_windows(start, stage_seconds, steps):
+    """{step: (begin, end)} in epoch seconds for a k6 ladder that started at
+    `start`: lib.js holds step i from start + i x STAGE_SECONDS for
+    STAGE_SECONDS, ramp included. The ramp samples belong to the step they ramp
+    INTO, which is also where metrics-server puts them: `kubectl top` reports a
+    window that ends at its last scrape, so a sample always lags the load a
+    little, never leads it."""
+    return {step: (start + i * stage_seconds, start + (i + 1) * stage_seconds)
+            for i, step in enumerate(steps)}
+
+
+def by_window(samples, windows):
+    """{key: [samples whose ts falls in [begin, end)]} for {key: (begin, end)}."""
+    out = {key: [] for key in windows}
+    for sample in samples:
+        t = _epoch(sample["ts"])
+        for key, (begin, end) in windows.items():
+            if begin <= t < end:
+                out[key].append(sample)
+    return out
+
+
+def loader_peak(samples):
+    return max((s.get("loader_cpu_percent", 0) for s in samples), default=0)
+
+
 class TopSampler:
     """`kubectl top` every ten seconds into run-<i>/top.json.
 
@@ -210,7 +240,7 @@ class TopSampler:
 
     @property
     def peak_loader_percent(self):
-        return max((s.get("loader_cpu_percent", 0) for s in self.samples), default=0)
+        return loader_peak(self.samples)
 
     def write(self, path):
         path.write_text(json.dumps(self.samples, indent=1))

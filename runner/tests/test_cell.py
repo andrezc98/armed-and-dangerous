@@ -5,6 +5,7 @@ three guards (cluster.json, budget, knee) are pure functions over files.
 """
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 import yaml
@@ -485,3 +486,174 @@ def test_a_todo_rate_refuses_to_scale_anything_up(tmp_path, monkeypatch):
 def test_a_dry_run_is_never_gated_on_a_rate_nobody_captured_yet(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", True)
     assert cell.budget_gate(tmp_path, override=False, cost_md=tmp_path / "missing.md") is None
+
+
+# --- the knee is the SUT's, not the loader's (2026-09-24 review) -------------
+
+def _ladder_summary(steps, stage=60, ramp=5):
+    """k6 knee summary out of {rate: (p99_ms, delivered_fraction)}."""
+    metrics = {}
+    for rate, (p99, delivered) in steps.items():
+        metrics[f"http_req_duration{{rate:{rate}}}"] = {"values": {"p(99)": p99, "max": p99 * 3}}
+        metrics[f"http_reqs{{rate:{rate}}}"] = {
+            "values": {"count": round(rate * (stage - ramp) * delivered)}}
+        metrics[f"http_req_failed{{rate:{rate}}}"] = {"values": {"rate": 0.0}}
+    return {"metrics": metrics}
+
+
+def _fake_ladder(monkeypatch, summary, started="2026-10-01T15:00:00Z"):
+    """k6_knee against a canned summary; job_started reads `started`."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_job",
+                        lambda *a, **k: f"{cell.SUMMARY_MARKER}\n{json.dumps(summary)}")
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: started)
+
+
+def _java(**ladder):
+    spec = dict(config.WORKLOADS["java"])
+    spec["ladder"] = {**spec["ladder"], **ladder}
+    return spec
+
+
+def test_a_loader_limited_step_is_not_published_as_the_knee(monkeypatch, tmp_path):
+    """Step 30k under-delivered with p99 well inside the SLO: the generator's
+    ceiling. It used to end the walk like a crossing and its reason vanished
+    from knee.json; now the cell refuses to measure and says why."""
+    spec = _java(RATE_START=10000, RATE_STEP=10000, RATE_MAX=40000)
+    _fake_ladder(monkeypatch, _ladder_summary(
+        {10000: (1.0, 1.0), 20000: (2.0, 1.0), 30000: (3.0, 0.6), 40000: (30.0, 1.0)}))
+    result = cell.k6_knee(spec, "java", "arm-tuned", tmp_path, {})
+    assert result["knee"] == 20000
+    assert result["ended_by"]["step"] == 30000 and result["ended_by"]["kind"] == "unresolved"
+    assert 30000 in result["invalid_steps"]
+    assert result["invalid"][0].startswith("capacity_unresolved: step 30000 rps delivered")
+    with pytest.raises(RuntimeError, match="capacity_unresolved"):
+        cell.check_knee(result, spec["slo_ms"])
+
+
+def test_a_crossing_is_a_knee_and_keeps_its_reason(monkeypatch, tmp_path):
+    spec = _java(RATE_START=10000, RATE_STEP=10000, RATE_MAX=40000)
+    _fake_ladder(monkeypatch, _ladder_summary(
+        {10000: (1.0, 1.0), 20000: (2.0, 1.0), 30000: (12.0, 0.6), 40000: (30.0, 0.2)}))
+    result = cell.k6_knee(spec, "java", "arm-tuned", tmp_path, {})
+    assert result["knee"] == 20000 and result["invalid"] == []
+    assert result["ended_by"]["kind"] == "crossing"
+    assert "delivered" in result["ended_by"]["reason"]
+    assert list(result["invalid_steps"]) == [30000]  # 40000 is past the crossing
+    # The ladder's clock, from the container's startedAt: 60 s per step.
+    t0 = datetime.fromisoformat("2026-10-01T15:00:00Z").timestamp()
+    assert result["windows"][30000] == (t0 + 120, t0 + 180)
+
+
+def _samples(t0, pairs):
+    """top.json samples at t0 + seconds, with the loader at that percent."""
+    return [{"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(), "loader_cpu_percent": pct}
+            for sec, pct in pairs]
+
+
+def test_the_loader_guard_stops_at_the_step_that_ended_the_walk():
+    """The ladder runs past the knee on purpose; the loader at 95 % on the
+    steps above the crossing says nothing about the knee."""
+    t0 = 1_800_000_000
+    windows = {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120), 30000: (t0 + 120, t0 + 180),
+               40000: (t0 + 180, t0 + 240)}
+    samples = _samples(t0, [(5, 20), (65, 40), (125, 55), (185, 95), (195, 97)])
+    result = {"windows": windows, "ended_by": {"step": 30000}}
+    assert cell.loader_guard(result, samples) == []
+    assert result["loader_peak_by_step"] == {10000: 20, 20000: 40, 30000: 55, 40000: 97}
+    assert result["loader_peak_percent"] == 55
+
+    result = {"windows": windows, "ended_by": {"step": 40000}}
+    assert cell.loader_guard(result, samples) == [
+        "loader node CPU 97% > 70% during the knee, through step 40000"]
+
+
+def test_without_step_times_the_guard_falls_back_to_the_whole_ladder():
+    samples = _samples(1_800_000_000, [(5, 20), (185, 95)])
+    reasons = cell.loader_guard({"windows": {}, "ended_by": {"step": 10000}}, samples)
+    assert reasons and "no step times" in reasons[0]
+
+
+# --- every fixed run gets its own fine knee ----------------------------------
+
+class _NoTop:
+    samples = []
+
+    def __init__(self, *a, **k):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fine(monkeypatch, tmp_path, steps, coarse=30000):
+    """fine_knee over a canned fine ladder; the coarse step is Java's 10k."""
+    _fake_ladder(monkeypatch, _ladder_summary(steps, stage=45))
+    monkeypatch.setattr(cell.capture, "TopSampler", _NoTop)
+    seen = {}
+    real = cell.k6_knee
+
+    def spy(*a, **k):
+        seen.update(k)
+        return real(*a, **k)
+
+    monkeypatch.setattr(cell, "k6_knee", spy)
+    result = cell.fine_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", tmp_path, {},
+                            coarse, 2, ((), "loader"))
+    return result, seen
+
+
+def test_the_fine_ladder_climbs_from_k_plus_s5_to_k_plus_s(monkeypatch, tmp_path):
+    result, seen = _fine(monkeypatch, tmp_path, {32000: (4.0, 1.0), 34000: (6.0, 1.0),
+                                                 36000: (11.0, 1.0), 38000: (14.0, 1.0),
+                                                 40000: (20.0, 1.0)})
+    assert seen["ladder"] == {"RATE_START": 32000, "RATE_STEP": 2000, "RATE_MAX": 40000,
+                              "STAGE_SECONDS": 45}
+    assert seen["name"] == "k6-java-arm-tuned-fine-r2"
+    assert result["run_knee"] == 34000 and result["invalid"] == []
+    assert json.loads((tmp_path / "knee-fine.json").read_text())["run_knee"] == 34000
+
+
+def test_a_first_fine_step_that_crosses_leaves_the_coarse_knee(monkeypatch, tmp_path):
+    result, _ = _fine(monkeypatch, tmp_path, {32000: (11.0, 1.0), 34000: (12.0, 1.0)})
+    assert result["run_knee"] == 30000 and result["invalid"] == []
+
+
+def test_a_fine_ladder_that_never_crosses_sits_at_k_plus_s_with_a_note(monkeypatch, tmp_path):
+    result, _ = _fine(monkeypatch, tmp_path, {r: (2.0, 1.0) for r in range(32000, 40001, 2000)})
+    assert result["run_knee"] == 40000 and result["invalid"] == []
+    assert result["notes"][0].startswith("fine_never_crossed")
+
+
+def test_an_unresolved_fine_step_invalidates_the_run(monkeypatch, tmp_path):
+    result, _ = _fine(monkeypatch, tmp_path, {32000: (2.0, 1.0), 34000: (3.0, 0.5)})
+    assert result["invalid"][0].startswith("capacity_unresolved: fine step 34000 rps")
+
+
+def test_the_fixed_run_is_held_at_80_percent_of_its_own_knee(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_job(name, yaml_text, timeout):
+        captured["y"] = yaml_text
+        return f"{cell.SUMMARY_MARKER}\n" + json.dumps(
+            {"metrics": {"http_req_duration": {"values": {"p(99)": 12.0}},
+                         "http_reqs": {"values": {"rate": 27200.0}}}})
+
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_job", fake_run_job)
+    (tmp_path / "knee.json").write_text(json.dumps({"knee": 30000}))
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    meta = {"run_knee": 34000}
+
+    class Args:
+        env = {}
+
+    cell.measure(dict(config.WORKLOADS["java"]), "java", "arm-tuned", 1, run_dir, meta, Args)
+    env = yaml.safe_load(captured["y"])["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert {"name": "RATE", "value": "27200"} in env
+    # p99 12 ms against Java's 10 ms SLO: measured, recorded, and not counted.
+    assert meta["invalid"] == ["fixed_over_slo: p99 12.00 ms > SLO 10 ms"]

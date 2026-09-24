@@ -76,3 +76,18 @@ def test_parse_top_keeps_only_the_cell_nodes_and_the_loader():
     assert s["loader_cpu_percent"] == 20 and s["loader_cpu_millicores"] == 3200
     assert s["node_cpu_percent"] == 57
     assert set(s["nodes"]) == {"ip-sut"}
+
+
+def test_samples_land_in_the_ladder_step_they_were_taken_in():
+    """A step is STAGE_SECONDS from the container's start, ramp included, so a
+    ramp sample belongs to the step it ramps into."""
+    t0 = 1_800_000_000
+    windows = capture.ladder_windows(t0, 60, [10000, 20000])
+    assert windows == {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120)}
+    from datetime import UTC, datetime
+    samples = [{"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(), "loader_cpu_percent": p}
+               for sec, p in ((2, 10), (59, 30), (61, 50), (130, 99))]
+    split = capture.by_window(samples, windows)
+    assert [s["loader_cpu_percent"] for s in split[10000]] == [10, 30]
+    assert [s["loader_cpu_percent"] for s in split[20000]] == [50]  # 130 s is past the ladder
+    assert capture.loader_peak(split[20000]) == 50

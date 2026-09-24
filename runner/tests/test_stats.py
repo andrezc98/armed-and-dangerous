@@ -147,3 +147,50 @@ def test_a_truncated_ycsb_run_is_excluded_instead_of_crashing_the_analysis(tmp_p
     s = stats.summarize(cell)
     assert s["runs"] == 0
     assert s["excluded"] == [{"run": "run-1", "reasons": ["ycsb.txt has no READ/TOTAL line"]}]
+
+
+# --- fixed runs are judged against the SLO and the rate they were held at ----
+
+def test_a_fixed_run_over_the_knee_slo_is_excluded(tmp_path):
+    """java-fixed.json reads p99 4.57 ms; against a 2.5 ms knee SLO it is the
+    gate's 5.26 ms case, which nothing flagged."""
+    cell = _k6_cell(tmp_path)
+    (cell / "knee.json").write_text(json.dumps({"knee": 40000, "slo_ms": 2.5, "unit": "rps"}))
+    s = stats.summarize(cell)
+    assert s["runs"] == 0
+    assert s["excluded"][0]["reasons"][0].startswith("fixed_over_slo: p99 4.1")
+
+
+def test_a_fixed_run_below_its_target_rate_is_excluded(tmp_path):
+    cell = _k6_cell(tmp_path)  # 190 / 200 / 210 rps delivered
+    for i in (1, 2, 3):
+        (cell / f"run-{i}" / "meta.json").write_text(json.dumps({"rate": 210}))
+    s = stats.summarize(cell)
+    assert [e["run"] for e in s["excluded"]] == ["run-1"]  # 190 < 0.95 x 210
+    assert "fixed_underdelivered" in s["excluded"][0]["reasons"][0]
+
+
+def test_a_throttled_ycsb_run_that_missed_its_target_is_excluded(tmp_path):
+    cell = tmp_path / "mongo" / "x86-tuned"
+    (cell / "run-1").mkdir(parents=True)
+    shutil.copy(FIXTURES / "ycsb-t64.txt", cell / "run-1" / "ycsb.txt")  # TOTAL 1001.1 ops/s
+    (cell / "run-1" / "meta.json").write_text(json.dumps({"target_ops": 1200}))
+    s = stats.summarize(cell)
+    assert s["runs"] == 0
+    assert s["excluded"][0]["reasons"][0].startswith("fixed_underdelivered: TOTAL 1001")
+
+
+# --- the capacity of a cell is the spread of its runs' own knees -------------
+
+def test_capacity_is_the_spread_of_the_run_knees(tmp_path):
+    cell = _k6_cell(tmp_path)
+    (cell / "knee.json").write_text(json.dumps({"knee": 30000, "slo_ms": 10, "unit": "rps"}))
+    for i, k in enumerate((32000, 36000, 34000), start=1):
+        (cell / f"run-{i}" / "meta.json").write_text(json.dumps({"run_knee": k}))
+    assert stats.summarize(cell)["capacity"] == {"median": 34000, "min": 32000, "max": 36000}
+
+
+def test_old_results_without_run_knees_fall_back_to_the_coarse_knee(tmp_path):
+    cell = _k6_cell(tmp_path)
+    (cell / "knee.json").write_text(json.dumps({"knee": 30000, "slo_ms": 10, "unit": "rps"}))
+    assert stats.summarize(cell)["capacity"] == {"median": 30000, "min": 30000, "max": 30000}

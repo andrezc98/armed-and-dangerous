@@ -3,7 +3,9 @@
 A knee is the FIRST crossing of the SLO, not the last step that happens to look
 good: past the crossing the queue is already the thing being measured, so a
 later step reading low means the load generator stopped keeping up, not that the
-system recovered. `find` therefore walks the ladder in order and stops.
+system recovered. `walk` therefore walks the ladder in order and stops, and says
+WHY it stopped: a step over the SLO is a knee, a step the generator could not
+deliver while latency was still fine is only the generator's ceiling.
 
 This module also owns the two parsers that build a series, because both the knee
 search and `analysis.stats` read the same raw files (one-way import: stats -> knee).
@@ -31,32 +33,58 @@ STEP_MAX_FAILED = 0.01
 # generator that fell behind. Above this share the generator set the number.
 FIXED_MAX_DROPPED = 0.001
 
+# A fixed run is held at 80 % of the knee, so it has to deliver that rate and
+# stay inside the SLO, or the number on the slide is not the one it claims to
+# be. The gate's arm-tuned fixed run at 80 % of a 2.5 ms knee read p99 5.26 ms
+# and was not flagged (results/profiler-gate.md). Same 0.95 as a ladder step.
+FIXED_MIN_DELIVERED = STEP_MIN_DELIVERED
+
 # go-ycsb prints one line per operation kind plus TOTAL:
 #   READ   - Takes(s): 20.0, Count: 19024, OPS: 951.2, Avg(us): 402, ... 99th(us): 1300, ...
 _YCSB_LINE = re.compile(r"^(\w+)\s+-\s+(.*)$")
 _YCSB_FIELD = re.compile(r"([A-Za-z0-9.]+\([a-z]+\)|[A-Za-z]+):\s*([0-9.]+)")
 
 
-def find(series, slo_ms, invalid_steps=None):
-    """Last rate whose p99 <= slo_ms with every preceding step also usable.
+def walk(series, slo_ms, invalid_steps=None):
+    """Walk the ladder in order; return (knee, ended_by).
 
-    `series` is [(offered_rate, p99_ms)]; it is sorted here so callers do not
-    have to. `invalid_steps` is {rate: why} from `step_reasons`: a step the
-    generator did not actually deliver cannot carry the knee either, and it ends
-    the walk exactly like a crossing does. Returns None when the first step is
-    already unusable.
+    `series` is [(step, p99_ms)] (step = offered rate, or YCSB threads); it is
+    sorted here so callers do not have to. `invalid_steps` is {step: why} from
+    `step_reasons`. `knee` is the last step before the walk ended, None when the
+    very first step ended it.
 
-    Steps past the crossing are never looked at. Past it the ladder is measuring
-    a queue, so timeouts and dropped iterations up there are the expected shape
-    of an overloaded system, not a reason to throw the whole ladder away.
+    The walk ends at the first step that is either
+    - a crossing, p99 > SLO. It counts as a crossing even when the step is also
+      under-delivered or failing: a slow SUT is what starves the arrival-rate
+      VUs, so that shortfall is the SUT's;
+    - unresolved: the step is invalid (or empty) while its p99 is still inside
+      the SLO. The system was keeping up and the generator or the network was
+      not, so this ladder found the loader's ceiling, not the SUT's knee.
+
+    `ended_by` is {"step", "p99_ms", "kind": "crossing"|"unresolved", "reason"},
+    or None when no step ended the walk (the ladder never crossed).
+
+    Steps past the end are never looked at. Past a crossing the ladder is
+    measuring a queue, so timeouts and dropped iterations up there are the
+    expected shape of an overloaded system, not a reason to throw the ladder away.
     """
     invalid_steps = invalid_steps or {}
     knee = None
-    for rate, p99 in sorted(series, key=lambda pair: pair[0]):
-        if rate in invalid_steps or p99 is None or p99 > slo_ms:
-            break
-        knee = rate
-    return knee
+    for step, p99 in sorted(series, key=lambda pair: pair[0]):
+        why = invalid_steps.get(step)
+        if p99 is not None and p99 > slo_ms:
+            reason = "; ".join(r for r in (f"p99 {p99:.2f} ms > SLO {slo_ms} ms", why) if r)
+            return knee, {"step": step, "p99_ms": p99, "kind": "crossing", "reason": reason}
+        if p99 is None or why:
+            return knee, {"step": step, "p99_ms": p99, "kind": "unresolved",
+                          "reason": why or "no samples in the step"}
+        knee = step
+    return knee, None
+
+
+def find(series, slo_ms, invalid_steps=None):
+    """The knee alone, for callers that do not need to know how the walk ended."""
+    return walk(series, slo_ms, invalid_steps)[0]
 
 
 def ladder_rates(ladder):
@@ -126,12 +154,15 @@ def series_from_summary(summary):
     return sorted(series, key=lambda pair: pair[0])
 
 
-def invalid_reasons(summary):
+def invalid_reasons(summary, slo_ms=None, target_rate=None):
     """Why this FIXED k6 run does not count. Empty list means it is usable.
 
     Failed requests and dropped iterations both mean the number on the page is
     not the number the system produced: the first is errors answering fast, the
-    second is the generator itself running out of VUs.
+    second is the generator itself running out of VUs. With `slo_ms` (> 0) the
+    run must also hold the SLO, and with `target_rate` it must deliver at least
+    FIXED_MIN_DELIVERED of it: a run at "80 % of the knee" that misses either is
+    not a run at 80 % of the knee.
 
     Whole-run, so it belongs to the runs held at one rate and NOT to a knee
     ladder, whose top steps are overloaded on purpose (`step_reasons`).
@@ -147,6 +178,30 @@ def invalid_reasons(summary):
     if share > FIXED_MAX_DROPPED:
         reasons.append(f"dropped_iterations {dropped:.0f} = {share:.4f} of the offered "
                        f"iterations > {FIXED_MAX_DROPPED}")
+    if slo_ms and slo_ms > 0:
+        p99 = metrics.get("http_req_duration", {}).get("values", {}).get("p(99)")
+        if p99 is not None and p99 > slo_ms:
+            reasons.append(f"fixed_over_slo: p99 {p99:.2f} ms > SLO {slo_ms} ms")
+    if target_rate:
+        rate = metrics.get("http_reqs", {}).get("values", {}).get("rate", 0)
+        if rate < FIXED_MIN_DELIVERED * target_rate:
+            reasons.append(f"fixed_underdelivered: {rate:.0f} rps < "
+                           f"{FIXED_MIN_DELIVERED} x {target_rate} rps offered")
+    return reasons
+
+
+def ycsb_invalid_reasons(parsed, slo_ms=None, target_ops=None):
+    """The fixed-run rule of `invalid_reasons` for a go-ycsb report: READ p99
+    inside the SLO, and TOTAL OPS at least FIXED_MIN_DELIVERED of the --target
+    the run was throttled to (TOTAL, because --target throttles every operation)."""
+    reasons = []
+    p99 = parsed["READ"]["99th(us)"] / 1000.0
+    if slo_ms and slo_ms > 0 and p99 > slo_ms:
+        reasons.append(f"fixed_over_slo: READ p99 {p99:.2f} ms > SLO {slo_ms} ms")
+    ops = parsed["TOTAL"]["OPS"]
+    if target_ops and ops < FIXED_MIN_DELIVERED * target_ops:
+        reasons.append(f"fixed_underdelivered: TOTAL {ops:.0f} ops/s < "
+                       f"{FIXED_MIN_DELIVERED} x {target_ops} ops/s target")
     return reasons
 
 

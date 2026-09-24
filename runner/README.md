@@ -127,10 +127,10 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 
 | Workload | Celdas | Carga |
 |---|---|---|
-| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6, escalera 200→6000 rps, SLO p99 100 ms |
-| `go` | `x86-stock`, `arm-stock` | k6, escalera 1000→20000 rps, SLO p99 20 ms |
+| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6, escalera 10k→120k rps de a 10k + escalera fina por corrida (de a 2k), SLO p99 10 ms |
+| `go` | `x86-stock`, `arm-stock` | k6, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
 | `inference` | `x86-stock`, `x86-tuned`, `x86-t15`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
-| `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | go-ycsb, escalera de hilos 16/32/64/128, SLO p99 READ 5 ms |
+| `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | go-ycsb, escalera de hilos 16/32/64/128/256/512, SLO p99 READ 5 ms |
 | `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
 
 `x86-t15`, `x86-tuned-vthreads` y `arm-tuned-vthreads` no son node groups: son
@@ -183,9 +183,10 @@ results/
     ledger.md                              # costo del día, por celda
     <workload>/<celda>/
       cell.json                            # instancia, nodos, minutos, invalidaciones
-      knee.json                            # knee, SLO, serie (rate|hilos → p99)
+      knee.json                            # knee, SLO, serie (rate|hilos → p99), ended_by, pico del loader por escalón
       knee-raw.json | knee-t<N>.txt        # la salida cruda de la búsqueda del knee
       run-<i>/
+        knee-fine.json + knee-fine-raw.json  # escalera fina de la corrida (java, go)
         k6.json | llama.json | ycsb.txt | iperf.json + iperf-reverse.json
         top.json                           # kubectl top cada 10 s; `nodes` trae
                                            # TODOS los nodos de la celda (red usa 2)
@@ -229,16 +230,31 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   afinidad (`runtime.NumCPU()`) por `/healthz` y el runner la lee por el proxy de
   Services del API server.
 - **guard del loader**: `kubectl top node` cada 10 s alrededor de **las dos**
-  escaleras (k6 y go-ycsb); si el nodo `loader` pasa de 70 % de CPU durante el
-  knee, el knee es el del generador y no el del silicio: queda escrito en
-  `knee.json` y la celda aborta. En la celda de red el guard no aplica (el
-  generador es el segundo nodo de la celda, no el loader) y se saltea explícito.
+  escaleras (k6 y go-ycsb), juzgado **escalón por escalón** y solo hasta el
+  escalón que terminó la búsqueda (incluido). Cada muestra cae en el escalón en
+  que se tomó: para k6, a partir del `startedAt` del contenedor del Job y de
+  `STAGE_SECONDS` (la rampa pertenece al escalón hacia el que sube); para
+  go-ycsb, un Job por escalón. La escalera sigue de largo después del knee a
+  propósito, así que el pico de toda la escalera rechazaba cualquier celda
+  aunque el loader estuviera holgado en el knee. Si el loader pasa de 70 % en
+  algún escalón hasta el cruce, el knee es el del generador: queda escrito en
+  `knee.json` (`loader_peak_by_step`) y la celda aborta. Sin tiempos de escalón
+  cae al pico de toda la escalera, que solo puede ser más estricto. Las corridas
+  fijas usan el pico de toda la corrida. En la celda de red el guard no aplica
+  (el generador es el segundo nodo de la celda, no el loader) y se saltea
+  explícito.
 - **knee inservible**: la escalera se juzga **escalón por escalón**, no entera. Un
   escalón vale si entregó la carga que ofreció
   (`http_reqs{rate:R}.count >= 0.95 x R x (STAGE_SECONDS - RAMP_SECONDS)`) y si
-  contestó (`http_req_failed{rate:R}.rate < 0.01`); el knee es el último escalón
-  válido con p99 <= SLO, y lo que pasa **después** del cruce se ignora, porque
-  arriba del knee la escalera tiene que romperse: esa es la definición de knee.
+  contestó (`http_req_failed{rate:R}.rate < 0.01`). La búsqueda termina en el
+  primer escalón que **cruza** (p99 > SLO, aunque además haya entregado de menos:
+  un SUT lento es el que deja sin VUs al generador) o en el primer escalón
+  **inválido con p99 <= SLO**: ahí el sistema aguantaba y el que no llegó fue el
+  generador o la red, así que la celda se marca `capacity_unresolved` y no mide.
+  El knee es el escalón anterior al cruce, `knee.json` guarda en `ended_by` el
+  escalón que terminó la búsqueda y su motivo, y lo que pasa **después** se
+  ignora, porque arriba del knee la escalera tiene que romperse: esa es la
+  definición de knee.
   La regla entera de corrida (`invalid_reasons`) queda solo para las corridas
   fijas — aplicada a la escalera rechazaba justamente las que encontraban el
   knee. La celda **aborta antes de las corridas fijas** si el primer escalón ya
@@ -246,9 +262,22 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   escalera (`ladder_never_crossed`: nada cruzó el SLO, así que el techo lo puso
   el script y no el silicio; hay que subir `--rate-max`, o `--threads` en Mongo).
   Medir al 80 % de un knee inválido es medir el 80 % de nada.
-- **corridas inválidas**: `http_req_failed.rate > 0.01`,
-  `dropped_iterations.count > 0` o un Job que no imprimió resumen
-  (`no_summary`) marcan la corrida en `meta.json`. La corrida queda guardada,
+- **knee por corrida**: antes de cada corrida fija de Java y Go corre una
+  escalera fina de K + S/5 a K + S en 5 escalones de 45 s (K el knee grueso, S
+  su paso: 2k rps en Java, 1k en Go; ~4 min por corrida), con las mismas reglas
+  de arriba. El knee de la corrida es el último escalón fino antes del cruce, K
+  si el primero ya cruza, o K + S con la nota `fine_never_crossed` si ninguno
+  cruza. Un escalón fino `capacity_unresolved` o el loader saturado invalidan la
+  corrida sin medirla. La corrida fija va al 80 % de **su** knee
+  (`run-<i>/knee-fine.json`, `run_knee` en `meta.json`), y `analysis.stats`
+  informa la capacidad de la celda como mediana/min/max de esos knees (con el
+  knee grueso como respaldo para resultados viejos).
+- **corridas inválidas**: `http_req_failed.rate > 0.01`, una tasa de
+  `dropped_iterations` > 0.1 %, p99 por encima del SLO (`fixed_over_slo`; en
+  Mongo, el p99 de READ), throughput por debajo de 0.95 x lo pedido
+  (`fixed_underdelivered`; `http_reqs` contra `RATE` en k6, TOTAL OPS contra el
+  `--target` en Mongo) o un Job que no imprimió resumen (`no_summary`) marcan la
+  corrida en `meta.json`. La corrida queda guardada,
   `analysis.stats` la deja fuera de las medianas y la lista en `excluded`, y si
   quedan menos de tres corridas válidas la celda sale con `insufficient_runs` y
   los gráficos la saltean (el ledger igual la cobra).

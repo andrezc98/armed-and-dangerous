@@ -180,3 +180,65 @@ def test_an_explicit_zero_count_is_also_a_missing_step():
     assert knee.series_from_summary({"metrics": {"http_req_duration{rate:400}": {"values": values}}}) == [
         (400, None)
     ]
+
+
+# --- a knee is a real crossing, not the loader's ceiling ---------------------
+# 2026-09-24 review: the walk used to stop at the first INVALID step as if it
+# were a crossing, so a ladder the generator could not deliver published the
+# loader's ceiling as the SUT's knee.
+
+def test_an_underdelivered_step_inside_the_slo_leaves_the_capacity_unresolved():
+    summary = _laddered({200: (5.0, 1.0, 0.0), 600: (6.0, 0.5, 0.0), 1000: (410.0, 1.0, 0.0)})
+    steps = knee.step_reasons(summary, STAGE, RAMP)
+    found, ended = knee.walk(knee.series_from_summary(summary), 100, steps)
+    assert found == 200
+    assert ended["step"] == 600 and ended["kind"] == "unresolved"
+    assert "delivered" in ended["reason"]
+
+
+def test_an_underdelivered_step_over_the_slo_is_still_a_crossing():
+    """A slow SUT starves the arrival-rate VUs: that shortfall is the SUT's."""
+    summary = _laddered({200: (5.0, 1.0, 0.0), 600: (140.0, 0.5, 0.0)})
+    steps = knee.step_reasons(summary, STAGE, RAMP)
+    found, ended = knee.walk(knee.series_from_summary(summary), 100, steps)
+    assert found == 200
+    assert ended["kind"] == "crossing"
+    assert "p99 140.00 ms > SLO 100 ms" in ended["reason"] and "delivered" in ended["reason"]
+
+
+def test_a_ladder_that_never_ended_has_no_end():
+    assert knee.walk([(100, 1.0), (200, 2.0)], 100) == (200, None)
+
+
+# --- fixed runs hold the SLO and deliver the rate ---------------------------
+
+def _fixed(p99, rate):
+    return {"metrics": {"http_req_duration": {"values": {"p(99)": p99}},
+                        "http_reqs": {"values": {"rate": rate}}}}
+
+
+def test_a_fixed_run_over_the_slo_is_invalid():
+    """The gate's arm-tuned run at 80 % of a 2.5 ms knee read 5.26 ms."""
+    assert knee.invalid_reasons(_fixed(5.26, 32000), 2.5, 32000) == [
+        "fixed_over_slo: p99 5.26 ms > SLO 2.5 ms"
+    ]
+
+
+def test_a_fixed_run_that_did_not_deliver_its_rate_is_invalid():
+    reasons = knee.invalid_reasons(_fixed(1.0, 28000), 10, 32000)
+    assert reasons == ["fixed_underdelivered: 28000 rps < 0.95 x 32000 rps offered"]
+
+
+def test_a_fixed_run_inside_the_slo_at_its_rate_is_valid():
+    assert knee.invalid_reasons(_fixed(1.0, 31900), 10, 32000) == []
+    # No SLO (inference) and no target: neither rule applies.
+    assert knee.invalid_reasons(_fixed(900.0, 1), 0, None) == []
+
+
+def test_a_fixed_ycsb_run_is_judged_on_read_p99_and_total_ops():
+    parsed = knee.parse_ycsb((FIXTURES / "ycsb-t64.txt").read_text())  # READ p99 1.3 ms, TOTAL 1001.1
+    assert knee.ycsb_invalid_reasons(parsed, 5, 1000) == []
+    assert knee.ycsb_invalid_reasons(parsed, 1, 1200) == [
+        "fixed_over_slo: READ p99 1.30 ms > SLO 1 ms",
+        "fixed_underdelivered: TOTAL 1001 ops/s < 0.95 x 1200 ops/s target",
+    ]

@@ -132,12 +132,20 @@ WORKLOADS = {
         # runner needs the held seconds of a step to judge whether the generator
         # delivered it (knee.step_reasons); k6 gets the same number as env.
         # 10k start: x86-smtoff has 7 vCPUs and must not cross on the first step.
-        # 5k steps: x86-tuned read 3.9 ms at 30k and 11.5 ms at 40k at the gate,
-        # so 10k steps would round its knee down by a quarter. The VU budget is
-        # the one the gate needed near 100k rps (lib.js defaults starve it).
-        "ladder": {"RATE_START": 10000, "RATE_STEP": 5000, "RATE_MAX": 120000,
+        # 10k steps again since 2026-09-24: x86-tuned read 3.9 ms at 30k and
+        # 11.5 ms at 40k at the gate, and 10k steps alone would round that knee
+        # down by a quarter, but every fixed run now climbs its own fine ladder
+        # first (fine_steps below), which gives 2k resolution at a fraction of
+        # the 5k coarse ladder's time. The VU budget is the one the gate needed
+        # near 100k rps (lib.js defaults starve it).
+        "ladder": {"RATE_START": 10000, "RATE_STEP": 10000, "RATE_MAX": 120000,
                    "STAGE_SECONDS": 60, "RAMP_SECONDS": 5,
                    "PREALLOC_VUS": 2000, "MAX_VUS": 16000},
+        # Fine ladder before each fixed run (cell.fine_knee): K + S/5 .. K + S in
+        # fine_steps steps of fine_stage_seconds, same RAMP_SECONDS and VU budget.
+        # Costs 5 x 45 s + the Job's start, ~4 min per run, ~12 min per cell.
+        "fine_steps": 5,
+        "fine_stage_seconds": 45,
         "fixed_seconds": 480,
         "warmup_seconds": 180,
         "cells": ["x86-stock", "x86-tuned", "x86-smtoff", "arm-stock", "arm-tuned",
@@ -163,6 +171,10 @@ WORKLOADS = {
         "ladder": {"RATE_START": 5000, "RATE_STEP": 5000, "RATE_MAX": 100000,
                    "STAGE_SECONDS": 60, "RAMP_SECONDS": 5,
                    "PREALLOC_VUS": 2000, "MAX_VUS": 16000},
+        # Fine ladder before each fixed run, 1k resolution: ~4 min per run
+        # (5 x 45 s + the Job's start), same rules as Java's.
+        "fine_steps": 5,
+        "fine_stage_seconds": 45,
         "fixed_seconds": 480,
         "warmup_seconds": 60,
         "cells": ["x86-stock", "arm-stock"],

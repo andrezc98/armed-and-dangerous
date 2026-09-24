@@ -54,10 +54,13 @@ def summarize(cell_dir, usd_per_hour=None):
     kneefile = _read_json(cell_dir / "knee.json")
     if kneefile:
         out["knee"] = kneefile
+    # The fixed-run rule (knee.invalid_reasons) needs the SLO the knee was found
+    # against and the rate each run was held at; both are on disk.
+    slo_ms = (kneefile or {}).get("slo_ms")
     if usd_per_hour is not None:
         out["usd_per_hour"] = usd_per_hour
 
-    p99, rps, tok_s, gbps, gbps_rev, cores = [], [], [], [], [], []
+    p99, rps, tok_s, gbps, gbps_rev, cores, run_knees = [], [], [], [], [], [], []
     for run in sorted(p for p in cell_dir.glob("run-*") if p.is_dir()):
         # The runner already judged this run while it had the cluster in front of
         # it: a saturated loader, a cpuset that was not exclusive, a Job that
@@ -69,7 +72,7 @@ def summarize(cell_dir, usd_per_hour=None):
             continue
         summary = _read_json(run / "k6.json") or _read_json(run / "llama.json")
         if summary:
-            reasons = knee.invalid_reasons(summary)
+            reasons = knee.invalid_reasons(summary, slo_ms, meta.get("rate"))
             if reasons:
                 out["excluded"].append({"run": run.name, "reasons": reasons})
                 continue
@@ -90,6 +93,10 @@ def summarize(cell_dir, usd_per_hour=None):
                     {"run": run.name, "reasons": [f"ycsb.txt has no {'/'.join(missing)} line"]}
                 )
                 continue
+            reasons = knee.ycsb_invalid_reasons(parsed, slo_ms, meta.get("target_ops"))
+            if reasons:
+                out["excluded"].append({"run": run.name, "reasons": reasons})
+                continue
             read = parsed["READ"]
             p99.append(read["99th(us)"] / 1000.0)
             rps.append(read["OPS"])
@@ -101,10 +108,19 @@ def summarize(cell_dir, usd_per_hour=None):
         else:
             continue
         out["runs"] += 1
+        if meta.get("run_knee") is not None:
+            run_knees.append(meta["run_knee"])
         node = _node_cores(run)
         if node is not None:
             cores.append(node)
 
+    # The capacity of the cell is the spread of its runs' own knees (the fine
+    # ladder before each fixed run, cell.fine_knee). Results from before that
+    # ladder existed have one coarse knee, which is then all there is.
+    if run_knees:
+        out["capacity"] = _spread(run_knees)
+    elif kneefile and kneefile.get("unit") == "rps" and kneefile.get("knee") is not None:
+        out["capacity"] = _spread([kneefile["knee"]])
     if p99:
         out["p99_ms"] = _spread(p99)
     if rps:

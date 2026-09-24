@@ -578,14 +578,32 @@ def uncrossed(found, last, unit):
             f"{LADDER_REMEDY}"]
 
 
-def k6_knee(spec, workload, cell, cell_dir, env_extra):
-    ladder = spec["ladder"]
-    name = f"k6-{workload}-{cell}-knee"
+def job_started(name):
+    """Epoch at which the Job's container started, or None if it cannot be read.
+
+    The container's own startedAt and not the Job's .status.startTime: between
+    the two sit the scheduling and the image pull, and the ladder's clock
+    (lib.js, exec.scenario.startTime) only starts with the process. Read after
+    the Job finished, so the container is in state.terminated.
+    """
+    out = kn("get", "pod", "-l", f"job-name={name}", "-o",
+             "jsonpath={.items[0].status.containerStatuses[0].state.terminated.startedAt}",
+             capture=True, quiet=True, check=False).strip()
+    if not out:
+        return None
+    return datetime.fromisoformat(out).timestamp()
+
+
+def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
+            raw_name="knee-raw.json"):
+    """Run one k6 ladder and read it. `ladder` overrides the spec's (the fine
+    ladder of each run); the verdict on the coarse ladder is in `invalid`."""
+    name = name or f"k6-{workload}-{cell}-knee"
     # --env reaches the ladder too: a knee run that ignores the VU budget the
     # human just raised is the run that made them raise it. The merged dict is
     # also what the summary is judged against, so an overridden STAGE_SECONDS
     # moves the runner's expectation and not only k6's.
-    env = {**ladder, **env_extra}
+    env = {**spec["ladder"], **env_extra, **(ladder or {})}
     stage_seconds, ramp_seconds = int(env["STAGE_SECONDS"]), int(env.get("RAMP_SECONDS", 5))
     rates = knee.ladder_rates({k: int(env[k]) for k in ("RATE_START", "RATE_STEP", "RATE_MAX")})
     logs = run_job(
@@ -604,26 +622,102 @@ def k6_knee(spec, workload, cell, cell_dir, env_extra):
             )
         print(f"# (dry-run) assuming knee = RATE_START = {rates[0]}")
         return {"unit": "rps", "knee": rates[0], "slo_ms": spec["slo_ms"],
-                "series": [], "invalid": []}
+                "series": [], "ended_by": None, "windows": {}, "invalid": []}
     series = knee.series_from_summary(summary)
     steps = knee.step_reasons(summary, stage_seconds, ramp_seconds)
-    found = knee.find(series, spec["slo_ms"], steps)
+    found, ended_by = knee.walk(series, spec["slo_ms"], steps)
     invalid = uncrossed(found, rates[-1], "rps")
     if found is None and series and series[0][0] in steps:
         invalid.append(f"ladder_first_step_invalid: {series[0][0]} rps {steps[series[0][0]]}")
+    elif ended_by and ended_by["kind"] == "unresolved":
+        invalid.append(f"capacity_unresolved: step {ended_by['step']} rps {ended_by['reason']}")
+    started = job_started(name)
     result = {
         "unit": "rps",
         "knee": found,
         "slo_ms": spec["slo_ms"],
         "series": series,
-        # Only the steps at or below the knee matter; past it the ladder is
-        # supposed to break (runner/knee.py).
+        # The step that ended the walk and why, reason included: a crossing is a
+        # knee, an unresolved step is the loader's ceiling (knee.walk).
+        "ended_by": ended_by,
+        # Only the steps up to the one that ended the walk matter; past it the
+        # ladder is supposed to break (runner/knee.py).
         "invalid_steps": {r: why for r, why in sorted(steps.items())
-                          if found is None or r <= found},
+                          if ended_by is None or r <= ended_by["step"]},
+        # Where each step sits on the clock, for the per-step loader guard.
+        "windows": (capture.ladder_windows(started, stage_seconds, rates)
+                    if started is not None else {}),
         "invalid": invalid,
     }
     if not config.DRY_RUN:
-        (cell_dir / "knee-raw.json").write_text(json.dumps(summary, indent=1))
+        (out_dir / raw_name).write_text(json.dumps(summary, indent=1))
+    return result
+
+
+def loader_guard(result, samples):
+    """The loader guard of a ladder, judged per step and only through the step
+    that ended the walk. Returns the reasons it fails; records the peaks.
+
+    The ladder runs past the knee on purpose (Java to 120k rps), so the top
+    steps push the loader over the line even when the knee sat at a third of
+    it; a peak over the whole ladder rejected every cell that way. What has to
+    hold is that the loader was not the bottleneck up to the step that decided
+    the knee. Without step times (a dry run, or a pod already gone) it falls
+    back to the whole-ladder peak, which can only be stricter.
+    """
+    windows, ended_by = result.get("windows") or {}, result.get("ended_by")
+    if windows:
+        peaks = {step: capture.loader_peak(in_step)
+                 for step, in_step in capture.by_window(samples, windows).items()}
+        result["loader_peak_by_step"] = peaks
+        peak = max((p for step, p in peaks.items()
+                    if ended_by is None or step <= ended_by["step"]), default=0)
+        where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
+    else:
+        peak, where = capture.loader_peak(samples), "over the whole ladder (no step times)"
+    result["loader_peak_percent"] = peak
+    if peak > config.LOADER_CPU_GUARD_PERCENT:
+        return [f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}% "
+                f"during the knee, {where}"]
+    return []
+
+
+def fine_knee(spec, workload, cell, run_dir, env_extra, coarse_knee, i, sampler):
+    """The knee of THIS run: a fine ladder right above the coarse knee.
+
+    The coarse ladder's step (10k rps for Java) is the resolution of the knee,
+    and three fixed runs used to inherit that one rounded number. Each run now
+    climbs from K + S/5 to K + S in five steps (K the coarse knee, S its step),
+    judged by the same rules as the coarse ladder (knee.walk, loader_guard):
+    - the first fine step already crosses -> the run knee is K;
+    - otherwise it is the last fine step before the crossing;
+    - nothing crosses -> K + S, noted as fine_never_crossed. Not invalid: the
+      coarse ladder did cross at K + S, so this run just sits at the top of
+      its resolution.
+    An unresolved fine step or a saturated loader invalidates the run.
+    """
+    coarse_step = int({**spec["ladder"], **env_extra}["RATE_STEP"])
+    fine_step = coarse_step // spec["fine_steps"]
+    ladder = {"RATE_START": coarse_knee + fine_step, "RATE_STEP": fine_step,
+              "RATE_MAX": coarse_knee + coarse_step,
+              "STAGE_SECONDS": spec["fine_stage_seconds"]}
+    print(f"# fine ladder {ladder['RATE_START']}..{ladder['RATE_MAX']} rps, step {fine_step}")
+    with capture.TopSampler(*sampler) as top:
+        result = k6_knee(spec, workload, cell, run_dir, env_extra, ladder=ladder,
+                         name=f"k6-{workload}-{cell}-fine-r{i}", raw_name="knee-fine-raw.json")
+    result.update(coarse_knee=coarse_knee, ladder=ladder, notes=[])
+    ended_by = result.get("ended_by")
+    result["invalid"] = loader_guard(result, top.samples)
+    if ended_by is None:
+        result["run_knee"] = coarse_knee + coarse_step
+        result["notes"].append(f"fine_never_crossed: {ladder['RATE_MAX']} rps still met the SLO")
+    else:
+        result["run_knee"] = result["knee"] if result["knee"] is not None else coarse_knee
+        if ended_by["kind"] == "unresolved":
+            result["invalid"].append(
+                f"capacity_unresolved: fine step {ended_by['step']} rps {ended_by['reason']}")
+    if not config.DRY_RUN:
+        (run_dir / "knee-fine.json").write_text(json.dumps(result, indent=1))
     return result
 
 
@@ -668,14 +762,18 @@ def ycsb_job_yaml(name, cell, spec, threads, target, operationcount, load=False)
 
 
 def ycsb_knee(spec, cell, cell_dir):
-    runs = []
+    runs, windows = [], {}
     for threads in spec["threads"]:
         name = f"ycsb-run-{cell}-t{threads}-knee"
+        begin = now()
         logs = run_job(
             name,
             ycsb_job_yaml(name, cell, spec, threads, 0, spec["knee_operationcount"]),
             spec["fixed_seconds"] + 900,
         )
+        # One Job per step, so the step's window is the Job's own; the loader
+        # guard judges the steps through the one that ended the walk.
+        windows[threads] = (begin, now())
         if config.DRY_RUN:
             continue
         # One broken step invalidates the ladder: the steps after it are measured
@@ -693,9 +791,10 @@ def ycsb_knee(spec, cell, cell_dir):
     if not runs:
         print(f"# (dry-run) assuming knee = {spec['threads'][0]} threads")
         return {"unit": "threads", "knee": spec["threads"][0], "ops": 0,
-                "slo_ms": spec["slo_ms"], "series": [], "invalid": []}
+                "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": {},
+                "invalid": []}
     series = knee.series_from_ycsb(runs)
-    found = knee.find(series, spec["slo_ms"])
+    found, ended_by = knee.walk(series, spec["slo_ms"])
     ops = 0
     for threads, logs in runs:
         if threads == found:
@@ -704,7 +803,8 @@ def ycsb_knee(spec, cell, cell_dir):
             # for 5 % less load than the knee actually carried.
             ops = knee.parse_ycsb(logs)["TOTAL"]["OPS"]
     return {"unit": "threads", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
-            "series": series, "invalid": uncrossed(found, spec["threads"][-1], "threads")}
+            "series": series, "ended_by": ended_by, "windows": windows,
+            "invalid": uncrossed(found, spec["threads"][-1], "threads")}
 
 
 def mongo_eval(js):
@@ -970,12 +1070,7 @@ def run_cell(args):
                     ycsb_knee(spec, cell, cell_dir) if workload == "mongo"
                     else k6_knee(spec, workload, cell, cell_dir, args.env)
                 )
-            knee_result["loader_peak_percent"] = top.peak_loader_percent
-            if top.peak_loader_percent > config.LOADER_CPU_GUARD_PERCENT:
-                knee_result["invalid"].append(
-                    f"loader node CPU {top.peak_loader_percent}% > "
-                    f"{config.LOADER_CPU_GUARD_PERCENT}% during the knee"
-                )
+            knee_result["invalid"] += loader_guard(knee_result, top.samples)
             if not config.DRY_RUN:
                 (cell_dir / "knee.json").write_text(json.dumps(knee_result, indent=1))
             check_knee(knee_result, spec["slo_ms"])  # after the file: the record survives
@@ -987,6 +1082,19 @@ def run_cell(args):
                 run_dir.mkdir(parents=True, exist_ok=True)
             run_meta = dict(meta)
             print(f"\n--- run {i}/{args.runs} ---")
+            if spec.get("ladder"):
+                # Before APerf and the flame graph window: those cover the fixed
+                # run only (~4 min per run, config.WORKLOADS fine_stage_seconds).
+                fine = fine_knee(spec, workload, cell, run_dir, args.env, knee_result["knee"], i,
+                                 (sut_nodes, loader, sut))
+                run_meta["run_knee"] = fine["run_knee"]
+                if fine["invalid"]:
+                    # Rule 1 and 2 again: no run at 80 % of a knee nobody found.
+                    run_meta["invalid"] = list(fine["invalid"])
+                    print(f"# run {i} not measured: {'; '.join(fine['invalid'])}")
+                    if not config.DRY_RUN:
+                        (run_dir / "meta.json").write_text(json.dumps(run_meta, indent=1))
+                    continue
             # net runs both directions back to back, so the recording is twice as long
             aperf_seconds = spec["fixed_seconds"] * (2 if workload == "net" else 1)
             aperf = capture.aperf_start(sut, aperf_seconds, run_dir / "aperf")
@@ -1091,6 +1199,11 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
             no_summary(run_meta, name)
         elif not config.DRY_RUN:
             (run_dir / "ycsb.txt").write_text(logs)
+            parsed = knee.parse_ycsb(logs)
+            if "READ" in parsed and "TOTAL" in parsed:  # a truncated report: stats says so
+                reasons = knee.ycsb_invalid_reasons(parsed, spec["slo_ms"], target)
+                if reasons:
+                    run_meta.setdefault("invalid", []).extend(reasons)
         return
 
     name = f"k6-{workload}-{cell}-r{i}"
@@ -1101,7 +1214,9 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         })
         out_name = "llama.json"
     else:
-        rate = int(0.8 * kneed["knee"]) if kneed else spec["ladder"]["RATE_START"]
+        # The run's own knee (fine_knee) when it has one; the coarse one otherwise.
+        run_knee = run_meta.get("run_knee") or (kneed["knee"] if kneed else None)
+        rate = int(0.8 * run_knee) if run_knee else spec["ladder"]["RATE_START"]
         env = k6_env(spec, "fixed", {
             **vu_budget(spec), "RATE": rate, "DURATION": f"{spec['fixed_seconds']}s", **args.env,
         })
@@ -1114,7 +1229,7 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         no_summary(run_meta, name)
     elif not config.DRY_RUN:
         (run_dir / out_name).write_text(json.dumps(summary, indent=1))
-        reasons = knee.invalid_reasons(summary)
+        reasons = knee.invalid_reasons(summary, spec["slo_ms"], run_meta.get("rate"))
         if reasons:
             run_meta.setdefault("invalid", []).extend(reasons)
 
