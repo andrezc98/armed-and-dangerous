@@ -144,7 +144,12 @@ Todos los defaults viven en `config.WORKLOADS` y se pueden pisar desde la CLI:
 ECR, si no el de `results/images.json`), `--warm-pages` y `--warm-max-min` (los
 dos topes del calentamiento de Mongo), `--reload` (bota la colección de YCSB y la
 vuelve a cargar antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
-de los scripts de k6. `--env` llega a las tres cargas de k6 de la celda —
+de los scripts de k6. `--app-env K=V` (repetible) pone variables de entorno en el contenedor del SUT,
+como un parche del mismo kustomization descartable que agrega el registro (ver
+más abajo), sin editar ningún overlay: es la perilla del día de calibración para
+barrer pools (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`,
+`SERVER_TOMCAT_THREADS_MAX`) y flags de la JVM (`JAVA_TOOL_OPTIONS`); queda
+registrada en `meta.json` y `cell.json`. `--env` llega a las tres cargas de k6 de la celda —
 calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
 `--date` es la fecha **local**, no UTC: un día de lab que sigue después de las
 19:00 en Lima o Buenos Aires no se parte en dos directorios (ni en dos gates de
@@ -289,6 +294,20 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   en Bottlerocket la corrida igual vale — el argumento se sostiene con el knee y
   los flame graphs.
 - **Pyroscope**: `ok` o el motivo, más el `flamegraph.json` de la corrida.
+- **pools de Java**: el Deployment base fija los defaults de Spring Boot como
+  control explícito (Hikari 10, Tomcat 200) y expone `/actuator/metrics`. Cada
+  10 s, junto con `kubectl top`, el runner lee por el proxy de Services
+  `hikaricp.connections.pending`, `hikaricp.connections.active` y
+  `tomcat.threads.busy` y guarda máximo y mediana por corrida (`meta.json`,
+  `actuator`) y por escalón (`knee.json` / `knee-fine.json`,
+  `actuator_by_step`). Un medidor que no contesta queda como `missing`, nunca
+  como 0, y no aborta nada.
+- **kernels de llama.cpp**: la línea `system_info:` (NEON, SVE, KLEIDIAI,
+  AVX512, AMX...) va a `meta.json` como `llama_system_info`. En
+  `server-b10775` esa línea se imprime en nivel TRACE, así que el log normal no
+  la trae: el runner corre el mismo binario una vez dentro del mismo pod con
+  `-lv 4` y un modelo inexistente (falla en milisegundos, antes del
+  calentamiento). Si tampoco aparece, queda `missing`.
 - **Mongo**: cantidad de documentos al empezar y el delta de
   `pages read into cache` de cada pasada de calentamiento. La colección está
   vacía (y se carga) o está completa (y se reusa): cualquier número intermedio es

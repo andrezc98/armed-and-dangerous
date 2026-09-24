@@ -15,6 +15,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime
+from statistics import median
 
 import httpx
 
@@ -171,6 +172,46 @@ def _top(nodes, sut, loader):
     return parse_top(node_text, pod_text, sut, loader, keep=set(nodes) | {loader})
 
 
+def parse_actuator(body):
+    """The VALUE of one /actuator/metrics/<name> answer; None when there is none.
+
+    None and not 0: a pool gauge that reads 0 and a meter that is not there
+    (actuator not exposed, MBean registry off, a 404 through the proxy) are
+    opposite findings.
+    """
+    try:
+        for measurement in json.loads(body)["measurements"]:
+            if measurement["statistic"] == "VALUE":
+                return measurement["value"]
+    except (ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _actuator(spec):
+    """One reading of every meter in config.WORKLOADS[...]["actuator"]."""
+    base = f"/api/v1/namespaces/{config.NAMESPACE}/services/{spec['proxy']}/proxy{spec['path']}"
+    return {
+        name: parse_actuator(config.sh(["kubectl", "get", "--raw", f"{base}/{name}"],
+                                       capture=True, quiet=True, check=False))
+        for name in spec["metrics"]
+    }
+
+
+def actuator_stats(samples):
+    """{meter: {"max", "median", "samples"}} over the samples that carry a
+    reading, or "missing" for a meter that never answered. Not fatal: the pools
+    explain a knee, they do not decide it."""
+    values = {}
+    for sample in samples:
+        for name, value in (sample.get("actuator") or {}).items():
+            values.setdefault(name, [])
+            if value is not None:
+                values[name].append(value)
+    return {name: ({"max": max(v), "median": median(v), "samples": len(v)} if v else "missing")
+            for name, v in values.items()}
+
+
 def _epoch(ts):
     return datetime.fromisoformat(ts).timestamp()
 
@@ -205,29 +246,36 @@ class TopSampler:
     """`kubectl top` every ten seconds into run-<i>/top.json.
 
     Also the loader guard: `peak_loader_percent` is what says whether the number
-    on the slide is the SUT's limit or the generator's.
+    on the slide is the SUT's limit or the generator's. With `actuator` (Java)
+    every sample also carries the pool gauges, see `actuator_stats`.
     """
 
-    def __init__(self, nodes, loader, sut=None, interval=10):
+    def __init__(self, nodes, loader, sut=None, interval=10, actuator=None):
         self.nodes = list(nodes)
         self.sut = sut or self.nodes[0]
-        self.loader, self.interval = loader, interval
+        self.loader, self.interval, self.actuator = loader, interval, actuator
         self.samples = []
         self._stop = threading.Event()
         self._thread = None
 
     def __enter__(self):
         if config.DRY_RUN:
-            _top(self.nodes, self.sut, self.loader)  # prints the command plan once
+            self._sample()  # prints the command plan once
             return self
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         return self
 
+    def _sample(self):
+        sample = _top(self.nodes, self.sut, self.loader)
+        if self.actuator:
+            sample["actuator"] = _actuator(self.actuator)
+        return sample
+
     def _loop(self):
         while not self._stop.is_set():
             try:
-                self.samples.append(_top(self.nodes, self.sut, self.loader))
+                self.samples.append(self._sample())
             except Exception as exc:  # a missing metrics-server must not kill a run
                 self.samples.append({"ts": datetime.now(UTC).isoformat(), "error": str(exc)})
             self._stop.wait(self.interval)

@@ -121,6 +121,14 @@ WORKLOADS = {
         "script": "java.js",
         "target_url": "http://java.aad.svc:9966",
         "resource": "deploy/java",
+        # Pool gauges sampled every 10 s during every ladder and fixed run
+        # (capture.TopSampler), through the API server service proxy like Go's
+        # cpus_proxy. The actuator lives under the servlet context path
+        # (server.servlet.context-path=/petclinic/ in the pinned PetClinic's
+        # application.properties) and is exposed by the base Deployment's env.
+        "actuator": {"proxy": "java:9966", "path": "/petclinic/actuator/metrics",
+                     "metrics": ["hikaricp.connections.pending", "hikaricp.connections.active",
+                                 "tomcat.threads.busy"]},
         # Pyroscope labels a profile by process.executable.name (the chart's
         # ingestion_relabeling_rules in manifests/base/pyroscope-values.yaml).
         "service_name": "java",
@@ -223,6 +231,7 @@ WORKLOADS = {
     "net": {
         "loader": "iperf3",
         "resource": "deploy/iperf3-server",
+        "container": "iperf3",  # the SUT container, for --app-env; default: the resource's name
         "service_name": "iperf3",
         # -P 8 -t 60 are baked into the client Job templates; repeated here only
         # so the runner knows how long to record APerf for.

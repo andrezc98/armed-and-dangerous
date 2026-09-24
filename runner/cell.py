@@ -342,7 +342,34 @@ def overlay(workload, cell):
     return str(config.MANIFESTS / "workloads" / workload / "overlays" / cell)
 
 
-def kustomize_overlay(workload, cell):
+# kind of the `kind/name` in config.WORKLOADS[...]["resource"], for --app-env.
+KINDS = {"deploy": "Deployment", "statefulset": "StatefulSet"}
+
+
+def app_env_patch(workload, app_env):
+    """The `patches:` block that sets --app-env K=V on the SUT container.
+
+    A strategic merge patch, the same form the overlays already use for
+    JAVA_TOOL_OPTIONS: env is merged by name, so K=V replaces a value the base
+    or the overlay set and adds one they did not. Built as data and dumped, not
+    templated, so a value with a quote or a colon in it stays a value.
+    """
+    spec = config.WORKLOADS[workload]
+    short, name = spec["resource"].split("/", 1)
+    patch = {
+        "apiVersion": "apps/v1",
+        "kind": KINDS[short],
+        "metadata": {"name": name, "namespace": config.NAMESPACE},
+        "spec": {"template": {"spec": {"containers": [{
+            "name": spec.get("container", name),
+            "env": [{"name": k, "value": str(v)} for k, v in app_env.items()],
+        }]}}},
+    }
+    return yaml.safe_dump({"patches": [{"patch": yaml.safe_dump(patch, sort_keys=False)}]},
+                          sort_keys=False)
+
+
+def kustomize_overlay(workload, cell, app_env=None):
     """The overlay rendered with the own images pointed at the sandbox ECR.
 
     The overlays name their images bare (`aad-java:UNSET`) so that nothing in git
@@ -359,6 +386,10 @@ def kustomize_overlay(workload, cell):
     Goes through image_ref() (guarded: raises if load_images() has not run) for
     each name rather than reading IMAGES directly, so there is exactly one place
     that knows how a registry/tag pair is put together.
+
+    `app_env` ({K: V} from --app-env) is patched onto the SUT container in the
+    same throwaway kustomization (app_env_patch): the calibration day sweeps
+    pool sizes and JVM flags without editing an overlay.
     """
     entries = []
     for name in OWN_IMAGES:
@@ -370,6 +401,7 @@ def kustomize_overlay(workload, cell):
         rel = os.path.relpath(Path(overlay(workload, cell)).resolve(), root)
         (root / "kustomization.yaml").write_text(
             OVERLAY_KUSTOMIZATION.format(overlay=rel, images=images)
+            + (app_env_patch(workload, app_env) if app_env else "")
         )
         print(f"# kustomize overlay {workload}/{cell} with the own images of the day")
         return kubectl("kustomize", str(root), capture=True, quiet=True)
@@ -667,9 +699,12 @@ def loader_guard(result, samples):
     """
     windows, ended_by = result.get("windows") or {}, result.get("ended_by")
     if windows:
-        peaks = {step: capture.loader_peak(in_step)
-                 for step, in_step in capture.by_window(samples, windows).items()}
+        split = capture.by_window(samples, windows)
+        peaks = {step: capture.loader_peak(in_step) for step, in_step in split.items()}
         result["loader_peak_by_step"] = peaks
+        if any("actuator" in sample for sample in samples):  # Java's pools, per step
+            result["actuator_by_step"] = {step: capture.actuator_stats(in_step)
+                                          for step, in_step in split.items()}
         peak = max((p for step, p in peaks.items()
                     if ended_by is None or step <= ended_by["step"]), default=0)
         where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
@@ -702,7 +737,7 @@ def fine_knee(spec, workload, cell, run_dir, env_extra, coarse_knee, i, sampler)
               "RATE_MAX": coarse_knee + coarse_step,
               "STAGE_SECONDS": spec["fine_stage_seconds"]}
     print(f"# fine ladder {ladder['RATE_START']}..{ladder['RATE_MAX']} rps, step {fine_step}")
-    with capture.TopSampler(*sampler) as top:
+    with sampler() as top:
         result = k6_knee(spec, workload, cell, run_dir, env_extra, ladder=ladder,
                          name=f"k6-{workload}-{cell}-fine-r{i}", raw_name="knee-fine-raw.json")
     result.update(coarse_knee=coarse_knee, ladder=ladder, notes=[])
@@ -890,6 +925,40 @@ def mongo_prepare(spec, cell, meta, date, reload=False):
             )
 
 
+def system_info_lines(text):
+    """The `system_info:` line(s) llama.cpp prints: the CPU features its ggml CPU
+    backend was built for and detected (NEON, SVE, KLEIDIAI, AVX512, AMX...)."""
+    return [line[line.index("system_info:"):].strip()
+            for line in text.splitlines() if "system_info:" in line]
+
+
+def llama_system_info(spec):
+    """Which kernels llama.cpp dispatched on this node, into the cell's meta.
+
+    First the server's own log. At the pinned server-b10775 that line is logged
+    at TRACE (common_params_print_info, COM_TRC), under the default verbosity 3,
+    so it is normally not there; checked 2026-09-24 with `docker run
+    ghcr.io/ggml-org/llama.cpp:server-b10775 -m /nonexistent.gguf -lv 4`, which
+    prints it and exits on the missing model. Raising the measured server's
+    verbosity would also log every TRACE line during the run, so the same binary
+    is run that way once, inside the same pod (same cpuset, same image), before
+    the warm-up. It fails on the model in milliseconds; its n_threads is the
+    probe's own, the CPU feature list is the server's.
+    """
+    resource = spec["resource"]
+    lines = system_info_lines(kn("logs", resource, "-c", "llama", capture=True, quiet=True,
+                                 check=False))
+    if not lines:
+        errors = []
+        out = kn("exec", resource, "-c", "llama", "--", "/app/llama-server",
+                 "-m", "/nonexistent.gguf", "--port", "18080", "-lv", "4",
+                 capture=True, check=False, stderr=errors)
+        lines = system_info_lines(out + "".join(errors))
+    info = lines or "missing"
+    print(f"# llama.cpp system_info: {info}")
+    return info
+
+
 def iperf_run(cell, index, reverse):
     direction = "rev" if reverse else "fwd"
     name = f"iperf3-client-{cell}-{direction}-r{index}"
@@ -1024,7 +1093,7 @@ def run_cell(args):
 
         # Not `apply -k`: the overlay only becomes appliable once the images
         # transformer has run over it (kustomize_overlay).
-        apply_stdin(kustomize_overlay(workload, cell), f"overlay {workload}/{cell}")
+        apply_stdin(kustomize_overlay(workload, cell, args.app_env), f"overlay {workload}/{cell}")
         kn("rollout", "status", spec["resource"], "--timeout=900s")
 
         if workload == "net":
@@ -1034,12 +1103,19 @@ def run_cell(args):
             sut = server_node(sut_nodes)
 
         meta = {}
+        if args.app_env:
+            meta["app_env"] = args.app_env
+        if workload == "inference":
+            meta["llama_system_info"] = llama_system_info(spec)
         invalid += check_cpuset(spec, cell, meta)
         if invalid:
             raise RuntimeError(f"cell not comparable: {invalid}")
 
         if spec["loader"] == "k6":
             sync_k6_scripts()
+
+        def sampler():
+            return capture.TopSampler(sut_nodes, loader, sut=sut, actuator=spec.get("actuator"))
 
         # --- warmup: the same shape as the measurement, so what gets warm is
         # what gets measured. Inference has no ladder, so it warms closed-loop on
@@ -1065,7 +1141,7 @@ def run_cell(args):
         # while the generator is saturated is the generator's knee, not the
         # silicon's, and go-ycsb saturates a client as happily as k6 does.
         if workload == "mongo" or spec.get("ladder"):
-            with capture.TopSampler(sut_nodes, loader, sut=sut) as top:
+            with sampler() as top:
                 knee_result = (
                     ycsb_knee(spec, cell, cell_dir) if workload == "mongo"
                     else k6_knee(spec, workload, cell, cell_dir, args.env)
@@ -1086,7 +1162,7 @@ def run_cell(args):
                 # Before APerf and the flame graph window: those cover the fixed
                 # run only (~4 min per run, config.WORKLOADS fine_stage_seconds).
                 fine = fine_knee(spec, workload, cell, run_dir, args.env, knee_result["knee"], i,
-                                 (sut_nodes, loader, sut))
+                                 sampler)
                 run_meta["run_knee"] = fine["run_knee"]
                 if fine["invalid"]:
                     # Rule 1 and 2 again: no run at 80 % of a knee nobody found.
@@ -1100,9 +1176,11 @@ def run_cell(args):
             aperf = capture.aperf_start(sut, aperf_seconds, run_dir / "aperf")
             begin = now()
             try:
-                with capture.TopSampler(sut_nodes, loader, sut=sut) as top:
+                with sampler() as top:
                     measure(spec, workload, cell, i, run_dir, run_meta, args)
                 run_meta["loader_peak_percent"] = top.peak_loader_percent
+                if spec.get("actuator"):
+                    run_meta["actuator"] = capture.actuator_stats(top.samples)
                 if not config.DRY_RUN:
                     top.write(run_dir / "top.json")
                 # For net the generator is the second SUT node, not the loader, so
@@ -1153,6 +1231,7 @@ def run_cell(args):
                 "date": date, "workload": workload, "cell": cell,
                 "instance_type": config.instance_type(cell), "nodes": nodes_wanted,
                 "minutes": round(minutes, 1), "runs": args.runs, "invalid": invalid,
+                "app_env": args.app_env,
             }, indent=1))
         print(f"\n# {workload}/{cell}: {minutes:.1f} min")
         write_ledger(day_dir)
@@ -1353,8 +1432,12 @@ def parse_args(argv=None):
                    help="mongo: drop the YCSB collection and load it again before this cell")
     p.add_argument("--env", action="append", default=[], metavar="K=V",
                    help="extra env for the k6 Job (repeatable)")
+    p.add_argument("--app-env", action="append", default=[], metavar="K=V", dest="app_env",
+                   help="env for the SUT container, patched through the overlay render "
+                        "(repeatable; recorded in the cell's meta)")
     args = p.parse_args(argv)
     args.env = dict(kv.split("=", 1) for kv in args.env)
+    args.app_env = dict(kv.split("=", 1) for kv in args.app_env)
     if not args.teardown_day and not (args.workload and args.cell):
         p.error("--workload and --cell are required (or --teardown-day)")
     return args

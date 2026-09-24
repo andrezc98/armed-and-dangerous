@@ -91,3 +91,29 @@ def test_samples_land_in_the_ladder_step_they_were_taken_in():
     assert [s["loader_cpu_percent"] for s in split[10000]] == [10, 30]
     assert [s["loader_cpu_percent"] for s in split[20000]] == [50]  # 130 s is past the ladder
     assert capture.loader_peak(split[20000]) == 50
+
+
+# --- Java's pool gauges -------------------------------------------------------
+
+ACTUATOR = json.dumps({"name": "hikaricp.connections.pending", "baseUnit": "connections",
+                       "measurements": [{"statistic": "VALUE", "value": 3.0}],
+                       "availableTags": [{"tag": "pool", "values": ["HikariPool-1"]}]})
+
+
+def test_an_actuator_gauge_is_its_value_statistic():
+    assert capture.parse_actuator(ACTUATOR) == 3.0
+
+
+def test_a_missing_actuator_meter_is_none_not_zero():
+    # 404 through the service proxy, or an empty answer: not a pool at 0.
+    assert capture.parse_actuator("") is None
+    assert capture.parse_actuator('{"timestamp":"...","status":404,"error":"Not Found"}') is None
+
+
+def test_actuator_stats_over_a_run():
+    samples = [{"actuator": {"tomcat.threads.busy": v, "hikaricp.connections.pending": None}}
+               for v in (10.0, 30.0, 20.0)]
+    assert capture.actuator_stats(samples) == {
+        "tomcat.threads.busy": {"max": 30.0, "median": 20.0, "samples": 3},
+        "hikaricp.connections.pending": "missing",
+    }

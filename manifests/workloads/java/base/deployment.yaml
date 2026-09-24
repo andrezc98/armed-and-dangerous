@@ -37,6 +37,34 @@ spec:
           # raw with kubectl apply -f, an untagged image means :latest, and
           # :latest does not exist in this registry.
           image: aad-java:UNSET
+          # Controls, identical in every cell (2026-09-24). The two pools are
+          # Spring Boot's defaults written out, so the pool a cell ran with is
+          # on the page and `cell --app-env K=V` can sweep it on the
+          # calibration day without editing an overlay. The other two expose
+          # the meters the runner samples during every ladder and fixed run
+          # (capture.TopSampler, /petclinic/actuator/metrics/...).
+          # Names and defaults from the Spring Boot 4.1 "Common Application
+          # Properties" appendix and the actuator metrics reference, read
+          # 2026-09-24 (the image pins Boot 4.1.1, apps/java/Dockerfile):
+          #   server.tomcat.threads.max                  "Maximum amount of worker threads" (200)
+          #   server.tomcat.mbeanregistry.enabled        (false); "Auto-configuration enables the
+          #                                              instrumentation of Tomcat only when an MBean
+          #                                              Registry is enabled"
+          #   management.endpoints.web.exposure.include  ([health])
+          #   spring.datasource.hikari.maximum-pool-size HikariCP's own default, 10
+          # Environment variables per Boot's relaxed binding (dots to _, dashes
+          # dropped, upper case). Meter names from the libraries' sources:
+          # hikaricp.connections.pending / .active (HikariCP
+          # MicrometerMetricsTracker), tomcat.threads.busy (Micrometer TomcatMetrics).
+          env:
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE
+              value: "10"
+            - name: SERVER_TOMCAT_THREADS_MAX
+              value: "200"
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: "health,metrics"
+            - name: SERVER_TOMCAT_MBEANREGISTRY_ENABLED
+              value: "true"
           ports:
             - name: http
               containerPort: 9966

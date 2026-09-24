@@ -592,7 +592,6 @@ class _NoTop:
 def _fine(monkeypatch, tmp_path, steps, coarse=30000):
     """fine_knee over a canned fine ladder; the coarse step is Java's 10k."""
     _fake_ladder(monkeypatch, _ladder_summary(steps, stage=45))
-    monkeypatch.setattr(cell.capture, "TopSampler", _NoTop)
     seen = {}
     real = cell.k6_knee
 
@@ -602,7 +601,7 @@ def _fine(monkeypatch, tmp_path, steps, coarse=30000):
 
     monkeypatch.setattr(cell, "k6_knee", spy)
     result = cell.fine_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", tmp_path, {},
-                            coarse, 2, ((), "loader"))
+                            coarse, 2, _NoTop)
     return result, seen
 
 
@@ -657,3 +656,108 @@ def test_the_fixed_run_is_held_at_80_percent_of_its_own_knee(monkeypatch, tmp_pa
     assert {"name": "RATE", "value": "27200"} in env
     # p99 12 ms against Java's 10 ms SLO: measured, recorded, and not counted.
     assert meta["invalid"] == ["fixed_over_slo: p99 12.00 ms > SLO 10 ms"]
+
+
+# --- the SUT's own knobs and meters (2026-09-24) -----------------------------
+
+def test_app_env_is_patched_onto_the_sut_container_of_the_render(monkeypatch):
+    """--app-env reaches the SUT through the same throwaway kustomization that
+    puts the registry back, as a strategic merge patch on the right container."""
+    seen = {}
+
+    def fake_kubectl(*args, **kw):
+        seen["k"] = (__import__("pathlib").Path(args[1]) / "kustomization.yaml").read_text()
+        return ""
+
+    monkeypatch.setattr(cell, "kubectl", fake_kubectl)
+    cell.kustomize_overlay("java", "arm-tuned",
+                           {"SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE": "40",
+                            "JAVA_TOOL_OPTIONS": "-Xmx8g -XX:+UseZGC"})
+    kustomization = yaml.safe_load(seen["k"])
+    patch = yaml.safe_load(kustomization["patches"][0]["patch"])
+    assert (patch["kind"], patch["metadata"]["name"]) == ("Deployment", "java")
+    container = patch["spec"]["template"]["spec"]["containers"][0]
+    assert container["name"] == "java"
+    assert {"name": "JAVA_TOOL_OPTIONS", "value": "-Xmx8g -XX:+UseZGC"} in container["env"]
+    assert len(kustomization["images"]) == len(cell.OWN_IMAGES)  # the registry still goes back
+
+
+def test_app_env_finds_the_container_when_it_is_not_named_like_the_resource():
+    patch = yaml.safe_load(yaml.safe_load(cell.app_env_patch("net", {"A": "1"}))["patches"][0]["patch"])
+    assert patch["metadata"]["name"] == "iperf3-server"
+    assert patch["spec"]["template"]["spec"]["containers"][0]["name"] == "iperf3"
+    patch = yaml.safe_load(yaml.safe_load(cell.app_env_patch("mongo", {"A": "1"}))["patches"][0]["patch"])
+    assert patch["kind"] == "StatefulSet"
+
+
+def test_without_app_env_the_render_has_no_patch(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cell, "kubectl", lambda *a, **k: seen.setdefault(
+        "k", (__import__("pathlib").Path(a[1]) / "kustomization.yaml").read_text()) and "")
+    cell.kustomize_overlay("java", "arm-tuned")
+    assert "patches" not in yaml.safe_load(seen["k"])
+
+
+def test_app_env_is_a_repeatable_flag_recorded_as_a_dict():
+    args = cell.parse_args(["--workload", "java", "--cell", "arm-tuned",
+                            "--app-env", "SERVER_TOMCAT_THREADS_MAX=400",
+                            "--app-env", "JAVA_TOOL_OPTIONS=-Xmx8g -Da=b=c"])
+    assert args.app_env == {"SERVER_TOMCAT_THREADS_MAX": "400", "JAVA_TOOL_OPTIONS": "-Xmx8g -Da=b=c"}
+
+
+def test_the_java_pools_are_explicit_controls_in_the_base_deployment():
+    base = yaml.safe_load((config.MANIFESTS / "workloads" / "java" / "base" /
+                           "deployment.yaml").read_text())
+    env = {e["name"]: e["value"] for e in base["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env == {"SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE": "10",
+                   "SERVER_TOMCAT_THREADS_MAX": "200",
+                   "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE": "health,metrics",
+                   "SERVER_TOMCAT_MBEANREGISTRY_ENABLED": "true"}
+
+
+def test_the_ladder_records_the_java_pools_per_step():
+    t0 = 1_800_000_000
+    samples = _samples(t0, [(5, 20), (65, 40)])
+    samples[0]["actuator"] = {"hikaricp.connections.pending": 0.0, "tomcat.threads.busy": 12.0}
+    samples[1]["actuator"] = {"hikaricp.connections.pending": 7.0, "tomcat.threads.busy": None}
+    result = {"windows": {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120)}, "ended_by": None}
+    cell.loader_guard(result, samples)
+    assert result["actuator_by_step"][20000] == {
+        "hikaricp.connections.pending": {"max": 7.0, "median": 7.0, "samples": 1},
+        "tomcat.threads.busy": "missing"}
+
+
+# --- which kernels llama.cpp dispatched --------------------------------------
+
+LLAMA_LINE = ("0.00.004.454 I cmn  common_param: system_info: n_threads = 15 "
+              "(n_threads_batch = 15) / 15 | CPU : NEON = 1 | ARM_FMA = 1 | SVE = 1 | KLEIDIAI = 1 |")
+
+
+def test_the_system_info_line_is_read_from_the_server_log(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: calls.append(a[0]) or f"boot\n{LLAMA_LINE}\n")
+    info = cell.llama_system_info(config.WORKLOADS["inference"])
+    assert info == [LLAMA_LINE[LLAMA_LINE.index("system_info:"):]]
+    assert calls == ["logs"]  # no probe when the log has it
+
+
+def test_without_it_in_the_log_the_same_binary_is_probed_in_the_pod(monkeypatch):
+    """At server-b10775 the line is TRACE, so the default log does not carry it."""
+    calls = []
+
+    def fake_kn(*args, **kw):
+        calls.append(args)
+        if args[0] == "exec":
+            kw["stderr"].append(LLAMA_LINE + "\nerror loading model\n")
+        return ""
+
+    monkeypatch.setattr(cell, "kn", fake_kn)
+    info = cell.llama_system_info(config.WORKLOADS["inference"])
+    assert info[0].startswith("system_info: n_threads = 15") and "KLEIDIAI = 1" in info[0]
+    assert calls[1][:6] == ("exec", "deploy/llama", "-c", "llama", "--", "/app/llama-server")
+    assert "-lv" in calls[1]
+
+
+def test_a_system_info_nobody_printed_is_recorded_as_missing(monkeypatch):
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: "")
+    assert cell.llama_system_info(config.WORKLOADS["inference"]) == "missing"
