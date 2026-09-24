@@ -546,38 +546,82 @@ def test_a_crossing_is_a_knee_and_keeps_its_reason(monkeypatch, tmp_path):
 
 
 def _samples(t0, pairs):
-    """top.json samples at t0 + seconds, with the loader at that percent."""
-    return [{"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(), "loader_cpu_percent": pct}
-            for sec, pct in pairs]
+    """Metrics-API samples: the loader at `pct` over [t0 + begin, t0 + end]
+    (cluster clock), received a second after the window closed."""
+    return [{"ts": datetime.fromtimestamp(t0 + end + 1, UTC).isoformat(),
+             "loader_cpu_percent": pct, "loader_window": [t0 + begin, t0 + end]}
+            for begin, end, pct in pairs]
+
+
+T0 = 1_800_000_000
+WINDOWS = {10000: (T0, T0 + 60), 20000: (T0 + 60, T0 + 120), 30000: (T0 + 120, T0 + 180),
+           40000: (T0 + 180, T0 + 240)}
 
 
 def test_the_loader_guard_stops_at_the_step_that_ended_the_walk():
     """The ladder runs past the knee on purpose; the loader at 95 % on the
     steps above the crossing says nothing about the knee."""
-    t0 = 1_800_000_000
-    windows = {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120), 30000: (t0 + 120, t0 + 180),
-               40000: (t0 + 180, t0 + 240)}
-    samples = _samples(t0, [(5, 20), (65, 40), (125, 55), (185, 95), (195, 97)])
-    result = {"windows": windows, "ended_by": {"step": 30000}}
+    samples = _samples(T0, [(0, 20, 20), (65, 85, 40), (125, 145, 55), (185, 205, 95),
+                            (205, 225, 97)])
+    result = {"windows": WINDOWS, "ended_by": {"step": 30000}}
     assert cell.loader_guard(result, samples) == []
     assert result["loader_peak_by_step"] == {10000: 20, 20000: 40, 30000: 55, 40000: 97}
     assert result["loader_peak_percent"] == 55
 
-    result = {"windows": windows, "ended_by": {"step": 40000}}
+    result = {"windows": WINDOWS, "ended_by": {"step": 40000}}
     assert cell.loader_guard(result, samples) == [
         "loader node CPU 97% > 70% during the knee, through step 40000"]
 
 
+def test_overload_at_the_tail_of_the_crossing_step_is_guarded():
+    """Review 2026-09-24: a metrics window [170, 190] is the crossing step's
+    last 10 s. Stamped at its receipt time (191) it used to land in the next,
+    unguarded step; by its own interval it belongs to both."""
+    samples = _samples(T0, [(0, 20, 20), (65, 85, 40), (125, 145, 50), (170, 190, 92)])
+    result = {"windows": WINDOWS, "ended_by": {"step": 30000}}
+    assert cell.loader_guard(result, samples) == [
+        "loader node CPU 92% > 70% during the knee, through step 30000"]
+    assert result["loader_peak_by_step"][30000] == 92
+    assert result["loader_peak_by_step"][40000] == 92
+
+
+def test_a_kubectl_top_sample_is_stretched_by_the_metrics_lag():
+    """Fallback without the metrics API: the value may trail the load by
+    METRICS_LAG_SECONDS, so a sample received 15 s into the next step still
+    counts for the crossing step."""
+    samples = [{"ts": datetime.fromtimestamp(T0 + ts, UTC).isoformat(), "loader_cpu_percent": p}
+               for ts, p in ((30, 20), (90, 40), (150, 50), (195, 92))]
+    result = {"windows": WINDOWS, "ended_by": {"step": 30000}}
+    assert cell.loader_guard(result, samples)[0].startswith("loader node CPU 92%")
+
+
+def test_a_guarded_step_without_loader_telemetry_is_unresolved(monkeypatch):
+    """An unobserved loader used to read as 0 % and pass."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    samples = _samples(T0, [(0, 20, 20), (125, 145, 50)])
+    samples.append({"ts": datetime.fromtimestamp(T0 + 90, UTC).isoformat(), "error": "timeout"})
+    result = {"windows": WINDOWS, "ended_by": {"step": 30000}}
+    assert cell.loader_guard(result, samples) == [
+        "capacity_unresolved: no loader telemetry for step 20000"]
+    assert result["loader_peak_by_step"][20000] is None
+    with pytest.raises(RuntimeError, match="no loader telemetry"):
+        cell.check_knee({"knee": 20000, "invalid": cell.loader_guard(result, samples)}, 10)
+
+
 def test_without_step_times_the_guard_falls_back_to_the_whole_ladder():
-    samples = _samples(1_800_000_000, [(5, 20), (185, 95)])
+    samples = _samples(T0, [(0, 20, 20), (185, 205, 95)])
     reasons = cell.loader_guard({"windows": {}, "ended_by": {"step": 10000}}, samples)
     assert reasons and "no step times" in reasons[0]
+    assert cell.loader_guard({"windows": {}, "ended_by": None}, []) == [
+        "capacity_unresolved: no loader telemetry for step the whole ladder"]
 
 
 # --- every fixed run gets its own fine knee ----------------------------------
 
 class _NoTop:
-    samples = []
+    """A sampler whose one metrics window covers the whole fine ladder, loader idle."""
+    samples = [{"ts": "2026-10-01T16:00:00+00:00", "loader_cpu_percent": 20,
+                "loader_window": [0, 4e9]}]
 
     def __init__(self, *a, **k):
         pass
@@ -717,7 +761,7 @@ def test_the_java_pools_are_explicit_controls_in_the_base_deployment():
 
 def test_the_ladder_records_the_java_pools_per_step():
     t0 = 1_800_000_000
-    samples = _samples(t0, [(5, 20), (65, 40)])
+    samples = _samples(t0, [(0, 20, 20), (65, 85, 40)])
     samples[0]["actuator"] = {"hikaricp.connections.pending": 0.0, "tomcat.threads.busy": 12.0}
     samples[1]["actuator"] = {"hikaricp.connections.pending": 7.0, "tomcat.threads.busy": None}
     result = {"windows": {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120)}, "ended_by": None}
@@ -747,15 +791,17 @@ def test_without_it_in_the_log_the_same_binary_is_probed_in_the_pod(monkeypatch)
 
     def fake_kn(*args, **kw):
         calls.append(args)
-        if args[0] == "exec":
+        if "exec" in args:
             kw["stderr"].append(LLAMA_LINE + "\nerror loading model\n")
         return ""
 
     monkeypatch.setattr(cell, "kn", fake_kn)
     info = cell.llama_system_info(config.WORKLOADS["inference"])
     assert info[0].startswith("system_info: n_threads = 15") and "KLEIDIAI = 1" in info[0]
-    assert calls[1][:6] == ("exec", "deploy/llama", "-c", "llama", "--", "/app/llama-server")
-    assert "-lv" in calls[1]
+    probe = calls[1]
+    assert probe[:6] == ("--request-timeout=45s", "exec", "deploy/llama", "-c", "llama", "--")
+    assert probe[6:9] == ("timeout", "30", "/app/llama-server")  # a hung probe is bounded
+    assert "-lv" in probe
 
 
 def test_a_system_info_nobody_printed_is_recorded_as_missing(monkeypatch):
@@ -785,3 +831,98 @@ def test_a_net_run_records_an_idle_baseline_and_each_direction_window(monkeypatc
     windows = meta["net_windows"]
     assert set(windows) == {"baseline", "fwd", "rev"}
     assert windows["fwd"] == [t, t + 60] and windows["rev"] == [t + 70, t + 130]
+
+
+# --- fix round 1 (2026-09-24) ------------------------------------------------
+
+def _ycsb(p99_us):
+    text = (config.RUNNER / "tests" / "fixtures" / "ycsb-t64.txt").read_text()
+    return text.replace("99th(us): 1300", f"99th(us): {p99_us}")
+
+
+def _ycsb_ladder(monkeypatch, logs, times=""):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_job", lambda name, *a, **k: logs[name.split("-")[-2]])
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: times)
+    monkeypatch.setattr(cell, "job_failure", lambda name: "Events: OOMKilled")
+
+
+def test_a_mongo_crossing_survives_an_overloaded_step_above_it(monkeypatch, tmp_path):
+    """Codex's reproduction: 32 threads cross the 5 ms SLO, then the 64-thread
+    step dies without a report. The crossing below it is still the knee."""
+    _ycsb_ladder(monkeypatch, {"t16": _ycsb(1300), "t32": _ycsb(9000), "t64": ""})
+    result = cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16, 32, 64]),
+                            "x86-stock", tmp_path)
+    assert result["knee"] == 16 and result["ended_by"]["step"] == 32
+    assert list(result["ignored_after_end"]) == [64]
+    assert result["invalid"] == []
+
+
+def test_a_mongo_step_without_a_report_before_any_crossing_still_breaks_the_ladder(
+        monkeypatch, tmp_path):
+    _ycsb_ladder(monkeypatch, {"t16": _ycsb(1300), "t32": "", "t64": _ycsb(9000)})
+    with pytest.raises(RuntimeError, match="t32-knee printed no READ/TOTAL"):
+        cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16, 32, 64]),
+                       "x86-stock", tmp_path)
+
+
+def test_mongo_step_windows_are_the_jobs_own_container_times(monkeypatch, tmp_path):
+    _ycsb_ladder(monkeypatch, {"t16": _ycsb(1300)},
+                 times="2026-10-01T15:00:00Z 2026-10-01T15:01:10Z")
+    t = datetime.fromisoformat("2026-10-01T15:00:00Z").timestamp()
+    result = cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16]), "x86-stock", tmp_path)
+    assert result["windows"][16] == (t, t + 70)
+
+
+def test_a_fixed_run_is_judged_at_the_rate_k6_was_actually_given(monkeypatch, tmp_path):
+    """--env RATE=... overrides the 80 %; the validity rule must use it."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_job", lambda *a, **k: f"{cell.SUMMARY_MARKER}\n" + json.dumps(
+        {"metrics": {"http_req_duration": {"values": {"p(99)": 2.0}},
+                     "http_reqs": {"values": {"rate": 27000.0}}}}))
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    meta = {"run_knee": 34000}  # 80 % = 27200
+
+    class Args:
+        env = {"RATE": "40000"}
+
+    cell.measure(dict(config.WORKLOADS["java"]), "java", "arm-tuned", 1, run_dir, meta, Args)
+    assert meta["rate"] == 40000
+    assert meta["invalid"] == ["fixed_underdelivered: 27000 rps < 0.95 x 40000 rps offered"]
+
+
+@pytest.mark.parametrize("step", ["10002", "3"])
+def test_a_coarse_step_the_fine_ladder_cannot_split_is_refused_up_front(step):
+    """10002//5 = 2000 ends at K + 10000, not K + S; 3//5 = 0 never gets there."""
+    with pytest.raises(SystemExit, match="multiple of 5"):
+        cell.check_fine_ladder(dict(config.WORKLOADS["java"]), {"RATE_STEP": step})
+
+
+def test_a_coarse_step_the_fine_ladder_can_split_passes():
+    assert cell.check_fine_ladder(dict(config.WORKLOADS["java"]), {"RATE_STEP": "15000"}) is None
+    assert cell.check_fine_ladder(dict(config.WORKLOADS["mongo"]), {}) is None  # no ladder
+
+
+def test_the_last_fine_step_is_exactly_k_plus_s(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(cell, "k6_knee", lambda *a, **k: seen.update(k) or {
+        "knee": None, "ended_by": None, "windows": {}, "invalid": []})
+    cell.fine_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", tmp_path,
+                   {"RATE_STEP": "15000"}, 30000, 1, _NoTop)
+    assert (seen["ladder"]["RATE_STEP"], seen["ladder"]["RATE_MAX"]) == (3000, 45000)
+    assert knee_rates(seen["ladder"])[-1] == 45000
+
+
+def knee_rates(ladder):
+    return __import__("knee").ladder_rates(ladder)
+
+
+def test_a_fixed_run_with_no_loader_sample_is_invalid(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    assert cell.fixed_loader_guard("java", [{"ts": "t", "error": "timeout"}]) == [
+        "loader_unobserved: no loader CPU sample during the run"]
+    assert cell.fixed_loader_guard("java", [{"ts": "t", "loader_cpu_percent": 40}]) == []
+    assert cell.fixed_loader_guard("java", [{"ts": "t", "loader_cpu_percent": 88}]) == [
+        "loader node CPU 88% > 70%"]
+    assert cell.fixed_loader_guard("net", []) == []  # the generator is a SUT node there

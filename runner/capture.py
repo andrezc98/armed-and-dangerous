@@ -156,20 +156,94 @@ def parse_top(node_text, pod_text, sut, loader, keep=None):
     return sample
 
 
-def _top(nodes, sut, loader):
-    """One sample: every cell node's CPU, the loader's, and the measured pod's."""
-    # `kubectl top node` takes ONE name (or -l); with several it errors out and
-    # the guard sampled nothing (found on the 2026-09-04 gate: loader_peak 0
-    # during a 40k rps ladder). List every node and keep the ones we want.
-    node_text = config.sh(
-        ["kubectl", "top", "node", "--no-headers"],
-        capture=True, quiet=True, check=False,
-    )
+# How far a `kubectl top` value can trail the load it reports: metrics-server
+# serves the CPU rate of the kubelet's last window, 15-60 s old. Only the
+# fallback path needs it; the metrics API says its own window.
+METRICS_LAG_SECONDS = 20
+
+_DURATION = re.compile(r"(\d+(?:\.\d+)?)(h|ms|us|µs|ns|m|s)")
+_DURATION_UNIT = {"h": 3600, "m": 60, "s": 1, "ms": 1e-3, "us": 1e-6, "µs": 1e-6, "ns": 1e-9}
+_CPU_UNIT = {"n": 1e-6, "u": 1e-3, "m": 1, "": 1000}  # to millicores
+
+
+def _seconds(duration):
+    """A Go duration string ("20.035s", "1m0.5s") in seconds."""
+    return sum(float(v) * _DURATION_UNIT[u] for v, u in _DURATION.findall(duration))
+
+
+def _millicores(quantity):
+    """A CPU quantity ("123456789n", "250m", "2") in millicores."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([num]?)", quantity)
+    return float(m.group(1)) * _CPU_UNIT[m.group(2)]
+
+
+def parse_node_metrics(body, allocatable, sut, loader, keep=None):
+    """One sample out of GET /apis/metrics.k8s.io/v1beta1/nodes; None when the
+    answer is not a NodeMetricsList (API not served, error, dry run).
+
+    Unlike `kubectl top`, every item carries the interval its value covers,
+    [timestamp - window, timestamp], on the cluster's clock (kubelet stamps it,
+    metrics-server passes it through): that interval, not the moment the laptop
+    received the answer, is what gets attributed to a ladder step. Percent is
+    over the node's allocatable CPU, as `kubectl top node` computes it.
+    """
+    try:
+        items = json.loads(body)["items"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    sample = {"ts": datetime.now(UTC).isoformat(), "source": "metrics-api", "nodes": {}}
+    for item in items:
+        name = item["metadata"]["name"]
+        if keep is not None and name not in keep:
+            continue
+        end = _epoch(item["timestamp"])
+        window = [end - _seconds(item["window"]), end]
+        millicores = round(_millicores(item["usage"]["cpu"]))
+        percent = round(100 * millicores / allocatable[name]) if allocatable.get(name) else None
+        if name == loader:
+            sample.update(loader_cpu_millicores=millicores, loader_cpu_percent=percent,
+                          loader_window=window)
+            continue
+        sample["nodes"][name] = millicores
+        if name == sut:
+            sample.update(node_cpu_millicores=millicores, node_cpu_percent=percent,
+                          node_window=window)
+    return sample
+
+
+def _allocatable():
+    """{node: allocatable millicores}, read once per sampler."""
+    out = config.sh(["kubectl", "get", "nodes", "-o",
+                     'jsonpath={range .items[*]}{.metadata.name}={.status.allocatable.cpu}{"\\n"}{end}'],
+                    capture=True, quiet=True, check=False)
+    return {name: _millicores(cpu) for name, cpu in
+            (line.split("=", 1) for line in out.splitlines() if "=" in line)}
+
+
+def _top(nodes, sut, loader, allocatable):
+    """One sample: every cell node's CPU, the loader's, and the measured pod's.
+
+    Nodes from the metrics API (parse_node_metrics). Only when that is not served
+    does it fall back to `kubectl top node`, whose samples carry no window of
+    their own; the guard then stretches each step by METRICS_LAG_SECONDS.
+    """
+    keep = set(nodes) | {loader}
+    body = config.sh(["kubectl", "get", "--raw", "/apis/metrics.k8s.io/v1beta1/nodes",
+                      "--request-timeout=5s"], capture=True, quiet=True, check=False)
     pod_text = config.sh(
         ["kubectl", "top", "pod", "-n", config.NAMESPACE, "--no-headers"],
         capture=True, quiet=True, check=False,
     )
-    return parse_top(node_text, pod_text, sut, loader, keep=set(nodes) | {loader})
+    sample = parse_node_metrics(body, allocatable, sut, loader, keep)
+    if sample is None:
+        # `kubectl top node` takes ONE name (or -l); with several it errors out
+        # and the guard sampled nothing (2026-09-04 gate). List all, keep ours.
+        node_text = config.sh(["kubectl", "top", "node", "--no-headers"],
+                              capture=True, quiet=True, check=False)
+        sample = parse_top(node_text, "", sut, loader, keep=keep)
+        sample["source"] = "kubectl-top"
+    sample["pod_cpu_millicores"] = parse_top("", pod_text, sut, loader)["pod_cpu_millicores"]
+    return sample
 
 
 def parse_actuator(body):
@@ -191,8 +265,11 @@ def parse_actuator(body):
 def _actuator(spec):
     """One reading of every meter in config.WORKLOADS[...]["actuator"]."""
     base = f"/api/v1/namespaces/{config.NAMESPACE}/services/{spec['proxy']}/proxy{spec['path']}"
+    # 2 s each: a JVM stalled under overload must not hold up the CPU samples
+    # (TopSampler takes those first anyway); a timeout reads as missing.
     return {
-        name: parse_actuator(config.sh(["kubectl", "get", "--raw", f"{base}/{name}"],
+        name: parse_actuator(config.sh(["kubectl", "get", "--raw", f"{base}/{name}",
+                                        "--request-timeout=2s"],
                                        capture=True, quiet=True, check=False))
         for name in spec["metrics"]
     }
@@ -217,38 +294,69 @@ def _epoch(ts):
 
 
 def ladder_windows(start, stage_seconds, steps):
-    """{step: (begin, end)} in epoch seconds for a k6 ladder that started at
-    `start`: lib.js holds step i from start + i x STAGE_SECONDS for
-    STAGE_SECONDS, ramp included. The ramp samples belong to the step they ramp
-    INTO, which is also where metrics-server puts them: `kubectl top` reports a
-    window that ends at its last scrape, so a sample always lags the load a
-    little, never leads it."""
+    """{step: (begin, end)} in epoch seconds for a k6 ladder whose container
+    started at `start` (its startedAt, node clock): lib.js holds step i from
+    start + i x STAGE_SECONDS for STAGE_SECONDS, ramp included. The scenario
+    itself starts a few seconds after the container; attributing a metrics
+    interval to every step it overlaps (by_overlap) absorbs that."""
     return {step: (start + i * stage_seconds, start + (i + 1) * stage_seconds)
             for i, step in enumerate(steps)}
 
 
-def by_window(samples, windows):
-    """{key: [samples whose ts falls in [begin, end)]} for {key: (begin, end)}."""
+def interval(sample, who=None):
+    """The time a sample's value covers. `who` = "loader" or "node": the metrics
+    API window of that node; without one (the `kubectl top` fallback) the value
+    may trail the load by METRICS_LAG_SECONDS. who=None: the receipt instant."""
+    w = sample.get(f"{who}_window") if who else None
+    if w:
+        return w
+    t = _epoch(sample["ts"])
+    return [t - METRICS_LAG_SECONDS, t] if who else [t, t]
+
+
+def by_overlap(samples, windows, who=None):
+    """{key: [samples whose interval overlaps (begin, end)]}. A sample lands in
+    EVERY step it overlaps: a 20 s metrics window across a step boundary says
+    something about both, and dropping it from the second is how overload at
+    the tail of a crossing step used to fall into the next, unguarded step."""
     out = {key: [] for key in windows}
     for sample in samples:
-        t = _epoch(sample["ts"])
+        b, e = interval(sample, who)
         for key, (begin, end) in windows.items():
-            if begin <= t < end:
+            if b < end and e >= begin:
                 out[key].append(sample)
     return out
 
 
 def window_cores(samples, windows):
-    """{key: median SUT node CPU in cores over the samples in that window, or
-    None for a window no sample landed in}."""
-    return {key: (median(s["node_cpu_millicores"] for s in in_window) / 1000.0
-                  if in_window else None)
-            for key, in_window in by_window(
-                [s for s in samples if "node_cpu_millicores" in s], windows).items()}
+    """{key: median SUT node CPU in cores over the distinct metrics windows that
+    lie WHOLLY inside (begin, end), or None when none does}. Wholly inside, so
+    an idle baseline never borrows a lagged value of the run before it, and a
+    direction never borrows the other's. Needs the metrics API's windows: a
+    `kubectl top` sample covers nothing it can prove."""
+    out = {}
+    for key, (begin, end) in windows.items():
+        seen = {}
+        for s in samples:
+            w = s.get("node_window")
+            if w and "node_cpu_millicores" in s and begin <= w[0] and w[1] <= end:
+                seen[tuple(w)] = s["node_cpu_millicores"]  # a repeated poll is one sample
+        out[key] = median(seen.values()) / 1000.0 if seen else None
+    return out
+
+
+def net_coverage(per):
+    """What a net run's per-window CPU is missing: [] when cpu_per_gbps holds."""
+    notes = [] if per.get("baseline") is not None else ["baseline_missing"]
+    return notes + [f"direction_uncovered: {d}" for d in ("fwd", "rev") if per.get(d) is None]
 
 
 def loader_peak(samples):
-    return max((s.get("loader_cpu_percent", 0) for s in samples), default=0)
+    return max((s.get("loader_cpu_percent") or 0 for s in samples), default=0)
+
+
+def loader_observed(samples):
+    return [s for s in samples if s.get("loader_cpu_percent") is not None]
 
 
 class TopSampler:
@@ -264,6 +372,7 @@ class TopSampler:
         self.sut = sut or self.nodes[0]
         self.loader, self.interval, self.actuator = loader, interval, actuator
         self.samples = []
+        self._allocatable = None
         self._stop = threading.Event()
         self._thread = None
 
@@ -276,7 +385,12 @@ class TopSampler:
         return self
 
     def _sample(self):
-        sample = _top(self.nodes, self.sut, self.loader)
+        """CPU first, into the list, THEN the pool gauges onto the same sample:
+        a stalled actuator must never cost the guard its CPU sample."""
+        if not self._allocatable:  # retried until it answers: without it no percent
+            self._allocatable = _allocatable()
+        sample = _top(self.nodes, self.sut, self.loader, self._allocatable)
+        self.samples.append(sample)
         if self.actuator:
             sample["actuator"] = _actuator(self.actuator)
         return sample
@@ -284,7 +398,7 @@ class TopSampler:
     def _loop(self):
         while not self._stop.is_set():
             try:
-                self.samples.append(self._sample())
+                self._sample()
             except Exception as exc:  # a missing metrics-server must not kill a run
                 self.samples.append({"ts": datetime.now(UTC).isoformat(), "error": str(exc)})
             self._stop.wait(self.interval)

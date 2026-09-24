@@ -215,16 +215,20 @@ de los knees por corrida). En Mongo la latencia es el p99 de READ y el
 throughput (y el costo por kop) es TOTAL OPS: `--target` limita todas las
 operaciones y el 5 % de updates de `workloadb` también es carga que el servidor
 llevó. `cpu_per_gbps` es **por sentido**: antes de la primera dirección el
-runner deja 10 s al nodo SUT en reposo (con APerf ya grabando) como línea base,
+runner deja 30 s al nodo SUT en reposo (con APerf ya grabando) como línea base,
 registra la ventana de cada dirección desde el `startedAt` del cliente más
 `-t 60` (`net_windows` en `meta.json`, con las medianas por ventana en
 `net_cpu_cores`), y el cociente es la CPU mediana del nodo en la ventana de esa
 dirección **menos la línea base**, sobre los Gbps de esa misma dirección
-(`cpu_per_gbps` para la ida, `cpu_per_gbps_reverse` para la vuelta). Las
-muestras de `kubectl top` llegan con el retraso de la ventana de
-metrics-server, así que la mediana, y no el promedio, es lo que se lee.
-Resultados viejos sin ventanas caen a la cuenta anterior (CPU de toda la
-corrida sobre los Gbps de ida). Sin tarifa capturada
+(`cpu_per_gbps` para la ida, `cpu_per_gbps_reverse` para la vuelta; mediana de
+los cocientes por corrida). Solo cuentan las muestras de la API de métricas
+cuya ventana cae **entera** dentro de la línea base o de la dirección, para que
+ninguna herede un valor atrasado de la ventana vecina. Si falta la línea base o
+una dirección no tiene ninguna muestra así, la corrida queda en
+`net_uncovered` (`baseline_missing` / `direction_uncovered`) y no aporta
+`cpu_per_gbps`: no hay vuelta silenciosa a la cuenta vieja. Solo los resultados
+viejos, sin `net_windows`, usan la cuenta anterior (CPU de toda la corrida
+sobre los Gbps de ida). Sin tarifa capturada
 (`results/cost.md` todavía en `TODO`) los campos de costo simplemente no
 aparecen: un precio inventado en un slide de costo es un número equivocado, no
 aproximado.
@@ -245,10 +249,18 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   Services del API server.
 - **guard del loader**: `kubectl top node` cada 10 s alrededor de **las dos**
   escaleras (k6 y go-ycsb), juzgado **escalón por escalón** y solo hasta el
-  escalón que terminó la búsqueda (incluido). Cada muestra cae en el escalón en
-  que se tomó: para k6, a partir del `startedAt` del contenedor del Job y de
-  `STAGE_SECONDS` (la rampa pertenece al escalón hacia el que sube); para
-  go-ycsb, un Job por escalón. La escalera sigue de largo después del knee a
+  escalón que terminó la búsqueda (incluido). La CPU de los nodos sale de la API
+  de métricas (`kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes`), donde
+  cada valor trae su propio intervalo `[timestamp - window, timestamp]` en el
+  reloj del clúster, y cuenta para **todos** los escalones que ese intervalo
+  toca: así la sobrecarga del final del escalón que cruza no se cae al
+  siguiente. Los escalones se ubican en el mismo reloj: para k6, desde el
+  `startedAt` del contenedor del Job más `STAGE_SECONDS`; para go-ycsb, el
+  `startedAt`/`finishedAt` del Job de cada escalón. Si la API no responde, cae
+  a `kubectl top node` y estira cada escalón 20 s (`METRICS_LAG_SECONDS`), lo
+  que tarda ese valor en reflejar la carga. **Sin telemetría no pasa**: un
+  escalón vigilado sin ninguna muestra del loader es `capacity_unresolved`, y
+  una corrida fija sin muestras del loader es `loader_unobserved`. La escalera sigue de largo después del knee a
   propósito, así que el pico de toda la escalera rechazaba cualquier celda
   aunque el loader estuviera holgado en el knee. Si el loader pasa de 70 % en
   algún escalón hasta el cruce, el knee es el del generador: queda escrito en

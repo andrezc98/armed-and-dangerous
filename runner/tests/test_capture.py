@@ -78,19 +78,94 @@ def test_parse_top_keeps_only_the_cell_nodes_and_the_loader():
     assert set(s["nodes"]) == {"ip-sut"}
 
 
-def test_samples_land_in_the_ladder_step_they_were_taken_in():
-    """A step is STAGE_SECONDS from the container's start, ramp included, so a
-    ramp sample belongs to the step it ramps into."""
+def test_a_metrics_interval_lands_in_every_step_it_overlaps():
     t0 = 1_800_000_000
     windows = capture.ladder_windows(t0, 60, [10000, 20000])
     assert windows == {10000: (t0, t0 + 60), 20000: (t0 + 60, t0 + 120)}
-    from datetime import UTC, datetime
-    samples = [{"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(), "loader_cpu_percent": p}
-               for sec, p in ((2, 10), (59, 30), (61, 50), (130, 99))]
-    split = capture.by_window(samples, windows)
-    assert [s["loader_cpu_percent"] for s in split[10000]] == [10, 30]
+    samples = [{"ts": "x", "loader_cpu_percent": p, "loader_window": [t0 + b, t0 + e]}
+               for b, e, p in ((0, 20, 10), (50, 70, 50), (130, 150, 99))]
+    split = capture.by_overlap(samples, windows, "loader")
+    assert [s["loader_cpu_percent"] for s in split[10000]] == [10, 50]
     assert [s["loader_cpu_percent"] for s in split[20000]] == [50]  # 130 s is past the ladder
     assert capture.loader_peak(split[20000]) == 50
+
+
+NODE_METRICS = json.dumps({"kind": "NodeMetricsList", "apiVersion": "metrics.k8s.io/v1beta1",
+    "items": [
+        {"metadata": {"name": "ip-loader"}, "timestamp": "2026-10-01T15:00:20Z",
+         "window": "20.035s", "usage": {"cpu": "22400000000n", "memory": "1Gi"}},
+        {"metadata": {"name": "ip-sut"}, "timestamp": "2026-10-01T15:00:18Z",
+         "window": "1m0.5s", "usage": {"cpu": "9000m", "memory": "30Gi"}},
+        {"metadata": {"name": "ip-tools"}, "timestamp": "2026-10-01T15:00:18Z",
+         "window": "20s", "usage": {"cpu": "49m", "memory": "775Mi"}},
+    ]})
+
+
+def test_node_metrics_carry_their_own_interval_on_the_cluster_clock():
+    from datetime import datetime
+    s = capture.parse_node_metrics(NODE_METRICS, {"ip-loader": 32000, "ip-sut": 15750},
+                                   "ip-sut", "ip-loader", keep={"ip-sut", "ip-loader"})
+    end = datetime.fromisoformat("2026-10-01T15:00:20Z").timestamp()
+    assert s["loader_window"] == [end - 20.035, end]
+    assert (s["loader_cpu_millicores"], s["loader_cpu_percent"]) == (22400, 70)
+    assert s["node_window"][1] - s["node_window"][0] == 60.5
+    assert (s["node_cpu_millicores"], s["node_cpu_percent"]) == (9000, 57)
+    assert set(s["nodes"]) == {"ip-sut"}
+
+
+def test_an_unserved_metrics_api_is_none_so_the_sampler_falls_back():
+    assert capture.parse_node_metrics("", {}, "a", "b") is None
+    assert capture.parse_node_metrics('{"kind":"Status","code":503}', {}, "a", "b") is None
+
+
+def test_a_node_without_allocatable_has_no_percent_rather_than_a_guess():
+    s = capture.parse_node_metrics(NODE_METRICS, {}, "ip-sut", "ip-loader")
+    assert s["loader_cpu_percent"] is None
+    assert capture.loader_observed([s]) == []
+
+
+def test_the_cpu_sample_is_recorded_before_the_actuator_is_asked(monkeypatch):
+    """A stalled actuator must never cost the guard its CPU sample."""
+    sampler = capture.TopSampler(["ip-sut"], "ip-loader",
+                                 actuator={"proxy": "p", "path": "/x", "metrics": ["m"]})
+    sampler._allocatable = {"ip-loader": 32000}
+    monkeypatch.setattr(capture, "_top", lambda *a: {"ts": "t", "loader_cpu_percent": 10})
+
+    def stalled(spec):
+        assert sampler.samples and sampler.samples[0]["loader_cpu_percent"] == 10
+        raise TimeoutError("actuator stalled")
+
+    monkeypatch.setattr(capture, "_actuator", stalled)
+    try:
+        sampler._sample()
+    except TimeoutError:
+        pass
+    assert sampler.samples == [{"ts": "t", "loader_cpu_percent": 10}]
+
+
+def test_actuator_requests_carry_a_two_second_deadline(monkeypatch):
+    seen = []
+    monkeypatch.setattr(capture.config, "sh", lambda cmd, **k: seen.append(cmd) or "")
+    assert capture._actuator({"proxy": "java:9966", "path": "/p", "metrics": ["m"]}) == {"m": None}
+    assert "--request-timeout=2s" in seen[0]
+
+
+def test_the_sampler_reads_the_metrics_api_and_falls_back_to_kubectl_top(monkeypatch):
+    calls = []
+
+    def fake_sh(cmd, **k):
+        calls.append(" ".join(cmd))
+        if "/apis/metrics.k8s.io/v1beta1/nodes" in cmd:
+            return ""  # not served
+        if cmd[:3] == ["kubectl", "top", "node"]:
+            return NODES
+        return PODS
+
+    monkeypatch.setattr(capture.config, "sh", fake_sh)
+    s = capture._top([SUT, OTHER], SUT, LOADER, {})
+    assert s["source"] == "kubectl-top" and s["loader_cpu_percent"] == 32
+    assert s["pod_cpu_millicores"] == 8493
+    assert "--request-timeout=5s" in calls[0]
 
 
 # --- Java's pool gauges -------------------------------------------------------

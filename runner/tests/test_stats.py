@@ -154,8 +154,9 @@ def test_a_truncated_ycsb_run_is_excluded_instead_of_crashing_the_analysis(tmp_p
 # --- fixed runs are judged against the SLO and the rate they were held at ----
 
 def test_a_fixed_run_over_the_knee_slo_is_excluded(tmp_path):
-    """java-fixed.json reads p99 4.57 ms; against a 2.5 ms knee SLO it is the
-    gate's 5.26 ms case, which nothing flagged."""
+    """_k6_cell's run-1 reads p99 4.12 ms (java-fixed.json's 4.57 x 0.9);
+    against a 2.5 ms knee SLO it is the gate's 5.26 ms case, which nothing
+    flagged."""
     cell = _k6_cell(tmp_path)
     (cell / "knee.json").write_text(json.dumps({"knee": 40000, "slo_ms": 2.5, "unit": "rps"}))
     s = stats.summarize(cell)
@@ -200,28 +201,51 @@ def test_old_results_without_run_knees_fall_back_to_the_coarse_knee(tmp_path):
 
 # --- net: CPU per Gbps per direction, over the idle node ---------------------
 
-def test_cpu_per_gbps_is_per_direction_over_an_idle_baseline(tmp_path):
+def _net_run(cell, name, windows_ok=True):
+    """One net run: iperf both ways (170.77 Gbps), metrics-API samples with
+    windows, idle 500m / forward 2500m / reverse 4500m."""
     from datetime import UTC, datetime
-    cell = tmp_path / "net" / "arm-tuned"
-    run = cell / "run-1"
+    run = cell / name
     run.mkdir(parents=True)
     shutil.copy(FIXTURES / "iperf3-forward.json", run / "iperf.json")
     shutil.copy(FIXTURES / "iperf3-forward.json", run / "iperf-reverse.json")
     t0 = 1_800_000_000
 
-    def sample(sec, millicores):
-        return {"ts": datetime.fromtimestamp(t0 + sec, UTC).isoformat(),
-                "node_cpu_millicores": millicores}
+    def sample(begin, end, millicores):
+        return {"ts": datetime.fromtimestamp(t0 + end + 1, UTC).isoformat(),
+                "node_cpu_millicores": millicores, "node_window": [t0 + begin, t0 + end]}
 
-    # idle 500m; forward 2500m; reverse 4500m (plus one stray idle sample)
-    (run / "top.json").write_text(json.dumps(
-        [sample(1, 500)] + [sample(15 + 10 * k, 2500) for k in range(6)]
-        + [sample(85 + 10 * k, 4500) for k in range(6)] + [sample(140, 500)]))
+    samples = [
+        sample(-15, 5, 2500),     # straddles the baseline start: the run before
+        sample(5, 25, 500),       # idle, wholly inside the 30 s baseline
+        sample(5, 25, 500),       # the same window polled twice: one sample
+        sample(35, 55, 2500), sample(55, 75, 2500), sample(75, 95, 2500),
+        sample(90, 110, 3500),    # straddles the two directions: neither
+        sample(110, 130, 4500), sample(130, 150, 4500), sample(150, 170, 4500),
+    ]
+    if not windows_ok:
+        samples = [x for x in samples if x["node_cpu_millicores"] != 500]
+    (run / "top.json").write_text(json.dumps(samples))
     (run / "meta.json").write_text(json.dumps({"net_windows": {
-        "baseline": [t0, t0 + 10], "fwd": [t0 + 12, t0 + 72], "rev": [t0 + 80, t0 + 140]}}))
+        "baseline": [t0, t0 + 30], "fwd": [t0 + 32, t0 + 97], "rev": [t0 + 100, t0 + 172]}}))
+
+
+def test_cpu_per_gbps_is_per_direction_over_an_idle_baseline(tmp_path):
+    cell = tmp_path / "net" / "arm-tuned"
+    _net_run(cell, "run-1")
     s = stats.summarize(cell)
     assert s["node_cpu_baseline_cores"]["median"] == 0.5
     assert s["node_cpu_cores_forward"]["median"] == 2.0
     assert s["node_cpu_cores_reverse"]["median"] == 4.0
     assert round(s["cpu_per_gbps"], 5) == round(2.0 / 170.774255733856, 5)
     assert round(s["cpu_per_gbps_reverse"], 5) == round(4.0 / 170.774255733856, 5)
+    assert "net_uncovered" not in s
+
+
+def test_a_net_run_without_an_idle_baseline_gets_no_cpu_per_gbps(tmp_path):
+    """No silent fallback to the whole-run formula for a run that has windows."""
+    cell = tmp_path / "net" / "arm-tuned"
+    _net_run(cell, "run-1", windows_ok=False)
+    s = stats.summarize(cell)
+    assert "cpu_per_gbps" not in s and "cpu_per_gbps_reverse" not in s
+    assert s["net_uncovered"] == [{"run": "run-1", "reasons": ["baseline_missing"]}]

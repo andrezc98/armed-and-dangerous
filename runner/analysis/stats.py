@@ -62,7 +62,7 @@ def summarize(cell_dir, usd_per_hour=None):
         out["usd_per_hour"] = usd_per_hour
 
     p99, rps, tok_s, gbps, gbps_rev, cores, run_knees = [], [], [], [], [], [], []
-    net_fwd, net_rev, net_idle = [], [], []
+    net_fwd, net_rev, net_idle, ratio_fwd, ratio_rev, new_net = [], [], [], [], [], False
     for run in sorted(p for p in cell_dir.glob("run-*") if p.is_dir()):
         # The runner already judged this run while it had the cluster in front of
         # it: a saturated loader, a cpuset that was not exclusive, a Job that
@@ -111,15 +111,24 @@ def summarize(cell_dir, usd_per_hour=None):
                 gbps_rev.append(reverse["end"]["sum_received"]["bits_per_second"] / 1e9)
             # Per direction, idle baseline subtracted (cell.measure); runs from
             # before the windows existed fall back to the whole-run median below.
+            # A run with windows and a hole in them gets no cpu_per_gbps at all:
+            # no falling back to the whole-run formula for a new-format run.
             windows = meta.get("net_windows")
             if windows:
+                new_net = True
                 per = capture.window_cores(_read_json(run / "top.json") or [], windows)
-                if per.get("baseline") is not None:
-                    net_idle.append(per["baseline"])
+                notes = capture.net_coverage(per)
+                if notes:
+                    out.setdefault("net_uncovered", []).append({"run": run.name, "reasons": notes})
+                base = per.get("baseline")
+                if base is not None:
+                    net_idle.append(base)
                     if per.get("fwd") is not None:
-                        net_fwd.append(per["fwd"] - per["baseline"])
+                        net_fwd.append(per["fwd"] - base)
+                        ratio_fwd.append(net_fwd[-1] / gbps[-1])
                     if per.get("rev") is not None and reverse:
-                        net_rev.append(per["rev"] - per["baseline"])
+                        net_rev.append(per["rev"] - base)
+                        ratio_rev.append(net_rev[-1] / gbps_rev[-1])
         else:
             continue
         out["runs"] += 1
@@ -153,7 +162,7 @@ def summarize(cell_dir, usd_per_hour=None):
         out["gbps_reverse"] = _spread(gbps_rev)
     if cores:
         out["node_cpu_cores"] = _spread(cores)
-        if gbps and not net_fwd:
+        if gbps and not new_net:
             # Old results: whole-run CPU (both directions) over forward Gbps.
             out["cpu_per_gbps"] = out["node_cpu_cores"]["median"] / out["gbps"]["median"]
     # The number that means something on a 4xlarge pair: both sides are the same
@@ -161,13 +170,13 @@ def summarize(cell_dir, usd_per_hour=None):
     # read in its own window, over the idle node.
     if net_idle:
         out["node_cpu_baseline_cores"] = _spread(net_idle)
-    if net_fwd and gbps:
+    # Per run, then the median over the runs that were fully covered.
+    if net_fwd:
         out["node_cpu_cores_forward"] = _spread(net_fwd)
-        out["cpu_per_gbps"] = out["node_cpu_cores_forward"]["median"] / out["gbps"]["median"]
-    if net_rev and gbps_rev:
+        out["cpu_per_gbps"] = median(ratio_fwd)
+    if net_rev:
         out["node_cpu_cores_reverse"] = _spread(net_rev)
-        out["cpu_per_gbps_reverse"] = (out["node_cpu_cores_reverse"]["median"]
-                                       / out["gbps_reverse"]["median"])
+        out["cpu_per_gbps_reverse"] = median(ratio_rev)
     if out["runs"] < MIN_RUNS:
         out["insufficient_runs"] = True
     return out

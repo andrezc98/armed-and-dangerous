@@ -38,9 +38,9 @@ NODE_GONE_TIMEOUT = 600  # the cell is billed until the instance actually goes a
 SCALE_DOWN_RETRIES = 3
 SCALE_DOWN_BACKOFF = 10
 JOB_DELETE_TIMEOUT = 60
-# Idle node CPU sampled before the first iperf3 direction of a net run: one
-# `kubectl top` sample at the sampler's 10 s interval.
-NET_BASELINE_SECONDS = 10
+# Idle node CPU sampled before the first iperf3 direction of a net run. 30 s so
+# that at least one metrics-API window (15-20 s) lies wholly inside it.
+NET_BASELINE_SECONDS = 30
 
 # The own images are written into the manifests by bare name and a sentinel tag
 # (`aad-java:UNSET`), so nothing in git carries the sandbox account id. The
@@ -613,20 +613,39 @@ def uncrossed(found, last, unit):
             f"{LADDER_REMEDY}"]
 
 
-def job_started(name):
-    """Epoch at which the Job's container started, or None if it cannot be read.
+def job_times(name):
+    """(started, finished) epochs of the Job's container, None for what cannot
+    be read.
 
     The container's own startedAt and not the Job's .status.startTime: between
     the two sit the scheduling and the image pull, and the ladder's clock
     (lib.js, exec.scenario.startTime) only starts with the process. Read after
-    the Job finished, so the container is in state.terminated.
+    the Job finished, so the container is in state.terminated. Both are the
+    node's clock, as the metrics API's windows are the kubelet's: the loader
+    guard compares cluster time with cluster time, never with this laptop's.
     """
+    state = "{.items[0].status.containerStatuses[0].state.terminated"
     out = kn("get", "pod", "-l", f"job-name={name}", "-o",
-             "jsonpath={.items[0].status.containerStatuses[0].state.terminated.startedAt}",
-             capture=True, quiet=True, check=False).strip()
-    if not out:
-        return None
-    return datetime.fromisoformat(out).timestamp()
+             f"jsonpath={state}.startedAt}} {state}.finishedAt}}",
+             capture=True, quiet=True, check=False).split()
+    epochs = [datetime.fromisoformat(t).timestamp() for t in out[:2]]
+    return tuple(epochs + [None] * (2 - len(epochs)))
+
+
+def job_started(name):
+    return job_times(name)[0]
+
+
+def check_fine_ladder(spec, env_extra):
+    """The fine ladder's grid, checked before anything is paid for: S/fine_steps
+    must be a whole number of rps, or the steps drift off K + S (and a step of 0
+    never reaches it)."""
+    if not spec.get("ladder"):
+        return
+    coarse_step, steps = int({**spec["ladder"], **env_extra}["RATE_STEP"]), spec["fine_steps"]
+    if coarse_step < steps or coarse_step % steps:
+        raise SystemExit(f"RATE_STEP {coarse_step} cannot be split into fine_steps={steps} "
+                         f"whole steps; pick a RATE_STEP that is a multiple of {steps}")
 
 
 def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
@@ -697,26 +716,53 @@ def loader_guard(result, samples):
     steps push the loader over the line even when the knee sat at a third of
     it; a peak over the whole ladder rejected every cell that way. What has to
     hold is that the loader was not the bottleneck up to the step that decided
-    the knee. Without step times (a dry run, or a pod already gone) it falls
-    back to the whole-ladder peak, which can only be stricter.
+    the knee. A sample counts for every step its metrics interval overlaps
+    (capture.by_overlap), so the tail of the crossing step is always guarded.
+
+    Fail closed: a guarded step no loader sample covers is a step nobody can
+    say the loader kept up with (capacity_unresolved). Without step times (a
+    pod already gone) the whole ladder is guarded, which can only be stricter.
     """
     windows, ended_by = result.get("windows") or {}, result.get("ended_by")
+    observed = capture.loader_observed(samples)
     if windows:
-        split = capture.by_window(samples, windows)
-        peaks = {step: capture.loader_peak(in_step) for step, in_step in split.items()}
+        split = capture.by_overlap(observed, windows, "loader")
+        peaks = {step: (capture.loader_peak(in_step) if in_step else None)
+                 for step, in_step in split.items()}
         result["loader_peak_by_step"] = peaks
         if any("actuator" in sample for sample in samples):  # Java's pools, per step
-            result["actuator_by_step"] = {step: capture.actuator_stats(in_step)
-                                          for step, in_step in split.items()}
-        peak = max((p for step, p in peaks.items()
-                    if ended_by is None or step <= ended_by["step"]), default=0)
+            result["actuator_by_step"] = {
+                step: capture.actuator_stats(in_step)
+                for step, in_step in capture.by_overlap(samples, windows).items()}
+        guarded = [step for step in windows if ended_by is None or step <= ended_by["step"]]
+        unobserved = [step for step in guarded if not split[step]]
+        peak = max((peaks[step] for step in guarded if peaks[step] is not None), default=0)
         where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
     else:
-        peak, where = capture.loader_peak(samples), "over the whole ladder (no step times)"
+        unobserved = [] if observed else ["the whole ladder"]
+        peak, where = capture.loader_peak(observed), "over the whole ladder (no step times)"
     result["loader_peak_percent"] = peak
+    reasons = [] if config.DRY_RUN else [
+        f"capacity_unresolved: no loader telemetry for step {step}" for step in unobserved]
     if peak > config.LOADER_CPU_GUARD_PERCENT:
-        return [f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}% "
-                f"during the knee, {where}"]
+        reasons.append(f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}% "
+                       f"during the knee, {where}")
+    return reasons
+
+
+def fixed_loader_guard(workload, samples):
+    """The whole-run loader guard of a fixed run. For net the generator is the
+    second SUT node, not the loader, so the guard has nothing to say there.
+    Fail closed: a run nobody watched the loader through is not a run the loader
+    is known to have kept up with."""
+    if workload == "net" or config.DRY_RUN:
+        return []
+    observed = capture.loader_observed(samples)
+    if not observed:
+        return ["loader_unobserved: no loader CPU sample during the run"]
+    peak = capture.loader_peak(observed)
+    if peak > config.LOADER_CPU_GUARD_PERCENT:
+        return [f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}%"]
     return []
 
 
@@ -734,8 +780,9 @@ def fine_knee(spec, workload, cell, run_dir, env_extra, coarse_knee, i, sampler)
       its resolution.
     An unresolved fine step or a saturated loader invalidates the run.
     """
+    check_fine_ladder(spec, env_extra)
     coarse_step = int({**spec["ladder"], **env_extra}["RATE_STEP"])
-    fine_step = coarse_step // spec["fine_steps"]
+    fine_step = coarse_step // spec["fine_steps"]  # exact: the last step is K + S
     ladder = {"RATE_START": coarse_knee + fine_step, "RATE_STEP": fine_step,
               "RATE_MAX": coarse_knee + coarse_step,
               "STAGE_SECONDS": spec["fine_stage_seconds"]}
@@ -800,7 +847,15 @@ def ycsb_job_yaml(name, cell, spec, threads, target, operationcount, load=False)
 
 
 def ycsb_knee(spec, cell, cell_dir):
-    runs, windows = [], {}
+    """The thread ladder, walked as it runs.
+
+    A step with no READ/TOTAL report breaks the ladder only while the walk is
+    still open: the steps after it would be measured against a cache and a
+    client the failed step already disturbed. Once a step has crossed, the ones
+    above it are overloaded on purpose, and one of them dying without a report
+    is that overload, not a reason to throw away the crossing below it.
+    """
+    runs, series, windows, ignored, ended_by = [], [], {}, {}, None
     for threads in spec["threads"]:
         name = f"ycsb-run-{cell}-t{threads}-knee"
         begin = now()
@@ -809,29 +864,33 @@ def ycsb_knee(spec, cell, cell_dir):
             ycsb_job_yaml(name, cell, spec, threads, 0, spec["knee_operationcount"]),
             spec["fixed_seconds"] + 900,
         )
-        # One Job per step, so the step's window is the Job's own; the loader
-        # guard judges the steps through the one that ended the walk.
-        windows[threads] = (begin, now())
+        # One Job per step, so the step's window is the Job's own container
+        # (cluster clock, job_times); this laptop's clock only if that is gone.
+        started, finished = job_times(name)
+        windows[threads] = (started if started is not None else begin,
+                            finished if finished is not None else now())
         if config.DRY_RUN:
             continue
-        # One broken step invalidates the ladder: the steps after it are measured
-        # against a cache and a client the failed step already disturbed. Both
-        # lines are needed: READ carries the p99 the SLO is about, TOTAL the
-        # throughput the fixed runs are throttled to.
+        # Both lines are needed: READ carries the p99 the SLO is about, TOTAL
+        # the throughput the fixed runs are throttled to.
         parsed = knee.parse_ycsb(logs) if logs else {}
         missing = [line for line in ("READ", "TOTAL") if line not in parsed]
         if missing:
-            raise RuntimeError(
-                f"job/{name} printed no {'/'.join(missing)} line:\n{job_failure(name)}"
-            )
+            if ended_by is None:
+                raise RuntimeError(
+                    f"job/{name} printed no {'/'.join(missing)} line:\n{job_failure(name)}"
+                )
+            ignored[threads] = f"no {'/'.join(missing)} line, past the end of the walk"
+            continue
         (cell_dir / f"knee-t{threads}.txt").write_text(logs)
         runs.append((threads, logs))
+        series = knee.series_from_ycsb(runs)
+        ended_by = knee.walk(series, spec["slo_ms"])[1]
     if not runs:
         print(f"# (dry-run) assuming knee = {spec['threads'][0]} threads")
         return {"unit": "threads", "knee": spec["threads"][0], "ops": 0,
                 "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": {},
                 "invalid": []}
-    series = knee.series_from_ycsb(runs)
     found, ended_by = knee.walk(series, spec["slo_ms"])
     ops = 0
     for threads, logs in runs:
@@ -842,6 +901,7 @@ def ycsb_knee(spec, cell, cell_dir):
             ops = knee.parse_ycsb(logs)["TOTAL"]["OPS"]
     return {"unit": "threads", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
             "series": series, "ended_by": ended_by, "windows": windows,
+            "ignored_after_end": ignored,
             "invalid": uncrossed(found, spec["threads"][-1], "threads")}
 
 
@@ -960,7 +1020,11 @@ def llama_system_info(spec):
                                  check=False))
     if not lines:
         errors = []
-        out = kn("exec", resource, "-c", "llama", "--", "/app/llama-server",
+        # `timeout` is GNU coreutils 9.4 in the image (Ubuntu 24.04, checked
+        # 2026-09-24 with docker run --entrypoint sh); --request-timeout bounds
+        # the kubectl side. A probe that hangs is recorded as missing.
+        out = kn("--request-timeout=45s", "exec", resource, "-c", "llama", "--",
+                 "timeout", "30", "/app/llama-server",
                  "-m", "/nonexistent.gguf", "--port", "18080", "-lv", "4",
                  capture=True, check=False, stderr=errors)
         lines = system_info_lines(out + "".join(errors))
@@ -1084,6 +1148,7 @@ def run_cell(args):
           f"({config.instance_type(cell)} x{nodes_wanted}) ===\n")
     budget_gate(day_dir, args.override_budget)
     check_images(workload, cell)
+    check_fine_ladder(spec, args.env)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -1192,17 +1257,14 @@ def run_cell(args):
                 if run_meta.get("net_windows"):
                     run_meta["net_cpu_cores"] = capture.window_cores(top.samples,
                                                                      run_meta["net_windows"])
+                    run_meta["net_cpu_notes"] = capture.net_coverage(run_meta["net_cpu_cores"])
                 if spec.get("actuator"):
                     run_meta["actuator"] = capture.actuator_stats(top.samples)
                 if not config.DRY_RUN:
                     top.write(run_dir / "top.json")
-                # For net the generator is the second SUT node, not the loader, so
-                # the guard has nothing to say about this run.
-                if workload != "net" and top.peak_loader_percent > config.LOADER_CPU_GUARD_PERCENT:
-                    run_meta.setdefault("invalid", []).append(
-                        f"loader node CPU {top.peak_loader_percent}% > "
-                        f"{config.LOADER_CPU_GUARD_PERCENT}%"
-                    )
+                reasons = fixed_loader_guard(workload, top.samples)
+                if reasons:
+                    run_meta.setdefault("invalid", []).extend(reasons)
             finally:
                 # The recorder outlives the load Job. If the run blew up it is
                 # still holding a privileged pod on the SUT, and the next cell
@@ -1270,6 +1332,10 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         # included) in the NET_BASELINE_SECONDS before the first one. The
         # TopSampler around this call provides the samples; stats and meta read
         # them per window (capture.window_cores).
+        # The baseline's bounds are this laptop's clock and the directions' are
+        # the node's (job_started); both NTP-synced, and a metrics window has to
+        # lie wholly inside either (capture.window_cores), so a second of skew
+        # costs at most a sample, never borrows one from the neighbour.
         begin = now()
         if not config.DRY_RUN:
             time.sleep(NET_BASELINE_SECONDS)
@@ -1329,7 +1395,9 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         env = k6_env(spec, "fixed", {
             **vu_budget(spec), "RATE": rate, "DURATION": f"{spec['fixed_seconds']}s", **args.env,
         })
-        run_meta["rate"] = rate
+        # What k6 is actually asked for: --env RATE=... wins over the 80 %, and
+        # the validity rule has to judge the run against that.
+        run_meta["rate"] = int(env["RATE"])
         out_name = "k6.json"
     logs = run_job(name, k6_job_yaml(name, cell, spec["script"], env),
                    spec["fixed_seconds"] + 300)
