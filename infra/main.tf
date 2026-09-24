@@ -296,6 +296,21 @@ module "eks" {
 
   eks_managed_node_groups = local.node_groups
 
+  # The runner reads Java's pool gauges (actuator, 9966) and Go's cpuset control
+  # (8080) through the API server's service proxy, and the module's recommended
+  # rules only open 443, 10250 and the webhook ports from the control plane:
+  # without these the proxy times out (calibration day 2026-09-24).
+  node_security_group_additional_rules = {
+    ingress_cluster_go = {
+      description = "API server service proxy to the Go SUT (runner cpuset control)"
+      from_port   = 8080, to_port = 8080, source_cluster_security_group = true
+    }
+    ingress_cluster_java = {
+      description = "API server service proxy to the Java SUT actuator (runner pool gauges)"
+      from_port   = 9966, to_port = 9966, source_cluster_security_group = true
+    }
+  }
+
   # Karpenter discovers the node security group by this tag; exactly one
   # security group in the account may carry it.
   node_security_group_tags = {
