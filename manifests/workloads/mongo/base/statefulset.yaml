@@ -2,7 +2,9 @@
 # 40 GB WiredTiger cache on a 64 GiB node, so the run measures memory bandwidth
 # and not EBS.
 #
-# mongo:8.0.29 (2026-08-18, amd64 + arm64 on Docker Hub, verified 2026-09-04).
+# mongo:8.0.32 (2026-09-16, amd64 + arm64 on Docker Hub, verified 2026-09-24; was
+# 8.0.29 at the gate and on calibration day). 8.0 stays: 8.3 is the newest line
+# but an unmeasured change nine days before the talk (speaker, 2026-09-24).
 # Floating 8.0 would move under the lab; the Windows-only variants of the same
 # release are amd64 and are not what this tag resolves to on Linux.
 #
@@ -62,7 +64,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: mongo
-          image: mongo:8.0.29
+          image: mongo:8.0.32
           args:
             - --wiredTigerCacheSizeGB
             - "40"

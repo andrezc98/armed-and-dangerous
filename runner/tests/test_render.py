@@ -103,7 +103,7 @@ def test_rendering_without_a_registry_is_refused(monkeypatch):
 @pytest.mark.parametrize("workload, cell_name, own_image", [
     ("java", "arm-tuned", "aad-java"),
     ("go", "x86-stock", "aad-go"),
-    # mongo's overlay carries the upstream mongo:8.0.29 image, not an own one -
+    # mongo's overlay carries the upstream mongo:8.0.32 image, not an own one -
     # aad-ycsb only shows up in the Job templates outside this kustomization
     # (cell.JOB_TEMPLATES). Rendered here to prove a workload with no own image
     # in its overlay still goes through the throwaway kustomization cleanly.
