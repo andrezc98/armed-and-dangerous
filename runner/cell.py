@@ -52,7 +52,9 @@ NET_BASELINE_SECONDS = 60
 # cluster with the sentinel still on costs the fifteen paid minutes an
 # ImagePullBackOff takes to become obvious.
 UNSET_TAG = "UNSET"
-OWN_IMAGES = ("aad-java", "aad-go", "aad-iperf3", "aad-ycsb")
+# aad-llama (arm64 only, KleidiAI build) since calibration day 2026-09-24; its tag
+# is set by apps/llama/build-kleidiai.sh, not by the multi-arch build.
+OWN_IMAGES = ("aad-java", "aad-go", "aad-iperf3", "aad-ycsb", "aad-llama")
 # {"registry": ..., "tags": {"aad-java": ..., ...}}, filled once per run by
 # load_images(). One tag PER image, not one shared by all four: a partial
 # PUSH=1 (one image rebuilt) only ever moves that image's own tag, so a schema

@@ -93,6 +93,7 @@ CELL_MNG = {
     "arm-stock": "arm-stock",
     "arm-tuned": "arm-tuned",
     "x86-t8": "x86-tuned",
+    "arm-tuned-kleidiai": "arm-tuned",
     "x86-tuned-vthreads": "x86-tuned",
     "arm-tuned-vthreads": "arm-tuned",
 }
@@ -204,7 +205,8 @@ WORKLOADS = {
         "saturate_vus": 4,
         "fixed_seconds": 360,
         "warmup_seconds": 60,
-        "cells": ["x86-stock", "x86-tuned", "x86-t8", "arm-stock", "arm-tuned"],
+        "cells": ["x86-stock", "x86-tuned", "x86-t8", "arm-stock", "arm-tuned",
+                  "arm-tuned-kleidiai"],
     },
     "mongo": {
         "loader": "ycsb",
