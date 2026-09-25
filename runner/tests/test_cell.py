@@ -559,6 +559,20 @@ WINDOWS = {10000: (T0, T0 + 60), 20000: (T0 + 60, T0 + 120), 30000: (T0 + 120, T
            40000: (T0 + 180, T0 + 240)}
 
 
+def test_the_knee_records_the_sut_cpu_per_step():
+    """Whether a knee is the CPU running out is read off the SUT node's cores
+    at each step, on the metrics windows like the loader's."""
+    samples = [{"ts": "x", "loader_cpu_percent": 20, "loader_window": [T0 + b, T0 + e],
+                "node_cpu_millicores": m, "node_window": [T0 + b, T0 + e]}
+               for b, e, m in ((5, 25, 4000), (30, 50, 6000), (125, 145, 14500))]
+    result = {"windows": WINDOWS, "ended_by": {"step": 30000, "kind": "crossing"}}
+    cell.loader_guard(result, samples)
+    by_step = result["sut_cpu_cores_by_step"]
+    assert by_step[10000] == {"max": 6.0, "median": 5.0, "samples": 2}
+    assert by_step[30000]["max"] == 14.5
+    assert by_step[20000] == "missing"
+
+
 def test_the_loader_guard_stops_at_the_step_that_ended_the_walk():
     """The ladder runs past the knee on purpose; the loader at 95 % on the
     steps above the crossing says nothing about the knee."""

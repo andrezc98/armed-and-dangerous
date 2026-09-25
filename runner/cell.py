@@ -14,6 +14,7 @@ than as a plugin system.
 
 import argparse
 import json
+from statistics import median
 import os
 import re
 import sys
@@ -735,6 +736,14 @@ def loader_guard(result, samples):
             result["actuator_by_step"] = {
                 step: capture.actuator_stats(in_step)
                 for step, in_step in capture.by_overlap(samples, windows).items()}
+        # The SUT node's CPU per step, on the same metrics windows: what says
+        # whether the knee is the CPU running out or something queueing before
+        # it (calibration day 2026-09-24: the pools never filled).
+        sut = [s for s in samples if s.get("node_cpu_millicores") is not None]
+        result["sut_cpu_cores_by_step"] = {
+            step: ({"max": max(v) / 1000, "median": median(v) / 1000, "samples": len(v)}
+                   if (v := [s["node_cpu_millicores"] for s in in_step]) else "missing")
+            for step, in_step in capture.by_overlap(sut, windows, "node").items()}
         guarded = [step for step in windows if ended_by is None or step <= ended_by["step"]]
         unobserved = [step for step in guarded if not split[step]]
         peak = max((peaks[step] for step in guarded if peaks[step] is not None), default=None)
