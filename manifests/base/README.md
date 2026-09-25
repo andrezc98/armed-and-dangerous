@@ -74,6 +74,12 @@ kubectl apply  -f manifests/base/net-tuned-daemonset.yaml   # solo celda net
 kubectl delete -f manifests/base/net-tuned-daemonset.yaml   # al terminarla
 ```
 
+`pg-shmem-thp-daemonset.yaml` tampoco está, por lo mismo: pone
+`shmem_enabled=always` (THP para la memoria compartida) y solo lo pide una celda
+tuned de PostgreSQL con `--pg-shmem-thp`. El runner lo aplica antes de recrear
+`postgres-0` y lo borra antes de bajar la node group; al borrarse, el pod deja
+el valor anterior. Por qué y citas: `runner/README.md`.
+
 Comprobación rápida:
 
 ```
@@ -81,6 +87,7 @@ kubectl -n aad get daemonset,pod -o wide
 kubectl -n aad get pods -l app=cstates      # Ready = /dev/cpu_dma_latency en la
                                            #         latencia de salida de C1
 kubectl -n aad get pods -l app=net-tuned    # Ready = TODAS las IRQ pineadas, RPS en 0
+kubectl -n aad get pods -l app=pg-shmem-thp # Ready = shmem_enabled en [always]
 ```
 
 ### El valor de la perilla de C-states es la latencia de C1, no 0

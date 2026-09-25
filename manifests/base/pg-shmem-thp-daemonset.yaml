@@ -1,0 +1,167 @@
+# PostgreSQL shared-memory knob for the postgres tuned cells, opt-in per cell
+# (cell.py --pg-shmem-thp): Transparent Huge Pages for shmem, set to `always`
+# while the cell runs and put back to what it was when the DaemonSet is deleted.
+#
+# Why (Pyroscope, 2026-09-25 PG calibration, 256 clients): with shared_buffers
+# 16GB the tuned cells spent 23-28 % of PostgreSQL CPU in page faults and
+# unmaps of 4 KiB pages, and huge_pages_status was off everywhere.
+# infra/userdata/thp.toml already sets THP enabled=always on the tuned nodes,
+# but that knob is for anonymous private memory. PostgreSQL's main shared
+# memory is mmap(PG_MMAP_FLAGS) with PG_MMAP_FLAGS =
+# MAP_SHARED|MAP_ANONYMOUS|MAP_HASSEMAPHORE (REL_18_STABLE,
+# src/backend/port/sysv_shmem.c CreateAnonymousSharedMemory and
+# src/include/portability/mem.h, read 2026-09-25), and the kernel says: "The
+# mount internal tmpfs mount is used for SysV SHM, memfds, shared anonymous
+# mmaps (of /dev/zero or MAP_ANONYMOUS) ... To control the THP allocation
+# policy for this internal tmpfs mount, the sysfs knob
+# /sys/kernel/mm/transparent_hugepage/shmem_enabled ... can be used"
+# (https://www.kernel.org/doc/html/latest/admin-guide/mm/transhuge.html,
+# "shmem / internal tmpfs", read 2026-09-25).
+#
+# Why `always` and not `advise`: advise is "Only allocate huge pages if
+# requested with madvise()", and PostgreSQL 18 never calls madvise() (no
+# madvise( / MADV_HUGEPAGE anywhere in src/ of REL_18_STABLE, grep 2026-09-25).
+# advise would be a knob that does nothing.
+#
+# The per-size knob hugepages-2048kB/shmem_enabled (PMD size with 4 KiB pages,
+# x86_64 and Bottlerocket's arm64 alike) only follows the global one when it
+# says `inherit` ("By default, PMD-sized hugepages have enabled="inherit"",
+# same page). Anything else there would make `always` a silent no-op, so the
+# script refuses to start. It only reads that file, never writes it.
+#
+# Why a DaemonSet and not a Bottlerocket setting: settings.kernel.hugepages
+# has static.<size>.count, static.essential, transparent.defrag and
+# transparent.enabled, nothing for shmem
+# (https://bottlerocket.dev/en/os/1.65.x/api/settings/kernel/; no 1.66.x page
+# is published, and the v1.66.0 CHANGELOG adds no hugepage setting, both read
+# 2026-09-25). And a user-data change is an infra change. sysfs is writable
+# from here: Bottlerocket's SELinux policy labels sysfs any_t
+# ("(genfscon sysfs / any)", bottlerocket-core-kit packages/selinux-policy/fs.cil),
+# any_t is in ephemeral_o, and "(allow all_s ephemeral_o (files (mutate
+# mount)))" (rules.cil), read 2026-09-25. UNVERIFIED on a live node until the
+# first --pg-shmem-thp cell: the readiness probe below fails if the write did
+# not stick.
+#
+# Order matters: "the transparent_hugepage/enabled ... values and tmpfs mount
+# option only affect future behavior. So to make them effective you need to
+# restart any application that could have been using hugepages" (same page,
+# "Need of application restart"). The runner applies this and waits for it
+# BEFORE it recreates postgres-0 (cell.run_cell), so the postmaster maps its
+# shared memory with the knob already on.
+#
+# Deleting the DaemonSet sends the pod SIGTERM; the trap writes the previous
+# value back. The runner deletes it before it scales the node group to 0, so
+# the node is still there to be restored. A tuned Java/Mongo/llama cell never
+# sees this knob either way: it is not in manifests/base/kustomization.yaml,
+# like net-tuned-daemonset.yaml, and its nodes are new each cell.
+#
+# ponytail: a crash-restarted pod would read `always` as "before" and restore
+# to always; the node is thrown away at the end of the cell anyway.
+#
+# Host access as in net-tuned-daemonset.yaml: privileged + hostPath /sys,
+# mounted under /host so the container keeps its own sysfs.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: pg-shmem-thp
+  namespace: aad
+spec:
+  selector:
+    matchLabels:
+      app: pg-shmem-thp
+  template:
+    metadata:
+      labels:
+        app: pg-shmem-thp
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: aad/cell
+                    operator: In
+                    values:
+                      - x86-tuned
+                      - amd-tuned
+                      - arm-tuned
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: pg-shmem-thp
+          image: alpine:3.24.1
+          env:
+            - name: MODE
+              value: always
+            - name: SHMEM_FILE
+              value: /host/sys/kernel/mm/transparent_hugepage/shmem_enabled
+            - name: PMD_FILE
+              value: /host/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/shmem_enabled
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # sysfs prints every policy and brackets the active one:
+              # "always within_size advise [never] deny force". An unbracketed
+              # line (only the tests' stand-in file) is printed as it is.
+              active() { sed -n -e 's/.*\[\([a-z_]*\)\].*/\1/p' -e t -e p "$1"; }
+              if [ -e "${PMD_FILE}" ]; then
+                pmd=$(active "${PMD_FILE}")
+                case "${pmd}" in
+                  inherit|"${MODE}") ;;
+                  *) echo "hugepages-2048kB/shmem_enabled is ${pmd}, not inherit: the global knob would not reach PMD pages"
+                     exit 1 ;;
+                esac
+              else
+                pmd=absent
+              fi
+              before=$(active "${SHMEM_FILE}")
+              restore() {
+                echo "${before}" > "${SHMEM_FILE}"
+                echo "shmem_enabled restored to $(active "${SHMEM_FILE}")"
+                kill "${sleeper}" 2>/dev/null || true
+                exit 0
+              }
+              trap restore TERM INT
+              echo "${MODE}" > "${SHMEM_FILE}"
+              after=$(active "${SHMEM_FILE}")
+              if [ "${after}" != "${MODE}" ]; then
+                echo "wrote ${MODE} to ${SHMEM_FILE}, it reads ${after}"
+                exit 1
+              fi
+              echo "shmem_enabled before=${before} after=${after} hugepages-2048kB=${pmd} on $(hostname)"
+              # sleep in the background and wait on it: a shell does not run a
+              # trap until its foreground command returns. Its output goes nowhere
+              # so it holds no pipe of ours open.
+              sleep 2147483647 >/dev/null 2>&1 &
+              sleeper=$!
+              wait
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  grep -q "\[${MODE}\]" "${SHMEM_FILE}"
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-sys
+              mountPath: /host/sys
+      volumes:
+        - name: host-sys
+          hostPath:
+            path: /sys

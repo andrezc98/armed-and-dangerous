@@ -15,5 +15,9 @@ resources:
 # them against their stock counterparts. The runner applies and deletes it around
 # the net cell (kubectl apply -f), like the YCSB and iperf3 Job templates.
 #
+# pg-shmem-thp-daemonset.yaml is NOT listed either, for the same reason: THP for
+# shared memory is a PostgreSQL tuned-cell option (cell.py --pg-shmem-thp) and
+# would change every other tuned cell's shmem policy.
+#
 # pyroscope-values.yaml is a Helm values file, not a Kubernetes resource, so it
 # is installed with helm (see README.md) and not listed above.

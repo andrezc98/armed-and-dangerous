@@ -165,6 +165,10 @@ barrer pools (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`,
 `SERVER_TOMCAT_THREADS_MAX`) y flags de la JVM (`JAVA_TOOL_OPTIONS`); queda
 registrada en `meta.json` y `cell.json`. `--env` llega a las tres cargas de k6 de la celda —
 calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
+`--pg-shmem-thp` (solo celdas tuned de PostgreSQL, apagado por defecto) aplica
+`manifests/base/pg-shmem-thp-daemonset.yaml`: THP para la memoria compartida
+(`shmem_enabled=always`) mientras dura la celda, para comparar tuned con y sin
+THP en el mismo chip; el detalle está más abajo en "Detalles que no son obvios".
 `--date` es la fecha **local**, no UTC: un día de lab que sigue después de las
 19:00 en Lima o Buenos Aires no se parte en dos directorios (ni en dos gates de
 presupuesto).
@@ -520,6 +524,52 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   (`kubectl apply -f manifests/base/net-tuned-daemonset.yaml` antes,
   `kubectl delete -f` después). En `manifests/base` retunearía también las celdas
   tuned de Java, Mongo e inferencia.
+- **THP para la memoria compartida de PostgreSQL (`--pg-shmem-thp`, 2026-09-25)**.
+  En la calibración, con `shared_buffers=16GB`, las celdas tuned gastaban 23-28 %
+  del CPU de PostgreSQL en fallos de página y unmaps de páginas de 4 KiB
+  (Pyroscope, 256 clientes) y `huge_pages_status` quedaba en `off`. El THP
+  `always` de `infra/userdata/thp.toml` no llega ahí: PostgreSQL 18 mapea su
+  memoria compartida con `MAP_SHARED|MAP_ANONYMOUS` (REL_18_STABLE,
+  `src/backend/port/sysv_shmem.c` y `src/include/portability/mem.h`), y esa
+  memoria vive en el tmpfs interno del kernel, cuya política es
+  `/sys/kernel/mm/transparent_hugepage/shmem_enabled`
+  (https://www.kernel.org/doc/html/latest/admin-guide/mm/transhuge.html, sección
+  "shmem / internal tmpfs"; por defecto `never`). Se usa `always` y no `advise`:
+  PostgreSQL 18 nunca llama a `madvise()` (búsqueda en `src/` de REL_18_STABLE),
+  así que `advise` no cambiaría nada. Bottlerocket no tiene un setting para esto
+  (https://bottlerocket.dev/en/os/1.65.x/api/settings/kernel/ solo trae
+  `hugepages.static.*` y `hugepages.transparent.{enabled,defrag}`; no hay página
+  1.66.x publicada y el CHANGELOG de v1.66.0 no agrega ninguno), así que es un
+  DaemonSet privilegiado que escribe el sysfs del nodo y deja el valor anterior
+  al borrarse, igual que la perilla de red: no está en `manifests/base` para no
+  tocar las celdas tuned de Java, Mongo e inferencia. Todo leído el 2026-09-25.
+  El orden importa ("only affect future behavior", misma página del kernel): el
+  runner aplica el DaemonSet y espera el `rollout status` **antes** de recrear
+  `postgres-0`, y lo borra antes de bajar la node group a 0 para que el pod
+  alcance a restaurar el valor. Pedirlo en una celda stock o en otro workload
+  corta la celda antes de pagar nada.
+  Evidencia en el bloque `postgres` de `cell.json`, en **todas** las celdas de
+  PostgreSQL (con o sin la opción): `shmem_thp`, `shmem_enabled_before` (del log
+  del DaemonSet, solo con la opción), y en `after_warmup` y `after_ladder` el
+  `shmem_enabled` activo del nodo, el de `hugepages-2048kB` y `Shmem`,
+  `ShmemHugePages` y `ShmemPmdMapped` de `/proc/meminfo` (leídos dentro del
+  contenedor de postgres: el sysfs y `/proc/meminfo` son los del nodo), junto a
+  `huge_pages_status`, que sigue en `off` porque THP no es `MAP_HUGETLB`. Con la
+  opción puesta y `ShmemHugePages` por debajo de 1 GiB queda la nota
+  `shmem_thp_unused` en `notes`: la corrida vale como tuned, no como tuned con THP.
+- **Wait events de PostgreSQL**. Durante cada escalón del knee y cada corrida
+  fija, cada ~2 s, `SELECT wait_event_type, wait_event, count(*) FROM
+  pg_stat_activity WHERE backend_type = 'client backend'` (sin el propio psql)
+  por `kubectl exec`. `wait_event` NULL = el backend no espera nada = está en
+  CPU ("Wait event name if backend is currently waiting, otherwise NULL",
+  https://www.postgresql.org/docs/18/monitoring-stats.html, leído 2026-09-25).
+  Se guarda `wait_events_by_step` en `knee.json` (por escalón) y en el
+  `meta.json` de cada corrida (`run`): `samples`, `errors` y `backends` =
+  conteos sumados sobre las muestras (`CPU`, `LWLock:BufferMapping`,
+  `Client:ClientRead`, ...); dividido por `samples` da los backends promedio en
+  cada estado. Responde por qué arm-stock quedó en 12,7 de 15 núcleos a 256
+  clientes. Cada muestra es un psql dentro del pod de postgres: unos ms de su
+  CPU cada 2 s y una de las conexiones reservadas.
 - **Si `uv run cell` dice `ModuleNotFoundError: No module named 'cell'`**, el
   `.pth` del install editable quedó con el flag `UF_HIDDEN`, y desde CPython 3.13
   `site.addpackage` saltea los `.pth` ocultos, así que el script de consola no

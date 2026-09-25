@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -1319,12 +1320,14 @@ def pgbench_knee(spec, cell, cell_dir):
     """
     runs, series, windows, steps, ended_by = [], [], {}, {}, None
     # Per step, for pgbench_knee_guard: which Jobs ran it and how many threads each had.
-    jobs, threads = {}, {}
+    jobs, threads, waits = {}, {}, {}
     n = pgbench_clients(spec)
     for clients in spec["clients"]:
         name = f"pgbench-run-{cell}-c{clients}-knee"
         begin = now()
-        names, client_logs = run_pgbench(spec, name, cell, clients, 0, spec["step_seconds"])
+        with PgWaitSampler() as w:
+            names, client_logs = run_pgbench(spec, name, cell, clients, 0, spec["step_seconds"])
+        waits[clients] = w.summary()
         windows[clients] = ycsb_window(names, begin)
         jobs[clients], threads[clients] = names, pgbench_threads(spec, clients // n)
         if config.DRY_RUN:
@@ -1350,7 +1353,7 @@ def pgbench_knee(spec, cell, cell_dir):
         print(f"# (dry-run) assuming knee = {spec['clients'][0]} clients")
         return {"unit": "clients", "knee": spec["clients"][0], "ops": 0,
                 "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": windows,
-                "jobs": jobs, "threads": threads, "invalid": []}
+                "jobs": jobs, "threads": threads, "wait_events_by_step": waits, "invalid": []}
     found, ended_by = knee.walk(series, spec["slo_ms"], steps, ops=ycsb_ops(runs))
     # TOTAL tps at the knee: what the fixed runs are throttled to 80 % of.
     ops = ycsb_ops(runs).get(found, 0)
@@ -1360,7 +1363,8 @@ def pgbench_knee(spec, cell, cell_dir):
                        f"{ended_by['reason']}")
     return {"unit": "clients", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
             "series": series, "ended_by": ended_by, "windows": windows,
-            "jobs": jobs, "threads": threads, "invalid_steps": steps, "invalid": invalid}
+            "jobs": jobs, "threads": threads, "wait_events_by_step": waits,
+            "invalid_steps": steps, "invalid": invalid}
 
 
 PGBENCH_POD_SATURATED = 0.9  # share of its own -j threads that counts as a saturated pgbench
@@ -1469,6 +1473,149 @@ def postgres_read_pages():
                            "saying nothing")
     raw = out.rsplit("end", 1)[0].strip()
     return sum(int(b) for b in re.findall(r"rbytes=(\d+)", raw)) // 8192, raw
+
+
+# --- postgres: THP for shared memory (--pg-shmem-thp) and wait events --------------
+
+PG_SHMEM_THP = config.MANIFESTS / "base" / "pg-shmem-thp-daemonset.yaml"
+
+
+def pg_shmem_thp_cells():
+    """The aad/cell values the knob's DaemonSet can land on (its nodeAffinity)."""
+    spec = yaml.safe_load(PG_SHMEM_THP.read_text())["spec"]["template"]["spec"]
+    terms = spec["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]
+    return terms["nodeSelectorTerms"][0]["matchExpressions"][0]["values"]
+
+
+def check_pg_shmem_thp(workload, cell):
+    """--pg-shmem-thp only means something on a postgres cell whose node the
+    DaemonSet reaches; anywhere else it would be recorded and never applied."""
+    if workload != "postgres" or config.node_cell(cell) not in pg_shmem_thp_cells():
+        raise SystemExit(f"--pg-shmem-thp is for postgres cells on {pg_shmem_thp_cells()}; "
+                         f"this is {workload}/{cell}")
+
+
+# One `cat`, run inside the postgres container: its sysfs is the node's (read
+# only) and /proc/meminfo is not namespaced, so both are the node's values.
+PG_SHMEM_READ = (
+    "printf 'shmem_enabled: '; cat /sys/kernel/mm/transparent_hugepage/shmem_enabled; "
+    "f=/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/shmem_enabled; "
+    "[ -e $f ] && printf 'hugepages-2048kB: ' && cat $f; "
+    "grep -E '^(Shmem|ShmemHugePages|ShmemPmdMapped):' /proc/meminfo")
+# ponytail: "~0" is under 1 GiB of a 16 GB shared_buffers; a real THP-backed
+# buffer pool is gigabytes after the warm-up.
+SHMEM_THP_UNUSED_KB = 1 << 20
+
+
+def parse_shmem(text):
+    """PG_SHMEM_READ's output: the active (bracketed) policies and the
+    counters in kB ("ShmemPmdMapped and ShmemHugePages fields in
+    /proc/meminfo", transhuge.rst, Monitoring usage)."""
+    out = {}
+    for line in text.splitlines():
+        key, _, value = line.partition(":")
+        if key in ("shmem_enabled", "hugepages-2048kB"):
+            active = re.search(r"\[(\w+)\]", value)
+            name = "shmem_enabled" if key == "shmem_enabled" else "shmem_enabled_2048kB"
+            out[name] = active.group(1) if active else value.strip()
+        elif key in ("Shmem", "ShmemHugePages", "ShmemPmdMapped"):
+            out[f"{key}_kB"] = int(value.split()[0])
+    return out
+
+
+def record_shmem(pg, point, text):
+    """pg[point] = the node's shmem THP state and counters; with the option on
+    and ShmemHugePages ~0 the knob did not take: a note, not a failure (the
+    measurement is still a valid tuned cell, just not a THP one)."""
+    pg[point] = got = parse_shmem(text)
+    if pg.get("shmem_thp") and got.get("ShmemHugePages_kB", 0) < SHMEM_THP_UNUSED_KB:
+        pg.setdefault("notes", []).append(
+            f"shmem_thp_unused: {point} ShmemHugePages {got.get('ShmemHugePages_kB', 0)} kB")
+
+
+def postgres_shmem(pg, point):
+    if pg is not None:
+        record_shmem(pg, point, kn("exec", "statefulset/postgres", "--", "sh", "-c",
+                                   PG_SHMEM_READ, capture=True, check=False))
+
+
+def pg_shmem_thp_before(pg):
+    """What shmem_enabled was before the DaemonSet wrote it, from its own log."""
+    log = kn("logs", "daemonset/pg-shmem-thp", capture=True, check=False)
+    found = re.search(r"shmem_enabled before=(\S+) after=(\S+)", log)
+    pg["shmem_enabled_before"] = found.group(1) if found else None
+
+
+# Client backends by what they are waiting on, the runner's own psql left out.
+# NULL wait_event = not waiting = on CPU ("Wait event name if backend is
+# currently waiting, otherwise NULL"; backend_type "client backend",
+# https://www.postgresql.org/docs/18/monitoring-stats.html, pg_stat_activity,
+# read 2026-09-25). The '#' row marks a sample that answered, so an exec that
+# printed nothing is an error and not an idle server.
+PG_WAIT_EVENTS_SQL = (
+    "SELECT wait_event_type, wait_event, count(*) FROM pg_stat_activity "
+    "WHERE backend_type = 'client backend' AND pid <> pg_backend_pid() GROUP BY 1, 2 "
+    "UNION ALL SELECT '#', 'sample', 0")
+
+
+def aggregate_wait_events(samples):
+    """psql -tA outputs of PG_WAIT_EVENTS_SQL -> {samples, errors, backends:
+    {"Type:Event" or "CPU": backend count summed over samples}}. Divide by
+    samples for the mean backends in each state."""
+    backends, ok = {}, 0
+    for text in samples:
+        rows = [line.split("|") for line in text.splitlines() if line.count("|") == 2]
+        if ["#", "sample", "0"] not in rows:
+            continue
+        ok += 1
+        for kind, event, count in rows:
+            if kind == "#":
+                continue
+            key = f"{kind}:{event}" if kind else "CPU"
+            backends[key] = backends.get(key, 0) + int(count)
+    return {"samples": ok, "errors": len(samples) - ok, "backends": backends}
+
+
+class PgWaitSampler:
+    """PG_WAIT_EVENTS_SQL every `interval` seconds while a pgbench load runs,
+    TopSampler's shape. One kubectl exec + psql per sample: the psql and its
+    backend run in the postgres pod, a few ms of its CPU every 2 s, and one of
+    the PG_RESERVED_CONNECTIONS slots."""
+
+    def __init__(self, interval=2):
+        self.interval, self.samples = interval, []
+        self._stop, self._thread = threading.Event(), None
+
+    def _sample(self):
+        try:
+            out = kn("exec", "statefulset/postgres", "--", "psql", "-U", "postgres", "-tAX",
+                     "-c", PG_WAIT_EVENTS_SQL, capture=True, check=False, quiet=True)
+        except Exception:  # a failed exec is an error sample, never a failed run
+            out = ""
+        self.samples.append(out)
+
+    def _loop(self):
+        while True:  # at least one sample, however short the load
+            self._sample()
+            if self._stop.wait(self.interval):
+                return
+
+    def __enter__(self):
+        if config.DRY_RUN:
+            self._sample()  # prints the command plan once
+            return self
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=30)
+        return False
+
+    def summary(self):
+        return aggregate_wait_events(self.samples)
 
 
 PG_INITIALISED = "SELECT to_regclass('pgbench_accounts_pkey') IS NOT NULL"
@@ -1718,6 +1865,8 @@ def run_cell(args):
         check_ycsb_clients(spec)
     if workload == "postgres":
         check_pgbench_clients(spec, args.app_env)
+    if args.pg_shmem_thp:
+        check_pg_shmem_thp(workload, cell)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -1735,6 +1884,11 @@ def run_cell(args):
             # tuned cells (manifests/base/README.md).
             kubectl("apply", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"))
             kn("rollout", "status", "daemonset/net-tuned", "--timeout=300s")
+        if args.pg_shmem_thp:
+            # Before postgres-0 is recreated below: shmem THP only reaches
+            # mappings made after it is set (pg-shmem-thp-daemonset.yaml).
+            kubectl("apply", "-f", str(PG_SHMEM_THP))
+            kn("rollout", "status", "daemonset/pg-shmem-thp", "--timeout=300s")
 
         # The two databases' StatefulSets both tolerate the SUT taint and keep
         # their last cell's nodeSelector; when that matches this cell, the
@@ -1789,6 +1943,10 @@ def run_cell(args):
             mongo_prepare(spec, cell, meta, date, reload=args.reload)
         elif workload == "postgres":
             postgres_prepare(spec, cell, meta, date, reload=args.reload)
+            meta["postgres"]["shmem_thp"] = args.pg_shmem_thp
+            if args.pg_shmem_thp:
+                pg_shmem_thp_before(meta["postgres"])
+            postgres_shmem(meta["postgres"], "after_warmup")
         elif spec["loader"] == "k6" and spec["warmup_seconds"]:
             duration = f"{spec['warmup_seconds']}s"
             if spec.get("ladder") is None:
@@ -1812,6 +1970,7 @@ def run_cell(args):
                                                    config.exclusive_cpus(cell))
             if workload == "postgres":
                 pgbench_knee_guard(knee_result, top.samples)
+                postgres_shmem(meta.get("postgres"), "after_ladder")
             if not config.DRY_RUN:
                 (cell_dir / "knee.json").write_text(json.dumps(knee_result, indent=1))
             check_knee(knee_result, spec["slo_ms"])  # after the file: the record survives
@@ -1872,6 +2031,10 @@ def run_cell(args):
         invalid.append(str(exc))
         raise
     finally:
+        if args.pg_shmem_thp:
+            # While the node is still there: the pod's SIGTERM trap writes the
+            # old shmem_enabled back. check=False: never in the way of the scale-down.
+            kubectl("delete", "-f", str(PG_SHMEM_THP), "--ignore-not-found", check=False)
         scale_to_zero(info, mng, label)
         # The Jobs this cell created. They are Complete or Failed by now and
         # their logs are already on disk; what they still do is keep their pods
@@ -1996,10 +2159,12 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         target = int(0.8 * (kneed["ops"] if kneed else 0))
         # ponytail: whole tps per client by rounding down (< N tps off the 80 %).
         target = (target - target % n) or n
-        names, client_logs = run_pgbench(spec, f"pgbench-run-{cell}-c{clients}-r{i}", cell,
-                                         clients, target, spec["fixed_seconds"])
+        with PgWaitSampler() as w:
+            names, client_logs = run_pgbench(spec, f"pgbench-run-{cell}-c{clients}-r{i}", cell,
+                                             clients, target, spec["fixed_seconds"])
         run_meta.update(clients=clients, knee_clients=knee_clients, target_ops=target,
-                        pgbench_jobs=names, pgbench_threads=pgbench_threads(spec, clients // n))
+                        pgbench_jobs=names, pgbench_threads=pgbench_threads(spec, clients // n),
+                        wait_events_by_step={"run": w.summary()})
         merged = knee.merge_pgbench(client_logs)
         if not merged:
             for job, text in zip(names, client_logs):
@@ -2108,6 +2273,7 @@ def teardown_day():
     kn("delete", "jobs", "--all", "--ignore-not-found")
     kubectl("delete", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"),
             "--ignore-not-found")
+    kubectl("delete", "-f", str(PG_SHMEM_THP), "--ignore-not-found")
     kn("delete", "sts", "mongo", "postgres", "--ignore-not-found")
     # Pyroscope before its PVC: while its pod mounts the volume, the
     # pvc-protection finalizer holds `delete pvc` forever (smoke gate 2026-09-04).
@@ -2180,6 +2346,9 @@ def parse_args(argv=None):
     p.add_argument("--app-env", action="append", default=[], metavar="K=V", dest="app_env",
                    help="env for the SUT container, patched through the overlay render "
                         "(repeatable; recorded in the cell's meta)")
+    p.add_argument("--pg-shmem-thp", action="store_true", dest="pg_shmem_thp",
+                   help="postgres tuned cells: THP for shared memory (shmem_enabled=always) "
+                        "through manifests/base/pg-shmem-thp-daemonset.yaml; off by default")
     args = p.parse_args(argv)
     args.env = dict(kv.split("=", 1) for kv in args.env)
     args.app_env = dict(kv.split("=", 1) for kv in args.app_env)

@@ -78,6 +78,22 @@ local con `docker run postgres:18.6`, escala 5. Esas salidas son los fixtures de
   `hugepages-2Mi` en el pod: un cambio de infra que no se hizo. Como `try`
   falla en silencio, el runner guarda `huge_pages_status` en `cell.json`: si
   algún día dice `on`, algo cambió en el nodo.
+- **THP para la memoria compartida, opcional (`--pg-shmem-thp`, 2026-09-25).**
+  La calibración mostró que las celdas tuned pagan 23-28 % del CPU de
+  PostgreSQL mapeando y desmapeando los 16 GB de `shared_buffers` en páginas
+  de 4 KiB. El THP `always` de la node group tuned no alcanza esa memoria
+  (`MAP_SHARED|MAP_ANONYMOUS` usa la política `shmem_enabled`, por defecto
+  `never`), así que un DaemonSet (`manifests/base/pg-shmem-thp-daemonset.yaml`)
+  la pone en `always` durante la celda, sin cambio de infra y sin reservar
+  páginas. `huge_pages_status` sigue en `off` (THP no es `MAP_HUGETLB`); la
+  prueba de que funcionó es `ShmemHugePages` / `ShmemPmdMapped` en `cell.json`.
+  Apagado por defecto: la calibración decide con un A/B tuned con y sin THP en
+  el mismo chip. Mecanismo, citas y evidencia: `runner/README.md`, "Detalles
+  que no son obvios".
+- **Wait events.** Cada escalón y cada corrida fija guardan
+  `wait_events_by_step` (muestras de `pg_stat_activity` cada ~2 s; `CPU` =
+  `wait_event` NULL) para leer en qué se va el tiempo cuando la CPU no llega
+  al 100 %.
 
 Las perillas viven en un solo lugar: variables `PG_SHARED_BUFFERS`,
 `PG_EFFECTIVE_CACHE_SIZE` y `PG_MAX_CONNECTIONS` del StatefulSet, expandidas en
