@@ -1,0 +1,42 @@
+# Tuned: the node-level knobs of the amd-tuned node group (THP, C-states where the
+# group has them, as for Mongo) plus the two memory settings the PostgreSQL 18
+# docs give for a dedicated server. The same values on every tuned cell; the
+# per-chip calibration moves them here or with --app-env PG_...=....
+#
+#   shared_buffers 16GB: "If you have a dedicated database server with 1GB or
+#     more of RAM, a reasonable starting value for shared_buffers is 25% of the
+#     memory in your system" - 25 % of the 64 GiB node
+#     (https://www.postgresql.org/docs/18/runtime-config-resource.html).
+#   effective_cache_size 48GB: "you should consider both PostgreSQL's shared
+#     buffers and the portion of the kernel's disk cache that will be used for
+#     PostgreSQL data files" - 16GB of shared_buffers plus what the 56Gi pod
+#     limit leaves for the page cache after the backends, roughly. It "is used
+#     only for estimation purposes" (planner); select-only is a primary-key
+#     lookup either way, so expect no effect on this workload
+#     (https://www.postgresql.org/docs/18/runtime-config-query.html).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-tuned
+            containers:
+              - name: postgres
+                env:
+                  - name: PG_SHARED_BUFFERS
+                    value: 16GB
+                  - name: PG_EFFECTIVE_CACHE_SIZE
+                    value: 48GB

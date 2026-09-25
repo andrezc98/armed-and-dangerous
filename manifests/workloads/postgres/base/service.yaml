@@ -1,0 +1,17 @@
+# postgres.aad.svc:5432
+#
+# Headless, like mongo's: the StatefulSet's governing Service and the address
+# pgbench dials (PGHOST in the Job templates) in one object.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: aad
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

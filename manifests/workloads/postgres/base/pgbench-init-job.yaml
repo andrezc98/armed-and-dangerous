@@ -1,0 +1,47 @@
+# One-shot pgbench dataset, once per lab day (runner/cell.py postgres_prepare).
+# Runs on the loader, never on a SUT.
+#
+#   __NAME__   unique Job name per invocation (pgbench-init-<date>)
+#   __SCALE__  config.WORKLOADS["postgres"]["scale"]: 100,000 pgbench_accounts
+#              rows per unit. The run never needs it again: pgbench reads the
+#              scale back from pgbench_branches.
+#
+# -I dtGvp is the default dtgvp with server-side generation: "With G
+# (server-side data generation), only small queries are sent from the pgbench
+# client and then data is actually generated in the server. No significant
+# bandwidth is required" (https://www.postgresql.org/docs/18/pgbench.html,
+# init_steps). d first means a half-finished earlier init is dropped, and p
+# (primary keys) last means pgbench_accounts_pkey only exists once the data does:
+# that index is what the runner reads as "init finished".
+#
+# pgbench ships in the server image, so the client is the same public
+# postgres:18.6 (amd64 on the loader); no own image, no ECR.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: aad
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: pgbench-init
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/role: loader
+      containers:
+        - name: pgbench
+          image: postgres:18.6
+          command: [pgbench]
+          args: [-i, -s, "__SCALE__", -I, dtGvp]
+          env:
+            - name: PGHOST
+              value: postgres.aad.svc
+            - name: PGUSER
+              value: postgres
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi

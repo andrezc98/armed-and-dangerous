@@ -1,0 +1,64 @@
+# One pgbench process of a knee step, a warm-up pass or a fixed run
+# (runner/cell.py run_pgbench applies pgbench_clients of these together).
+#
+#   __NAME__           unique Job name per invocation
+#   __CELL__           the cell; labels the Job so the cell drops its Jobs at the end
+#   __CLIENTS__        -c, this process's share of the step's sessions
+#   __THREADS__        -j, and the vCPUs the Job requests (never more threads
+#                      than the CPUs it asked for)
+#   __SECONDS__        -T
+#   __RATE_ARGS__      "" (unthrottled: knee and warm-up) or "-R <tps>" (fixed
+#                      run). Never "-R 0": pgbench 18.6 rejects it ("invalid rate
+#                      limit", pgbench.c).
+#   __SAMPLING_RATE__  --sampling-rate of the per-transaction log
+#
+# -S: "Run built-in select-only script. Shorthand for -b select-only"
+# (https://www.postgresql.org/docs/18/pgbench.html, read 2026-09-25, as every
+# flag here). pgbench prints no percentiles, so -l logs a sample of the
+# transactions ("only the specified fraction of transactions are logged") into
+# pgbench_log.<pid>[.<thread>] in the working directory, and once pgbench is
+# done the script prints the marker (runner/knee.py PGBENCH_MARKER) and a
+# histogram of the logged latencies (field 3, microseconds; "failed" rows
+# dropped). That histogram, not the raw log, is what reaches `kubectl logs`: a
+# few thousand lines instead of hundreds of thousands. awk, sort and uniq are in
+# the image (checked with docker run postgres:18.6, 2026-09-25).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: aad
+  labels:
+    aad/cell: __CELL__
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: pgbench-run
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        aad/role: loader
+      containers:
+        - name: pgbench
+          image: postgres:18.6
+          workingDir: /tmp
+          command: [sh, -c]
+          args:
+            - >-
+              pgbench -S -c __CLIENTS__ -j __THREADS__ -T __SECONDS__ __RATE_ARGS__
+              -l --sampling-rate=__SAMPLING_RATE__; rc=$?;
+              echo ---AAD-PGBENCH-LATENCY-US---;
+              cat pgbench_log.* | awk '$3 ~ /^[0-9]+$/ {print $3}' | sort -n | uniq -c;
+              exit $rc
+          env:
+            - name: PGHOST
+              value: postgres.aad.svc
+            - name: PGUSER
+              value: postgres
+          # Requests only, no limits, like the go-ycsb Jobs: a throttled
+          # generator would make the database look faster than it is.
+          resources:
+            requests:
+              cpu: "__THREADS__"
+              memory: 2Gi

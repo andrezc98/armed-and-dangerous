@@ -1,0 +1,147 @@
+# PostgreSQL 18.6 on the SUT, in memory like Mongo: pgbench scale 1000 is ~17 GB
+# (86 MB at scale 5 on 18.6, measured 2026-09-25) on a 64 GiB node.
+#
+# postgres:18.6 (Docker Hub, pushed 2026-09-24, linux/amd64 + linux/arm64/v8 in
+# the same manifest list, checked 2026-09-25 against the Hub API and with
+# `docker pull`: pgbench and postgres both report 18.6 (Debian 18.6-1.pgdg13+2)).
+# 18 is the newest supported major (https://www.postgresql.org/support/versioning/,
+# 18.6 current, read 2026-09-25); 19 is still 19beta4 on the Hub.
+#
+# args start with "-" on purpose: the official entrypoint prepends `postgres`
+# when the first argument starts with "-" ('if [ "${1:0:1}" = '-' ]; then set --
+# postgres "$@"', docker-library/postgres 18/trixie/docker-entrypoint.sh, read
+# 2026-09-25), and "any option available in a .conf file can be set via -c"
+# (image docs, "Database Configuration").
+#
+# The knobs are env vars expanded into args: "The environment variable appears
+# in parentheses, "$(VAR)". This is required for the variable to be expanded in
+# the command or args field"
+# (https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/).
+# One place for them: the tuned overlays patch the env, and --app-env PG_...=...
+# overrides it for a calibration sweep without editing a file.
+#
+# Stock = the server's own defaults, written out so a cell records what it ran:
+#   shared_buffers 128MB: "The default is typically 128 megabytes (128MB)"
+#   effective_cache_size 4GB: "The default is 4 gigabytes (4GB)"
+#   huge_pages try (not set here): "try (the default)"
+# (https://www.postgresql.org/docs/18/runtime-config-resource.html,
+#  https://www.postgresql.org/docs/18/runtime-config-query.html)
+# One exception, and it is NOT tuning: max_connections 600 instead of the
+# default 100 ("The default is typically 100 connections",
+# https://www.postgresql.org/docs/18/runtime-config-connection.html). The
+# ladder's top step opens 512 sessions; with 100 it cannot run at all.
+# runner/cell.py check_pgbench_clients reads PG_MAX_CONNECTIONS from here.
+#
+# huge_pages stays at `try` in every cell: huge pages need reserved hugepages on
+# the node (vm.nr_hugepages) and a hugepages-2Mi request on the pod, which is an
+# infra change nobody made. `try` "will try to request huge pages, but fall back
+# to the default if that fails", silently, so the runner records
+# `huge_pages_status` ("useful to determine whether allocation of huge pages was
+# successful under huge_pages=try",
+# https://www.postgresql.org/docs/18/runtime-config-preset.html) in cell.json.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: aad
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  # Same retention as Mongo's, for the same reasons (manifests/workloads/mongo/
+  # base/statefulset.yaml): the dataset survives between the cells of a day
+  # (whenScaled: Retain, the runner never deletes this overlay), and deleting
+  # the StatefulSet at --teardown-day takes the CSI volume with it, because
+  # `terraform destroy` never sees it (whenDeleted: Delete).
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      tolerations:
+        - key: aad/sut
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: postgres
+          image: postgres:18.6
+          args:
+            - -c
+            - max_connections=$(PG_MAX_CONNECTIONS)
+            - -c
+            - shared_buffers=$(PG_SHARED_BUFFERS)
+            - -c
+            - effective_cache_size=$(PG_EFFECTIVE_CACHE_SIZE)
+          env:
+            # No password: `trust` for host connections, like the Mongo pod runs
+            # without auth. A throwaway benchmark database, reachable only inside
+            # the lab cluster's namespace, and no credential in git. The image
+            # docs warn that trust "allows anyone to connect without a password"
+            # and that with it "POSTGRES_PASSWORD is not required"
+            # (https://hub.docker.com/_/postgres, POSTGRES_HOST_AUTH_METHOD).
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust
+            - name: PG_MAX_CONNECTIONS
+              value: "600"
+            - name: PG_SHARED_BUFFERS
+              value: 128MB
+            - name: PG_EFFECTIVE_CACHE_SIZE
+              value: 4GB
+          ports:
+            - name: postgres
+              containerPort: 5432
+          # Same Guaranteed QoS shape as Mongo: requests = limits, 15 whole CPUs,
+          # so the static CPU manager gives the pod its exclusive cores.
+          resources:
+            requests:
+              cpu: "15"
+              memory: 56Gi
+            limits:
+              cpu: "15"
+              memory: 56Gi
+          # -h 127.0.0.1 and not the socket: while the entrypoint initialises an
+          # empty volume, its temporary server "listens only on the Unix socket"
+          # (image docs, "Initialization scripts"), and a socket probe would call
+          # that server ready.
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -h, 127.0.0.1]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            # 18+: "PGDATA ... For 18 it is /var/lib/postgresql/18/docker" and
+            # "The defined VOLUME was changed in 18 and above to
+            # /var/lib/postgresql. Mounts and volumes should be targeted at the
+            # updated location" (https://hub.docker.com/_/postgres, PGDATA).
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        # A container's /dev/shm is 64 MB; dynamic shared memory (parallel
+        # workers, e.g. the pgbench init's primary-key build) lives there. The
+        # image docs size it up for the same reason (shm_size in their compose
+        # example). Memory-backed, so it counts against the 56Gi limit.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # No storageClassName: the cluster default is gp3 (manifests/base).
+        resources:
+          requests:
+            storage: 200Gi
