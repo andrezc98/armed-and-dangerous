@@ -46,7 +46,16 @@ _YCSB_LINE = re.compile(r"^(\w+)\s+-\s+(.*)$")
 _YCSB_FIELD = re.compile(r"([A-Za-z0-9.]+\([a-z]+\)|[A-Za-z]+):\s*([0-9.]+)")
 
 
-def walk(series, slo_ms, invalid_steps=None):
+# Closed-loop ladders (YCSB threads, pgbench clients): past the server's peak,
+# more sessions only queue, and throughput FALLS while p99 can stay inside the
+# SLO (postgres amd-stock 2026-09-25: 487.7k tps at 256 clients, 419.4k at 512
+# with p99 3.44 ms; Mongo arm-stock 203k -> 145k). A step this far under the
+# best one so far ends the walk. Speaker ruling 2026-09-25: knee = the peak
+# under the SLO.
+THROUGHPUT_DROP = 0.05
+
+
+def walk(series, slo_ms, invalid_steps=None, ops=None):
     """Walk the ladder in order; return (knee, ended_by).
 
     `series` is [(step, p99_ms)] (step = offered rate, or YCSB threads); it is
@@ -62,25 +71,41 @@ def walk(series, slo_ms, invalid_steps=None):
       the SLO. The system was keeping up and the generator or the network was
       not, so this ladder found the loader's ceiling, not the SUT's knee.
 
-    `ended_by` is {"step", "p99_ms", "kind": "crossing"|"unresolved", "reason"},
-    or None when no step ended the walk (the ladder never crossed).
+    `ops` ({step: throughput}) is for closed-loop ladders only. With it, the
+    walk also ends at
+    - a throughput drop: the step delivered less than (1 - THROUGHPUT_DROP) x
+      the best step so far, so the server is past its peak;
+    and the knee is the best-throughput step walked (the peak under the SLO),
+    not merely the last one.
+
+    `ended_by` is {"step", "p99_ms", "kind": "crossing"|"unresolved"|
+    "throughput_drop", "reason"}, or None when no step ended the walk (the
+    ladder never crossed).
 
     Steps past the end are never looked at. Past a crossing the ladder is
     measuring a queue, so timeouts and dropped iterations up there are the
     expected shape of an overloaded system, not a reason to throw the ladder away.
     """
     invalid_steps = invalid_steps or {}
-    knee = None
+    knee = best = None
     for step, p99 in sorted(series, key=lambda pair: pair[0]):
+        found = best if ops is not None else knee
         why = invalid_steps.get(step)
         if p99 is not None and p99 > slo_ms:
             reason = "; ".join(r for r in (f"p99 {p99:.2f} ms > SLO {slo_ms} ms", why) if r)
-            return knee, {"step": step, "p99_ms": p99, "kind": "crossing", "reason": reason}
+            return found, {"step": step, "p99_ms": p99, "kind": "crossing", "reason": reason}
         if p99 is None or why:
-            return knee, {"step": step, "p99_ms": p99, "kind": "unresolved",
-                          "reason": why or "no samples in the step"}
+            return found, {"step": step, "p99_ms": p99, "kind": "unresolved",
+                           "reason": why or "no samples in the step"}
+        rate = ops.get(step) if ops is not None else None
+        if rate is not None and best is not None and rate < (1 - THROUGHPUT_DROP) * ops[best]:
+            return best, {"step": step, "p99_ms": p99, "kind": "throughput_drop",
+                          "reason": f"{rate:.0f} ops/s < {1 - THROUGHPUT_DROP:.0%} of "
+                                    f"{ops[best]:.0f} at step {best}"}
         knee = step
-    return knee, None
+        if rate is not None and (best is None or rate > ops[best]):
+            best = step
+    return (best if ops is not None else knee), None
 
 
 def find(series, slo_ms, invalid_steps=None):

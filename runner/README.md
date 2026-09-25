@@ -313,6 +313,14 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   escalera (`ladder_never_crossed`: nada cruzó el SLO, así que el techo lo puso
   el script y no el silicio; hay que subir `--rate-max`, o `--threads` en Mongo).
   Medir al 80 % de un knee inválido es medir el 80 % de nada.
+- **knee de las escaleras cerradas (Mongo, PostgreSQL)**: con hilos o
+  sesiones fijas, pasado el pico del servidor más sesiones solo hacen cola y el
+  throughput **cae** aunque el p99 siga dentro del SLO (PostgreSQL amd-stock,
+  2026-09-25: 487,7k tps con 256 clientes y 419,4k con 512, p99 3,44 ms). Por
+  eso, además del cruce, la búsqueda termina en un escalón que entrega menos
+  del 95 % del mejor hasta ahí (`ended_by.kind = throughput_drop`), y el knee
+  es el escalón de **mayor throughput** dentro del SLO, no solo el último.
+  Decisión del speaker del 2026-09-25 (`knee.THROUGHPUT_DROP`).
 - **knee por corrida**: antes de cada corrida fija de Java y Go corre una
   escalera fina de K + S/5 a K + S en 5 escalones de 45 s (K el knee grueso, S
   su paso: 2k rps en Java, 1k en Go; ~4 min por corrida), con las mismas reglas

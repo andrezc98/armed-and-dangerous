@@ -381,3 +381,40 @@ def test_a_ycsb_client_killed_mid_run_is_no_report():
     killed = c1.split("Run finished")[0]  # interim reports only
     merged = knee.merge_ycsb([killed, (fx / "ycsb-t128-c2.txt").read_text()])
     assert knee.parse_ycsb(merged) == {}
+
+
+# Closed-loop ladders measured 2026-09-25 (results/2026-09-25-cal-pg-*): clients,
+# p99 ms, tps. Speaker ruling: the knee is the throughput peak under the SLO.
+PG_AMD = [(16, 0.354, 57904.8), (32, 0.538, 100748), (64, 0.535, 185083.8),
+          (128, 0.521, 347163.8), (256, 1.045, 487744.9), (512, 3.44, 419350.8)]
+PG_ARM = [(16, 0.394, 56978.1), (32, 0.524, 103135), (64, 0.537, 171979.3),
+          (128, 0.741, 277069.8), (256, 1.91, 289598.6), (512, 5.5, 259252.8)]
+
+
+def _split(ladder):
+    return [(c, p) for c, p, _ in ladder], {c: t for c, _, t in ladder}
+
+
+def test_a_throughput_drop_under_the_slo_ends_the_walk_at_the_peak():
+    series, ops = _split(PG_AMD)
+    found, ended_by = knee.walk(series, 5, ops=ops)
+    assert found == 256
+    assert ended_by["kind"] == "throughput_drop" and ended_by["step"] == 512
+
+
+def test_a_crossing_still_ends_a_closed_loop_walk():
+    series, ops = _split(PG_ARM)
+    found, ended_by = knee.walk(series, 5, ops=ops)
+    assert (found, ended_by["kind"], ended_by["step"]) == (256, "crossing", 512)
+
+
+def test_the_closed_loop_knee_is_the_best_step_not_the_last():
+    # 128 carried more than 256 (a drop under 5 %): the knee is 128.
+    series = [(64, 0.5), (128, 0.7), (256, 1.2), (512, 6.0)]
+    found, ended_by = knee.walk(series, 5, ops={64: 100.0, 128: 200.0, 256: 196.0, 512: 150.0})
+    assert found == 128 and ended_by["kind"] == "crossing"
+
+
+def test_without_ops_the_walk_is_unchanged():
+    series, _ = _split(PG_AMD)
+    assert knee.walk(series, 5) == (512, None)

@@ -126,6 +126,8 @@ Todas las imágenes propias construidas con **buildx `--platform linux/amd64,lin
 
 **Qué decide la calibración.** El SLO (5 ms es el de Mongo; en la laptop el p99 a lazo cerrado fue 90 µs); el presupuesto de schedule lag (1 ms; en la laptop el lag p99 fue 3,37 ms a ~4k tps); la escala (`database_bytes` en `cell.json`, tiempo del init); `-j` = 16 por proceso y si algún pod de pgbench es el techo; `--sampling-rate` (≥ 10.000 muestras por escalón); que el controlador `io` de cgroup esté disponible en Bottlerocket; huge pages; `-M simple` vs `prepared`. Detalle, citas y URLs: `manifests/workloads/postgres/README.md`.
 
+- **Knee de las escaleras cerradas (decisión del speaker, 2026-09-25).** En Mongo y PostgreSQL el knee es el pico de throughput dentro del SLO: la búsqueda también termina cuando un escalón entrega menos del 95 % del mejor (`throughput_drop`). La calibración de AMD pasó el pico (487,7k → 419,4k tps) sin cruzar el SLO de 5 ms; con la regla anterior, subir la escalera hubiera publicado un knee por debajo de su propio pico.
+
 ## 5. Harness y metodología (narrada, no escondida)
 
 - **Dos corridas por celda, en este orden** (Graviton perf runbook, "throughput at breaking latency"; la misma regla de aceptación que Atlassian describió en CMP307): (1) **knee**: k6 `ramping-arrival-rate` (o threadcount escalonado en YCSB) hasta que p99 cruza el SLO del workload → capacidad y $ por unidad de trabajo; (2) **fija**: `constant-arrival-rate` al 80% del knee, 8 min, con APerf grabando y el profiler activo → contadores y flame graphs. Se narra: "primero encontramos dónde se rompe, después lo miramos por dentro a carga estable".

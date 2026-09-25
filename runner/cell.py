@@ -721,6 +721,12 @@ LADDER_REMEDY = ("raise the top of the ladder (--rate-max, --threads for mongo, 
                  "and run the cell again")
 
 
+def ycsb_ops(runs):
+    """{step: TOTAL ops/s} of a closed-loop ladder's merged reports, for
+    knee.walk's throughput-drop rule."""
+    return {step: knee.parse_ycsb(text)["TOTAL"]["OPS"] for step, text in runs}
+
+
 def uncrossed(found, last, unit):
     """The reason a ladder that never broke the SLO is not a knee.
 
@@ -895,13 +901,14 @@ def loader_guard(result, samples, sut_cpus=None):
         guarded = [step for step in windows if ended_by is None or step <= ended_by["step"]]
         unobserved = [step for step in guarded if not split[step]]
         judged = guarded
-        crossing = ended_by["step"] if ended_by and ended_by.get("kind") == "crossing" else None
+        crossing = (ended_by["step"] if ended_by and ended_by.get("kind") in ("crossing", "throughput_drop")
+                    else None)
         cores = result["sut_cpu_cores_by_step"].get(crossing)
         if sut_cpus and isinstance(cores, dict) and cores["max"] >= SUT_SATURATED * sut_cpus:
             judged = [step for step in guarded if step != crossing]
             result["loader_guard_waived"] = {
                 "step": crossing, "sut_cores_max": cores["max"], "sut_cpus": sut_cpus,
-                "why": "SUT CPU saturated at the crossing: the loader reacted to it"}
+                "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"}
         peak = max((peaks[step] for step in judged if peaks[step] is not None), default=None)
         where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
     else:
@@ -1117,13 +1124,13 @@ def ycsb_knee(spec, cell, cell_dir):
         write_ycsb(cell_dir, f"knee-t{threads}.txt", client_logs, logs)
         runs.append((threads, logs))
         series = knee.series_from_ycsb(runs)
-        ended_by = knee.walk(series, spec["slo_ms"])[1]
+        ended_by = knee.walk(series, spec["slo_ms"], ops=ycsb_ops(runs))[1]
     if not runs:
         print(f"# (dry-run) assuming knee = {spec['threads'][0]} threads")
         return {"unit": "threads", "knee": spec["threads"][0], "ops": 0,
                 "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": {},
                 "invalid": []}
-    found, ended_by = knee.walk(series, spec["slo_ms"])
+    found, ended_by = knee.walk(series, spec["slo_ms"], ops=ycsb_ops(runs))
     ops = 0
     for threads, logs in runs:
         if threads == found:
@@ -1134,7 +1141,7 @@ def ycsb_knee(spec, cell, cell_dir):
     return {"unit": "threads", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
             "series": series, "ended_by": ended_by, "windows": windows,
             "ignored_after_end": ignored,
-            "invalid": uncrossed(found, spec["threads"][-1], "threads")}
+            "invalid": [] if ended_by else uncrossed(found, found, "threads")}
 
 
 def mongo_eval(js):
@@ -1336,7 +1343,7 @@ def pgbench_knee(spec, cell, cell_dir):
         # A step with no sampled transaction has no p99: None, which knee.walk
         # reads as unresolved (its reason says no_latency_samples).
         series.append((clients, line["99th(us)"] / 1000.0 if "99th(us)" in line else None))
-        ended_by = knee.walk(series, spec["slo_ms"], steps)[1]
+        ended_by = knee.walk(series, spec["slo_ms"], steps, ops=ycsb_ops(runs))[1]
         if ended_by:
             break
     if not runs:
@@ -1344,10 +1351,10 @@ def pgbench_knee(spec, cell, cell_dir):
         return {"unit": "clients", "knee": spec["clients"][0], "ops": 0,
                 "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": windows,
                 "jobs": jobs, "threads": threads, "invalid": []}
-    found, ended_by = knee.walk(series, spec["slo_ms"], steps)
+    found, ended_by = knee.walk(series, spec["slo_ms"], steps, ops=ycsb_ops(runs))
     # TOTAL tps at the knee: what the fixed runs are throttled to 80 % of.
-    ops = next((knee.parse_ycsb(text)["TOTAL"]["OPS"] for c, text in runs if c == found), 0)
-    invalid = uncrossed(found, spec["clients"][-1], "clients")
+    ops = ycsb_ops(runs).get(found, 0)
+    invalid = [] if ended_by else uncrossed(found, found, "clients")
     if ended_by and ended_by["kind"] == "unresolved":
         invalid.append(f"capacity_unresolved: step {ended_by['step']} clients "
                        f"{ended_by['reason']}")
