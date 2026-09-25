@@ -559,6 +559,37 @@ WINDOWS = {10000: (T0, T0 + 60), 20000: (T0 + 60, T0 + 120), 30000: (T0 + 120, T
            40000: (T0 + 180, T0 + 240)}
 
 
+def _cliff(sut_cores_at_crossing):
+    """x86 on calibration day: the loader calm up to the knee, then 98 % at the
+    crossing step while k6 piles VUs on a collapsing SUT."""
+    samples = [{"ts": "x", "loader_cpu_percent": pct, "loader_window": [T0 + b, T0 + e],
+                "node_cpu_millicores": m, "node_window": [T0 + b, T0 + e]}
+               for b, e, pct, m in ((5, 25, 20, 9000), (65, 85, 26, 12600),
+                                    (125, 145, 98, sut_cores_at_crossing * 1000))]
+    result = {"windows": {k: WINDOWS[k] for k in (10000, 20000, 30000)},
+              "ended_by": {"step": 30000, "kind": "crossing"}}
+    return result, samples
+
+
+def test_a_saturated_sut_at_the_crossing_waives_the_loader_there():
+    result, samples = _cliff(15.1)
+    assert cell.loader_guard(result, samples, sut_cpus=15) == []
+    assert result["loader_guard_waived"]["step"] == 30000
+
+
+def test_an_unsaturated_sut_keeps_the_loader_guard_at_the_crossing():
+    """The loader at 98 % with the SUT at 9 of 15 cores is the loader capping it."""
+    result, samples = _cliff(9.0)
+    assert cell.loader_guard(result, samples, sut_cpus=15)[0].startswith("loader node CPU 98%")
+    assert "loader_guard_waived" not in result
+
+
+def test_the_waiver_never_reaches_the_steps_up_to_the_knee():
+    result, samples = _cliff(15.1)
+    samples[1]["loader_cpu_percent"] = 80  # the knee step itself
+    assert cell.loader_guard(result, samples, sut_cpus=15)[0].startswith("loader node CPU 80%")
+
+
 def test_the_knee_records_the_sut_cpu_per_step():
     """Whether a knee is the CPU running out is read off the SUT node's cores
     at each step, on the metrics windows like the loader's."""

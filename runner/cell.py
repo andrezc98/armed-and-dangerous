@@ -710,7 +710,7 @@ def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
     return result
 
 
-def loader_guard(result, samples):
+def loader_guard(result, samples, sut_cpus=None):
     """The loader guard of a ladder, judged per step and only through the step
     that ended the walk. Returns the reasons it fails; records the peaks.
 
@@ -724,6 +724,14 @@ def loader_guard(result, samples):
     Fail closed: a guarded step no loader sample covers is a step nobody can
     say the loader kept up with (capacity_unresolved). Without step times (a
     pod already gone) the whole ladder is guarded, which can only be stricter.
+
+    One exception, on evidence: the crossing step itself is not held against
+    the loader when the SUT node shows its exclusive CPUs saturated in that same
+    step (>= SUT_SATURATED of `sut_cpus`). Calibration day 2026-09-24, Java
+    x86-tuned: at the crossing p99 went to 198 ms, k6 grew thousands of VUs
+    waiting on the SUT and the loader read 98 % - a consequence of the SUT
+    collapsing (15.1 cores busy), not a loader that capped the load. Steps up
+    to the knee keep the strict guard; an unsaturated SUT keeps it too.
     """
     windows, ended_by = result.get("windows") or {}, result.get("ended_by")
     observed = capture.loader_observed(samples)
@@ -746,7 +754,15 @@ def loader_guard(result, samples):
             for step, in_step in capture.by_overlap(sut, windows, "node").items()}
         guarded = [step for step in windows if ended_by is None or step <= ended_by["step"]]
         unobserved = [step for step in guarded if not split[step]]
-        peak = max((peaks[step] for step in guarded if peaks[step] is not None), default=None)
+        judged = guarded
+        crossing = ended_by["step"] if ended_by and ended_by.get("kind") == "crossing" else None
+        cores = result["sut_cpu_cores_by_step"].get(crossing)
+        if sut_cpus and isinstance(cores, dict) and cores["max"] >= SUT_SATURATED * sut_cpus:
+            judged = [step for step in guarded if step != crossing]
+            result["loader_guard_waived"] = {
+                "step": crossing, "sut_cores_max": cores["max"], "sut_cpus": sut_cpus,
+                "why": "SUT CPU saturated at the crossing: the loader reacted to it"}
+        peak = max((peaks[step] for step in judged if peaks[step] is not None), default=None)
         where = (f"through step {ended_by['step']}" if ended_by else "over the whole ladder")
     else:
         unobserved = [] if observed else ["the whole ladder"]
@@ -758,6 +774,9 @@ def loader_guard(result, samples):
         reasons.append(f"loader node CPU {peak}% > {config.LOADER_CPU_GUARD_PERCENT}% "
                        f"during the knee, {where}")
     return reasons
+
+
+SUT_SATURATED = 0.95  # share of the exclusive CPUs that counts as the SUT out of CPU
 
 
 def fixed_loader_guard(workload, samples):
@@ -802,7 +821,7 @@ def fine_knee(spec, workload, cell, run_dir, env_extra, coarse_knee, i, sampler)
                          name=f"k6-{workload}-{cell}-fine-r{i}", raw_name="knee-fine-raw.json")
     result.update(coarse_knee=coarse_knee, ladder=ladder, notes=[])
     ended_by = result.get("ended_by")
-    result["invalid"] = loader_guard(result, top.samples)
+    result["invalid"] = loader_guard(result, top.samples, config.exclusive_cpus(cell))
     if ended_by is None:
         result["run_knee"] = coarse_knee + coarse_step
         result["notes"].append(f"fine_never_crossed: {ladder['RATE_MAX']} rps still met the SLO")
@@ -1231,7 +1250,8 @@ def run_cell(args):
                     ycsb_knee(spec, cell, cell_dir) if workload == "mongo"
                     else k6_knee(spec, workload, cell, cell_dir, args.env)
                 )
-            knee_result["invalid"] += loader_guard(knee_result, top.samples)
+            knee_result["invalid"] += loader_guard(knee_result, top.samples,
+                                                   config.exclusive_cpus(cell))
             if not config.DRY_RUN:
                 (cell_dir / "knee.json").write_text(json.dumps(knee_result, indent=1))
             check_knee(knee_result, spec["slo_ms"])  # after the file: the record survives
