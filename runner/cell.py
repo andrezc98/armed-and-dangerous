@@ -517,13 +517,31 @@ def k6_job_yaml(name, cell, script, env):
 
 
 def run_job(name, yaml_text, timeout):
-    """Apply one Job, wait for it to finish either way, return its logs.
+    """Apply one Job, wait for it to finish either way, return its logs."""
+    return run_jobs([(name, yaml_text)], timeout)[0]
+
+
+def run_jobs(jobs, timeout):
+    """Apply every (name, yaml) Job, THEN wait for each; logs in the same order.
+
+    All applied before any is waited on, so the k6 generators of one run
+    (run_k6) load the SUT at the same time instead of one after the other.
 
     k6 exits 99 when a threshold fails, so the Job ends Failed on a run that
     completed perfectly well (runner/k6/lib.js). Waiting only for
     condition=complete would hang on exactly the runs that carry the knee, hence
     the poll on both conditions.
     """
+    for name, _ in jobs:
+        clear_job(name)
+    # Only the applies sit back to back: a leftover Job's delete wait would
+    # otherwise hold generator 2 back while generator 1 already runs.
+    for name, yaml_text in jobs:
+        apply_stdin(yaml_text, f"job/{name}")
+    return [finish_job(name, timeout) for name, _ in jobs]
+
+
+def clear_job(name):
     kn("delete", "job", name, "--ignore-not-found")
     # `delete` returns before the object is gone, and a Job's pod template is
     # immutable, so re-applying the same name races the old one's finalizer.
@@ -533,8 +551,9 @@ def run_job(name, yaml_text, timeout):
     # having issued the "delete" command"). It errors when the Job never
     # existed, which is the common case, hence check=False.
     kn("wait", "--for=delete", f"job/{name}", f"--timeout={JOB_DELETE_TIMEOUT}s", check=False)
-    apply_stdin(yaml_text, f"job/{name}")
 
+
+def finish_job(name, timeout):
     def finished():
         conditions = kn(
             "get", "job", name,
@@ -600,6 +619,61 @@ def k6_env(spec, mode, extra):
     return env
 
 
+# What run_k6 divides among the generators. lib.js reads each as one process's
+# own load, so every generator gets its 1/N: the rates exactly (check_generators
+# refuses a split that is not whole), the VU budget rounded up.
+SPLIT_RATES = ("RATE", "RATE_START", "RATE_STEP", "RATE_MAX")
+SPLIT_VUS = ("PREALLOC_VUS", "MAX_VUS")
+
+
+def generators(spec):
+    """How many k6 Jobs share one load (config.WORKLOADS k6_generators)."""
+    return spec.get("k6_generators", 1)
+
+
+def split_load(env, n):
+    """One generator's share of a k6 env."""
+    if n == 1:
+        return env
+    out = dict(env)
+    for key in SPLIT_RATES:
+        if key in out:
+            out[key] = int(out[key]) // n
+    for key in SPLIT_VUS:
+        if key in out:
+            out[key] = -(-int(out[key]) // n)
+    return out
+
+
+def run_k6(spec, name, cell, mode, env, timeout):
+    """One k6 load, as generators(spec) Jobs started together, each at 1/N of
+    `env`. Returns (Job names, their summaries: None where a Job printed none).
+
+    Two since calibration day 2026-09-24 (config.WORKLOADS, java): one k6
+    process at 70k rps added ~0.8 ms to the p99 two processes measured. Names
+    get -g1..-gN only when there is more than one, so inference keeps its names.
+    knee.merge_summaries turns the summaries back into one.
+    """
+    n = generators(spec)
+    names = [name] if n == 1 else [f"{name}-g{g}" for g in range(1, n + 1)]
+    share = split_load(k6_env(spec, mode, env), n)
+    if n > 1:
+        print(f"# {n} k6 generators, each at 1/{n} of the load: {', '.join(names)}")
+    logs = run_jobs([(job, k6_job_yaml(job, cell, spec["script"], share)) for job in names],
+                    timeout)
+    return names, [k6_summary(text) for text in logs]
+
+
+def write_summaries(out_dir, out_name, summaries, merged):
+    """The merged summary under the name everything reads, and next to it each
+    generator's own (k6-g1.json, knee-raw-g2.json ...), untouched."""
+    (out_dir / out_name).write_text(json.dumps(merged, indent=1))
+    if len(summaries) > 1:
+        stem = out_name.removesuffix(".json")
+        for g, summary in enumerate(summaries, 1):
+            (out_dir / f"{stem}-g{g}.json").write_text(json.dumps(summary, indent=1))
+
+
 LADDER_REMEDY = ("raise the top of the ladder (--rate-max, or --threads for mongo) "
                  "and run the cell again")
 
@@ -652,6 +726,25 @@ def check_fine_ladder(spec, env_extra):
                          f"whole steps; pick a RATE_STEP that is a multiple of {steps}")
 
 
+def check_generators(spec, env_extra):
+    """Every rate the cell will offer splits into whole rps per generator,
+    checked before anything is paid for. The coarse ladder's rates are
+    RATE_START + i x RATE_STEP, the fine ladders' K + j x RATE_STEP/fine_steps,
+    so those three (and RATE_MAX, --env RATE) cover them all. The fixed run's
+    80 % is rounded down to a multiple of N in measure()."""
+    n = generators(spec)
+    if n == 1 or not spec.get("ladder"):
+        return
+    ladder = {**spec["ladder"], **env_extra}
+    rates = {key: int(ladder[key]) for key in SPLIT_RATES if key in ladder}
+    if spec.get("fine_steps"):
+        rates["the fine step RATE_STEP/fine_steps"] = int(ladder["RATE_STEP"]) // spec["fine_steps"]
+    bad = [f"{key} {rate}" for key, rate in rates.items() if rate % n]
+    if bad:
+        raise SystemExit(f"{', '.join(bad)} cannot be split across k6_generators={n} whole rps "
+                         f"per generator; pick rates that are multiples of {n}")
+
+
 def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
             raw_name="knee-raw.json"):
     """Run one k6 ladder and read it. `ladder` overrides the spec's (the fine
@@ -664,23 +757,21 @@ def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
     env = {**spec["ladder"], **env_extra, **(ladder or {})}
     stage_seconds, ramp_seconds = int(env["STAGE_SECONDS"]), int(env.get("RAMP_SECONDS", 5))
     rates = knee.ladder_rates({k: int(env[k]) for k in ("RATE_START", "RATE_STEP", "RATE_MAX")})
-    logs = run_job(
-        name,
-        k6_job_yaml(name, cell, spec["script"], k6_env(spec, "knee", env)),
-        stage_seconds * len(rates) + 300,
-    )
-    summary = k6_summary(logs)
-    if summary is None:
+    names, summaries = run_k6(spec, name, cell, "knee", env, stage_seconds * len(rates) + 300)
+    missing = [job for job, summary in zip(names, summaries) if summary is None]
+    if missing:
         # Only a dry run gets to invent a knee. On the cluster, a ladder that
         # printed no summary is a failure, and assuming RATE_START would put a
-        # made-up number on the slide.
+        # made-up number on the slide. One generator's summary is not the load
+        # either: it saw 1/N of it.
         if not config.DRY_RUN:
-            raise RuntimeError(
-                f"job/{name} produced no {SUMMARY_MARKER} block:\n{job_failure(name)}"
-            )
+            raise RuntimeError("\n".join(
+                f"job/{job} produced no {SUMMARY_MARKER} block:\n{job_failure(job)}"
+                for job in missing))
         print(f"# (dry-run) assuming knee = RATE_START = {rates[0]}")
         return {"unit": "rps", "knee": rates[0], "slo_ms": spec["slo_ms"],
                 "series": [], "ended_by": None, "windows": {}, "invalid": []}
+    summary = knee.merge_summaries(summaries)
     series = knee.series_from_summary(summary)
     steps = knee.step_reasons(summary, stage_seconds, ramp_seconds)
     found, ended_by = knee.walk(series, spec["slo_ms"], steps)
@@ -689,7 +780,9 @@ def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
         invalid.append(f"ladder_first_step_invalid: {series[0][0]} rps {steps[series[0][0]]}")
     elif ended_by and ended_by["kind"] == "unresolved":
         invalid.append(f"capacity_unresolved: step {ended_by['step']} rps {ended_by['reason']}")
-    started = job_started(name)
+    # The earliest generator's clock: they are applied back to back, a second
+    # or two apart, well inside capture.K6_START_SLACK_SECONDS.
+    started = min((t for t in map(job_started, names) if t is not None), default=None)
     result = {
         "unit": "rps",
         "knee": found,
@@ -708,7 +801,7 @@ def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
         "invalid": invalid,
     }
     if not config.DRY_RUN:
-        (out_dir / raw_name).write_text(json.dumps(summary, indent=1))
+        write_summaries(out_dir, raw_name, summaries, summary)
     return result
 
 
@@ -1180,6 +1273,7 @@ def run_cell(args):
     budget_gate(day_dir, args.override_budget)
     check_images(workload, cell)
     check_fine_ladder(spec, args.env)
+    check_generators(spec, args.env)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -1235,13 +1329,8 @@ def run_cell(args):
                 mode, load = "saturate", {"VUS": spec["saturate_vus"], "DURATION": duration}
             else:
                 mode, load = "fixed", {"RATE": spec["ladder"]["RATE_START"], "DURATION": duration}
-            name = f"k6-{workload}-{cell}-warmup"
-            run_job(
-                name,
-                k6_job_yaml(name, cell, spec["script"],
-                            k6_env(spec, mode, {**vu_budget(spec), **load, **args.env})),
-                spec["warmup_seconds"] + 300,
-            )
+            run_k6(spec, f"k6-{workload}-{cell}-warmup", cell, mode,
+                   {**vu_budget(spec), **load, **args.env}, spec["warmup_seconds"] + 300)
 
         # --- knee, with the loader guard around it in both loaders: a knee found
         # while the generator is saturated is the generator's knee, not the
@@ -1417,28 +1506,34 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
     name = f"k6-{workload}-{cell}-r{i}"
     if spec.get("ladder") is None:
         # Inference: closed loop against the server's own slots.
-        env = k6_env(spec, "saturate", {
+        mode, env = "saturate", {
             "VUS": spec["saturate_vus"], "DURATION": f"{spec['fixed_seconds']}s", **args.env,
-        })
+        }
         out_name = "llama.json"
     else:
         # The run's own knee (fine_knee) when it has one; the coarse one otherwise.
         run_knee = run_meta.get("run_knee") or (kneed["knee"] if kneed else None)
         rate = int(0.8 * run_knee) if run_knee else spec["ladder"]["RATE_START"]
-        env = k6_env(spec, "fixed", {
+        # ponytail: whole rps per generator by rounding down (< N rps); exact
+        # already for every default ladder, where 80 % of a knee is a multiple of 800.
+        rate -= rate % generators(spec)
+        mode, env = "fixed", {
             **vu_budget(spec), "RATE": rate, "DURATION": f"{spec['fixed_seconds']}s", **args.env,
-        })
+        }
         # What k6 is actually asked for: --env RATE=... wins over the 80 %, and
         # the validity rule has to judge the run against that.
         run_meta["rate"] = int(env["RATE"])
         out_name = "k6.json"
-    logs = run_job(name, k6_job_yaml(name, cell, spec["script"], env),
-                   spec["fixed_seconds"] + 300)
-    summary = k6_summary(logs)
-    if summary is None:
-        no_summary(run_meta, name)
+    names, summaries = run_k6(spec, name, cell, mode, env, spec["fixed_seconds"] + 300)
+    if None in summaries:
+        for job, summary in zip(names, summaries):
+            if summary is None:
+                no_summary(run_meta, job)
     elif not config.DRY_RUN:
-        (run_dir / out_name).write_text(json.dumps(summary, indent=1))
+        # Merged: http_reqs rate summed, so fixed_underdelivered compares the
+        # aggregate delivered against the aggregate RATE in run_meta.
+        summary = knee.merge_summaries(summaries)
+        write_summaries(run_dir, out_name, summaries, summary)
         reasons = knee.invalid_reasons(summary, spec["slo_ms"], run_meta.get("rate"))
         if reasons:
             run_meta.setdefault("invalid", []).extend(reasons)

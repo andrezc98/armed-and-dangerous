@@ -242,3 +242,77 @@ def test_a_fixed_ycsb_run_is_judged_on_read_p99_and_total_ops():
         "fixed_over_slo: READ p99 1.30 ms > SLO 1 ms",
         "fixed_underdelivered: TOTAL 1001 ops/s < 0.95 x 1200 ops/s target",
     ]
+
+
+# --- two k6 generators, one summary (2026-09-25) ------------------------------
+
+def _gen(p99, count, failed, *, rate_tag=5000, avg=1.0, min_ms=0.2, dropped=0, iters=None,
+         threshold_ok=True):
+    """One generator's k6 summary: one held step plus the whole-run metrics."""
+    iters = count if iters is None else iters
+    return {"state": {"testRunDurationMs": 60000}, "metrics": {
+        f"http_req_duration{{rate:{rate_tag}}}": {
+            "type": "trend", "values": {"p(99)": p99, "avg": avg, "med": avg, "min": min_ms,
+                                        "max": p99 * 3},
+            "thresholds": {"p(99)<10": {"ok": threshold_ok}}},
+        f"http_reqs{{rate:{rate_tag}}}": {"type": "counter",
+                                          "values": {"count": count, "rate": count / 60}},
+        f"http_req_failed{{rate:{rate_tag}}}": {"type": "rate", "values": {"rate": failed}},
+        "http_req_duration": {"type": "trend", "values": {"p(99)": p99, "avg": avg, "med": avg,
+                                                          "min": min_ms, "max": p99 * 3}},
+        "http_reqs": {"type": "counter", "values": {"count": count, "rate": count / 60}},
+        "http_req_failed": {"type": "rate", "values": {
+            "rate": failed, "passes": round(count * failed), "fails": count - round(count * failed)}},
+        "iterations": {"type": "counter", "values": {"count": iters, "rate": iters / 60}},
+        "dropped_iterations": {"type": "counter", "values": {"count": dropped, "rate": dropped / 60}},
+        "vus_max": {"type": "gauge", "values": {"value": 1000}},
+    }}
+
+
+def test_two_generator_summaries_merge_conservatively():
+    g1 = _gen(4.0, 300_000, 0.0, avg=1.0, min_ms=0.2, dropped=10)
+    g2 = _gen(6.0, 100_000, 0.04, avg=2.0, min_ms=0.1, dropped=5, threshold_ok=False)
+    m = knee.merge_summaries([g1, g2])["metrics"]
+    # The step tag each generator wrote is ITS rate: the merged step is 2 x 5000.
+    assert not any("{rate:5000}" in name for name in m)
+    step = m["http_req_duration{rate:10000}"]["values"]
+    assert step["p(99)"] == 6.0 and step["max"] == 18.0  # the slower generator
+    assert step["avg"] == 2.0 and step["med"] == 2.0      # max, not a mean
+    assert step["min"] == 0.1
+    assert m["http_reqs{rate:10000}"]["values"]["count"] == 400_000
+    # 1 % failed overall: 4 % of the 100k, 0 % of the 300k, weighted by requests.
+    assert m["http_req_failed{rate:10000}"]["values"]["rate"] == 0.01
+    assert m["http_req_failed"]["values"] == {"passes": 4000, "fails": 396_000, "rate": 0.01}
+    assert m["http_req_duration"]["values"]["p(99)"] == 6.0
+    assert m["http_reqs"]["values"]["rate"] == 400_000 / 60
+    assert m["dropped_iterations"]["values"]["count"] == 15
+    assert m["iterations"]["values"]["count"] == 400_000
+    # Everything else is generator 1's, thresholds included.
+    assert m["http_req_duration{rate:10000}"]["thresholds"] == {"p(99)<10": {"ok": True}}
+    assert m["vus_max"]["values"] == {"value": 1000}
+
+
+def test_one_summary_is_its_own_merge():
+    g1 = _gen(4.0, 300_000, 0.0)
+    assert knee.merge_summaries([g1]) is g1
+
+
+def test_a_merged_step_is_judged_against_the_aggregate_rate():
+    """Each generator held 5000 rps for 55 s (60 s stage, 5 s ramp). The step
+    is 10000 rps: 550k requests wanted, and one generator falling short is the
+    step falling short."""
+    full = knee.merge_summaries([_gen(4.0, 275_000, 0.0), _gen(4.0, 275_000, 0.0)])
+    assert knee.step_reasons(full, 60, 5) == {}
+    short = knee.merge_summaries([_gen(4.0, 275_000, 0.0), _gen(4.0, 165_000, 0.0)])
+    assert knee.step_reasons(short, 60, 5) == {
+        10000: "delivered 440000 requests, expected >= 522500"}
+    assert knee.series_from_summary(short) == [(10000, 4.0)]
+
+
+def test_a_merged_fixed_run_is_judged_against_the_aggregate_rate():
+    """Two generators at 13600 rps each are a 27200 rps run."""
+    ok = knee.merge_summaries([_gen(4.0, 13600 * 60, 0.0), _gen(4.0, 13600 * 60, 0.0)])
+    assert knee.invalid_reasons(ok, 10, 27200) == []
+    short = knee.merge_summaries([_gen(4.0, 13600 * 60, 0.0), _gen(4.0, 10400 * 60, 0.0)])
+    assert knee.invalid_reasons(short, 10, 27200) == [
+        "fixed_underdelivered: 24000 rps < 0.95 x 27200 rps offered"]

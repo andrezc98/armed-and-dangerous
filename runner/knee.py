@@ -130,6 +130,64 @@ def step_reasons(summary, stage_seconds, ramp_seconds):
     return reasons
 
 
+# Any sub-metric tagged with a ladder step, whatever the metric.
+_RATE_TAG = re.compile(r"^(.*)\{rate:(\d+)\}$")
+_SUMMED = ("http_reqs", "iterations", "dropped_iterations")
+
+
+def merge_summaries(summaries):
+    """N k6 summaries of generators that each offered 1/N of the load, as the
+    ONE summary a single generator would have written, same schema, so the knee
+    walk, step_reasons, invalid_reasons and analysis.stats read it unchanged.
+
+    Conservative where it cannot be exact (the percentiles of the union are not
+    recoverable from the parts):
+    - http_req_duration (whole run and per step): every stat is the MAX across
+      generators, `min` the min. avg and med are the max too, not a mean: the
+      number on the slide may only err towards slower;
+    - http_reqs, iterations, dropped_iterations: count and rate are summed;
+    - http_req_failed: request-weighted, by passes + fails (what k6 v2.2.0 writes
+      for a Rate, results/2026-09-04/java/arm-tuned/run-1/k6.json) or, missing
+      those, by the step's own http_reqs count;
+    - a step tag is the per-generator rate lib.js held, so {rate:R} becomes
+      {rate:R x N}: the aggregate rate the step offered;
+    - everything else (thresholds, gauges, other trends, state, options) is
+      generator 1's. Nothing the runner judges reads them.
+    """
+    if len(summaries) == 1:
+        return summaries[0]
+    n = len(summaries)
+    merged = {**summaries[0], "metrics": {}}
+    names = dict.fromkeys(name for s in summaries for name in s.get("metrics", {}))
+    for name in names:
+        present = [s for s in summaries if name in s.get("metrics", {})]
+        metric = dict(present[0]["metrics"][name])
+        values = [s["metrics"][name].get("values", {}) for s in present]
+        tagged = _RATE_TAG.match(name)
+        base = tagged.group(1) if tagged else name
+        keys = dict.fromkeys(k for v in values for k in v)
+        if base == "http_req_duration":
+            metric["values"] = {
+                k: (sum if k == "count" else min if k == "min" else max)(v[k] for v in values if k in v)
+                for k in keys}
+        elif base in _SUMMED:
+            metric["values"] = {k: sum(v.get(k, 0) for v in values) for k in keys}
+        elif base == "http_req_failed":
+            reqs = "http_reqs" + name[len(base):]
+            weights = [v["passes"] + v["fails"] if "passes" in v and "fails" in v
+                       else s["metrics"].get(reqs, {}).get("values", {}).get("count", 0)
+                       for s, v in zip(present, values)]
+            total = sum(weights)
+            out = {k: sum(v.get(k, 0) for v in values) for k in ("passes", "fails") if k in keys}
+            out["rate"] = (sum(w * v.get("rate", 0) for w, v in zip(weights, values)) / total
+                           if total else max(v.get("rate", 0) for v in values))
+            metric["values"] = out
+        if tagged:
+            name = f"{base}{{rate:{int(tagged.group(2)) * n}}}"
+        merged["metrics"][name] = metric
+    return merged
+
+
 def _p99(values):
     """p99 of one step, or None when the step held no samples.
 

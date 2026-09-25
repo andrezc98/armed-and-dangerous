@@ -137,6 +137,14 @@ WORKLOADS = {
         # PetClinic reads stay under 13 ms at 100k rps on Graviton, so a 100 ms
         # knee sits beyond what one loader can offer.
         "slo_ms": 10,
+        # Two k6 Jobs per ladder, warm-up and fixed run, each at half the load
+        # (cell.run_k6). Calibration 2026-09-24, Java arm-tuned held at 70k rps
+        # for 180 s (results/2026-09-24-cal-loadercheck/loadercheck.json): one k6
+        # process delivered 69,845 rps at p99 6.59 ms, two at 35k each delivered
+        # 69,846 rps at p99 5.73 / 5.77 ms, loader node 37-41 % CPU either way.
+        # One process adds ~0.8 ms (+13 %) to p99 at that rate, which moves
+        # knees near the 10 ms SLO.
+        "k6_generators": 2,
         # RAMP_SECONDS is in the ladder and not only a lib.js default because the
         # runner needs the held seconds of a step to judge whether the generator
         # delivered it (knee.step_reasons); k6 gets the same number as env.
@@ -171,6 +179,7 @@ WORKLOADS = {
         # (<service>:<port> of the k8s apiserver proxy URL form).
         "cpus_proxy": "go:8080",
         "slo_ms": 20,
+        "k6_generators": 2,  # same reason as Java's
         # Sized from an estimate, not a measurement (Go did not run at the gate):
         # since 2026-09-24 a request sorts ECHO_N uint64 (apps/go), and ECHO_N
         # 10000 is ~0.2-0.3 ms of CPU (runner/k6/go.js says how that was
@@ -198,6 +207,8 @@ WORKLOADS = {
         # and a p99 threshold here only made every Job end Failed
         # (runner/k6/lib.js omits the threshold when SLO_MS <= 0).
         "slo_ms": 0,
+        # One Job: a closed loop of 4 VUs has nothing to split.
+        "k6_generators": 1,
         # No ladder: with --parallel 4 slots an open arrival rate either idles
         # slots or queues inside the server, so the measured run is closed-loop
         # (MODE=saturate, VUS = slots) and there is no knee to find.

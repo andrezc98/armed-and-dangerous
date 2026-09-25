@@ -56,6 +56,7 @@ kubectl aperf --help
 | Nodo del pod de iperf3 | `kubectl -n aad get pod -l app=iperf3-server -o jsonpath='{.items[0].spec.nodeName}'` | https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/ — `nodeName` (string) en `PodSpec`: "NodeName is a request to schedule this pod onto a specific node" |
 | cpuset de la celda de Go | `kubectl get --raw /api/v1/namespaces/aad/services/go:8080/proxy/healthz` | https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/ — la forma es `.../services/[https:]<service_name>[:port_name]/proxy`, y `<service_name>:<port_name>` "proxies to the specified port name or port number using http" ("You can also use the port number in place of the *port_name*"). Del otro lado, `runtime.NumCPU()` "returns the number of logical CPUs usable by the current process" (https://pkg.go.dev/runtime#NumCPU), o sea respeta la máscara de afinidad |
 | Sub-métricas por escalón del knee | thresholds sobre `http_req_failed{rate:R}` (`rate<0.01`) y `http_reqs{rate:R}` (`count>0`) | un threshold sobre una sub-métrica etiquetada es lo que hace que k6 la reporte; verificado con `docker run --rm -v $PWD/runner/k6:/scripts:ro grafana/k6:2.2.0 run --quiet -e MODE=knee ... -e SUMMARY_PATH=/dev/stdout /scripts/go.js`, cuyo resumen trae `http_reqs{rate:10}` y `http_req_failed{rate:10}` |
+| Forma del resumen de k6 que se fusiona (dos generadores) | `data.metrics[nombre] = {type, contains, values, thresholds}`; un `rate` trae `rate`, `passes`, `fails`; un `counter` trae `count`, `rate` | https://github.com/grafana/k6-docs/blob/main/docs/sources/k6/v2.2.x/results-output/end-of-test/custom-summary.md (Context7, 2026-09-25) y un resumen real de k6 v2.2.0 del lab, `results/2026-09-04/java/arm-tuned/run-1/k6.json`: `http_req_failed` = `{"rate": 0, "passes": 0, "fails": 15352454}` |
 
 `service_name` sale de la regla de reetiquetado del chart de Pyroscope
 (`labelmap process.executable.name → service_name`, en
@@ -127,8 +128,8 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 
 | Workload | Celdas | Carga |
 |---|---|---|
-| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6, escalera 10k→120k rps de a 10k + escalera fina por corrida (de a 2k), SLO p99 10 ms |
-| `go` | `x86-stock`, `arm-stock` | k6, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
+| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6 con **dos generadores**, escalera 10k→120k rps de a 10k + escalera fina por corrida (de a 2k), SLO p99 10 ms |
+| `go` | `x86-stock`, `arm-stock` | k6 con **dos generadores**, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
 | `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
 | `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | go-ycsb, escalera de hilos 16/32/64/128/256/512, SLO p99 READ 5 ms |
 | `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
@@ -190,8 +191,10 @@ results/
       cell.json                            # instancia, nodos, minutos, invalidaciones
       knee.json                            # knee, SLO, serie (rate|hilos → p99), ended_by, pico del loader por escalón
       knee-raw.json | knee-t<N>.txt        # la salida cruda de la búsqueda del knee
+      knee-raw-g<N>.json                   # el resumen propio de cada generador de k6
       run-<i>/
         knee-fine.json + knee-fine-raw.json  # escalera fina de la corrida (java, go)
+        knee-fine-raw-g<N>.json + k6-g<N>.json  # resumen propio de cada generador
         k6.json | llama.json | ycsb.txt | iperf.json + iperf-reverse.json
         top.json                           # kubectl top cada 10 s; `nodes` trae
                                            # TODOS los nodos de la celda (red usa 2)
@@ -298,6 +301,44 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   (`run-<i>/knee-fine.json`, `run_knee` en `meta.json`), y `analysis.stats`
   informa la capacidad de la celda como mediana/min/max de esos knees (con el
   knee grueso como respaldo para resultados viejos).
+- **dos generadores de k6** (Java y Go, desde el 2026-09-25): el calentamiento,
+  la escalera gruesa, cada escalera fina y cada corrida fija son **dos Jobs de
+  k6** (`-g1`, `-g2`) que arrancan juntos (se aplican los dos y recién después
+  se espera a los dos), cada uno con la mitad de la carga: `RATE`,
+  `RATE_START`, `RATE_STEP` y `RATE_MAX` divididos por 2, y `PREALLOC_VUS` /
+  `MAX_VUS` divididos por 2 redondeando hacia arriba (`k6_generators` en
+  `config.WORKLOADS`). El porqué, del día de calibración 2026-09-24 (Java
+  arm-tuned a 70k rps fijos durante 180 s,
+  `results/2026-09-24-cal-loadercheck/loadercheck.json`): un solo proceso de
+  k6 entregó 69.845 rps con p99 6,59 ms; dos procesos de 35k cada uno
+  entregaron 69.846 rps con p99 5,73 / 5,77 ms. Mismo throughput, nodo loader
+  al 37-41 % de CPU: un solo proceso le suma ~0,8 ms (+13 %) al p99 a esa
+  tasa, y eso corre los knees cerca del SLO de 10 ms. Inferencia se queda en
+  un Job: es un lazo cerrado de 4 VUs, no hay nada que repartir. Los dos Jobs
+  piden 8 vCPU cada uno y el loader es un `c7i.8xlarge` (32 vCPU); el guard
+  del loader sigue mirando el nodo entero.
+  Los dos resúmenes se fusionan en **uno** con el mismo esquema
+  (`knee.merge_summaries`), así que el knee, `step_reasons`,
+  `invalid_reasons` y `analysis.stats` no cambian, y la fusión es
+  conservadora: cada escalón que `lib.js` etiqueta con la tasa de **su**
+  generador pasa a la tasa total (`{rate:R}` → `{rate:2R}`); de
+  `http_req_duration` (entero y por escalón) todo percentil, `max`, `avg` y
+  `med` es el **máximo** entre generadores y `min` el mínimo (avg y med como
+  máximo y no como promedio: el número del slide solo puede errar hacia más
+  lento); `http_reqs`, `iterations` y `dropped_iterations` se suman (conteo y
+  tasa); `http_req_failed` es el promedio pesado por requests (`passes +
+  fails`). Todo lo demás (thresholds, gauges, otras métricas, `state`) es el
+  del generador 1. Por eso "entregó la carga" se juzga con los conteos
+  sumados contra la tasa total, en la escalera y en `fixed_underdelivered`.
+  Un generador sin resumen invalida la escalera o la corrida: vio la mitad de
+  la carga. Cada tasa que la celda va a ofrecer tiene que dividirse en rps
+  enteros por generador, y eso se controla **antes** de escalar nada (junto
+  al control de la escalera fina): `RATE_START`, `RATE_STEP`, `RATE_MAX`,
+  `RATE_STEP / fine_steps` y un `--env RATE` explícito. El 80 % de la corrida
+  fija se redondea hacia abajo al múltiplo de 2 (con las escaleras por
+  defecto ya es exacto). En el disco queda el resumen fusionado con el nombre
+  de siempre y al lado el de cada generador sin tocar (`k6-g1.json`,
+  `knee-raw-g2.json`...).
 - **corridas inválidas**: `http_req_failed.rate > 0.01`, una tasa de
   `dropped_iterations` > 0.1 %, p99 por encima del SLO (`fixed_over_slo`; en
   Mongo, el p99 de READ), throughput por debajo de 0.95 x lo pedido

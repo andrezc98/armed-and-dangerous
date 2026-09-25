@@ -5,6 +5,7 @@ three guards (cluster.json, budget, knee) are pure functions over files.
 """
 
 import json
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -144,7 +145,8 @@ def test_a_cluster_json_without_the_node_groups_is_refused(tmp_path):
 
 def test_the_plan_waits_for_the_previous_job_to_be_deleted(plan):
     out = plan("--workload", "java", "--cell", "arm-tuned")
-    assert "wait --for=delete job/k6-java-arm-tuned-knee --timeout=60s" in out
+    for g in (1, 2):  # Java runs two k6 generators (config k6_generators)
+        assert f"wait --for=delete job/k6-java-arm-tuned-knee-g{g} --timeout=60s" in out
 
 
 # --- S1: the Mongo dataset survives the cell ---------------------------------
@@ -208,15 +210,15 @@ def test_every_aws_call_pins_the_lab_region(plan, argv):
 def test_env_overrides_reach_the_knee_job(monkeypatch):
     captured = {}
 
-    def fake_run_job(name, yaml_text, timeout):
-        captured["y"] = yaml_text
-        return ""  # a dry run has no logs
+    def fake_run_jobs(jobs, timeout):
+        captured["y"] = jobs[0][1]
+        return ["" for _ in jobs]  # a dry run has no logs
 
     monkeypatch.setattr(config, "DRY_RUN", True)
-    monkeypatch.setattr(cell, "run_job", fake_run_job)
+    monkeypatch.setattr(cell, "run_jobs", fake_run_jobs)
     cell.k6_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", None, {"MAX_VUS": "8000"})
     env = yaml.safe_load(captured["y"])["spec"]["template"]["spec"]["containers"][0]["env"]
-    assert {"name": "MAX_VUS", "value": "8000"} in env
+    assert {"name": "MAX_VUS", "value": "4000"} in env  # half of it, per generator
     assert {"name": "MODE", "value": "knee"} in env
 
 
@@ -224,7 +226,7 @@ def test_env_overrides_reach_the_knee_job(monkeypatch):
 
 def test_a_knee_run_with_no_summary_fails_instead_of_assuming_rate_start(monkeypatch):
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "run_job", lambda *a, **k: "")
+    monkeypatch.setattr(cell, "run_jobs", lambda jobs, timeout: ["" for _ in jobs])
     monkeypatch.setattr(cell, "job_failure", lambda name: "Events: ImagePullBackOff")
     with pytest.raises(RuntimeError, match="ImagePullBackOff"):
         cell.k6_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", None, {})
@@ -502,11 +504,38 @@ def _ladder_summary(steps, stage=60, ramp=5):
     return {"metrics": metrics}
 
 
+def _per_generator(summary, n):
+    """What each of n generators writes for an aggregate `summary`: step tags
+    and request counts / n (lib.js tags the rate IT held), latencies as they are."""
+    metrics = {}
+    for name, metric in summary["metrics"].items():
+        m = re.match(r"^(.*)\{rate:(\d+)\}$", name)
+        if m:
+            name = f"{m.group(1)}{{rate:{int(m.group(2)) // n}}}"
+        values = metric["values"]
+        if name.startswith("http_reqs"):
+            values = {k: v / n for k, v in values.items()}
+        metrics[name] = {**metric, "values": values}
+    return {**summary, "metrics": metrics}
+
+
+def _fake_jobs(monkeypatch, summary, seen=None):
+    """run_jobs answering every generator its share of `summary`; `seen`
+    collects the (name, yaml) of every Job."""
+    def fake(jobs, timeout):
+        if seen is not None:
+            seen.extend(jobs)
+        share = json.dumps(_per_generator(summary, len(jobs)))
+        return [f"{cell.SUMMARY_MARKER}\n{share}" for _ in jobs]
+
+    monkeypatch.setattr(cell, "run_jobs", fake)
+
+
 def _fake_ladder(monkeypatch, summary, started="2026-10-01T15:00:00Z"):
-    """k6_knee against a canned summary; job_started reads `started`."""
+    """k6_knee against a canned aggregate summary, split across the
+    generators; job_started reads `started`."""
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "run_job",
-                        lambda *a, **k: f"{cell.SUMMARY_MARKER}\n{json.dumps(summary)}")
+    _fake_jobs(monkeypatch, summary)
     monkeypatch.setattr(cell, "kn", lambda *a, **k: started)
 
 
@@ -723,16 +752,10 @@ def test_an_unresolved_fine_step_invalidates_the_run(monkeypatch, tmp_path):
 
 
 def test_the_fixed_run_is_held_at_80_percent_of_its_own_knee(monkeypatch, tmp_path):
-    captured = {}
-
-    def fake_run_job(name, yaml_text, timeout):
-        captured["y"] = yaml_text
-        return f"{cell.SUMMARY_MARKER}\n" + json.dumps(
-            {"metrics": {"http_req_duration": {"values": {"p(99)": 12.0}},
-                         "http_reqs": {"values": {"rate": 27200.0}}}})
-
+    jobs = []
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "run_job", fake_run_job)
+    _fake_jobs(monkeypatch, {"metrics": {"http_req_duration": {"values": {"p(99)": 12.0}},
+                                         "http_reqs": {"values": {"rate": 27200.0}}}}, jobs)
     (tmp_path / "knee.json").write_text(json.dumps({"knee": 30000}))
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()
@@ -742,8 +765,11 @@ def test_the_fixed_run_is_held_at_80_percent_of_its_own_knee(monkeypatch, tmp_pa
         env = {}
 
     cell.measure(dict(config.WORKLOADS["java"]), "java", "arm-tuned", 1, run_dir, meta, Args)
-    env = yaml.safe_load(captured["y"])["spec"]["template"]["spec"]["containers"][0]["env"]
-    assert {"name": "RATE", "value": "27200"} in env
+    assert [name for name, _ in jobs] == ["k6-java-arm-tuned-r1-g1", "k6-java-arm-tuned-r1-g2"]
+    for _, text in jobs:  # 27200 rps split across the two generators
+        env = yaml.safe_load(text)["spec"]["template"]["spec"]["containers"][0]["env"]
+        assert {"name": "RATE", "value": "13600"} in env
+    assert meta["rate"] == 27200
     # p99 12 ms against Java's 10 ms SLO: measured, recorded, and not counted.
     assert meta["invalid"] == ["fixed_over_slo: p99 12.00 ms > SLO 10 ms"]
 
@@ -923,9 +949,8 @@ def test_mongo_step_windows_are_the_jobs_own_container_times(monkeypatch, tmp_pa
 def test_a_fixed_run_is_judged_at_the_rate_k6_was_actually_given(monkeypatch, tmp_path):
     """--env RATE=... overrides the 80 %; the validity rule must use it."""
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "run_job", lambda *a, **k: f"{cell.SUMMARY_MARKER}\n" + json.dumps(
-        {"metrics": {"http_req_duration": {"values": {"p(99)": 2.0}},
-                     "http_reqs": {"values": {"rate": 27000.0}}}}))
+    _fake_jobs(monkeypatch, {"metrics": {"http_req_duration": {"values": {"p(99)": 2.0}},
+                                         "http_reqs": {"values": {"rate": 27000.0}}}})
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()
     meta = {"run_knee": 34000}  # 80 % = 27200
@@ -972,3 +997,123 @@ def test_a_fixed_run_with_no_loader_sample_is_invalid(monkeypatch):
     assert cell.fixed_loader_guard("java", [{"ts": "t", "loader_cpu_percent": 88}]) == [
         "loader node CPU 88% > 70%"]
     assert cell.fixed_loader_guard("net", []) == []  # the generator is a SUT node there
+
+
+# --- two k6 generators per load (2026-09-25) ----------------------------------
+
+def _envs(jobs):
+    return {name: {e["name"]: e["value"] for e in
+                   yaml.safe_load(text)["spec"]["template"]["spec"]["containers"][0]["env"]}
+            for name, text in jobs}
+
+
+def test_a_ladder_for_two_generators_halves_the_rates_and_the_vu_budget(monkeypatch):
+    jobs = []
+    monkeypatch.setattr(config, "DRY_RUN", True)
+    monkeypatch.setattr(cell, "run_jobs", lambda j, timeout: jobs.extend(j) or ["" for _ in j])
+    spec = _java(RATE_START=10000, RATE_STEP=10000, RATE_MAX=120000,
+                 PREALLOC_VUS=2000, MAX_VUS=16000)
+    cell.k6_knee(spec, "java", "arm-tuned", None, {"MAX_VUS": "16001"})
+    envs = _envs(jobs)
+    assert list(envs) == ["k6-java-arm-tuned-knee-g1", "k6-java-arm-tuned-knee-g2"]
+    for env in envs.values():
+        assert (env["RATE_START"], env["RATE_STEP"], env["RATE_MAX"]) == ("5000", "5000", "60000")
+        assert (env["PREALLOC_VUS"], env["MAX_VUS"]) == ("1000", "8001")  # rounded up
+        assert env["STAGE_SECONDS"] == "60" and env["MODE"] == "knee"
+
+
+def test_the_generators_are_all_applied_before_any_is_waited_on(monkeypatch):
+    order = []
+    monkeypatch.setattr(cell, "clear_job", lambda name: order.append(("clear", name)))
+    monkeypatch.setattr(cell, "apply_stdin", lambda text, what: order.append(("apply", what)))
+    monkeypatch.setattr(cell, "finish_job", lambda name, t: order.append(("wait", name)) or name)
+    assert cell.run_jobs([("a", "x"), ("b", "y")], 10) == ["a", "b"]
+    assert order == [("clear", "a"), ("clear", "b"), ("apply", "job/a"), ("apply", "job/b"),
+                     ("wait", "a"), ("wait", "b")]
+
+
+def test_the_fixed_run_keeps_each_generator_summary_next_to_the_merged_one(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    _fake_jobs(monkeypatch, {"metrics": {"http_req_duration": {"values": {"p(99)": 2.0}},
+                                         "http_reqs": {"values": {"rate": 27200.0}}}})
+    meta = {"run_knee": 34000}
+
+    class Args:
+        env = {}
+
+    cell.measure(dict(config.WORKLOADS["java"]), "java", "arm-tuned", 1, tmp_path, meta, Args)
+    assert "invalid" not in meta
+    merged = json.loads((tmp_path / "k6.json").read_text())
+    assert merged["metrics"]["http_reqs"]["values"]["rate"] == 27200.0
+    for g in (1, 2):
+        raw = json.loads((tmp_path / f"k6-g{g}.json").read_text())
+        assert raw["metrics"]["http_reqs"]["values"]["rate"] == 13600.0
+
+
+def test_a_fixed_rate_is_rounded_down_to_whole_rps_per_generator(monkeypatch, tmp_path):
+    jobs = []
+    monkeypatch.setattr(config, "DRY_RUN", True)
+    monkeypatch.setattr(cell, "run_jobs", lambda j, timeout: jobs.extend(j) or ["" for _ in j])
+    meta = {"run_knee": 33999}  # 80 % = 27199.2
+
+    class Args:
+        env = {}
+
+    cell.measure(dict(config.WORKLOADS["java"]), "java", "arm-tuned", 1, tmp_path, meta, Args)
+    assert meta["rate"] == 27198
+    assert {env["RATE"] for env in _envs(jobs).values()} == {"13599"}
+
+
+def test_a_generator_without_a_summary_fails_the_knee(monkeypatch):
+    """Half a ladder is not the ladder: one generator saw 1/N of the load."""
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    body = f"{cell.SUMMARY_MARKER}\n" + json.dumps({"metrics": {}})
+    monkeypatch.setattr(cell, "run_jobs", lambda j, timeout: [body, ""])
+    monkeypatch.setattr(cell, "job_failure", lambda name: f"{name}: OOMKilled")
+    with pytest.raises(RuntimeError, match="knee-g2: OOMKilled") as err:
+        cell.k6_knee(dict(config.WORKLOADS["java"]), "java", "arm-tuned", None, {})
+    assert "knee-g1" not in str(err.value)
+
+
+def test_default_ladders_split_across_their_generators():
+    for workload in ("java", "go", "inference", "mongo"):
+        assert cell.check_generators(dict(config.WORKLOADS[workload]), {}) is None
+
+
+@pytest.mark.parametrize("spec_over,env,what", [
+    # 5000 / 8 = 625 rps per fine step, which two generators cannot share.
+    ({"fine_steps": 8}, {"RATE_STEP": "5000"}, "the fine step RATE_STEP/fine_steps 625"),
+    ({}, {"RATE_START": "5001"}, "RATE_START 5001"),
+    ({}, {"RATE": "27001"}, "RATE 27001"),
+])
+def test_a_rate_two_generators_cannot_split_is_refused_up_front(spec_over, env, what):
+    spec = {**config.WORKLOADS["go"], **spec_over}
+    with pytest.raises(SystemExit, match="k6_generators=2") as err:
+        cell.check_generators(spec, env)
+    assert what in str(err.value)
+
+
+def test_the_plan_checks_the_split_before_scaling_anything(plan, capsys):
+    with pytest.raises(SystemExit, match="RATE_START 5001"):
+        plan("--workload", "go", "--cell", "x86-stock", "--rate-start", "5001")
+    assert "update-nodegroup-config" not in capsys.readouterr().out
+
+
+def test_inference_stays_at_one_job(plan, monkeypatch):
+    applied = []
+    monkeypatch.setattr(cell, "apply_stdin", lambda text, what: applied.append(what))
+    out = plan("--workload", "inference", "--cell", "arm-tuned", "--runs", "1")
+    assert config.WORKLOADS["inference"]["k6_generators"] == 1
+    assert [w for w in applied if w.startswith("job/k6-")] == [
+        "job/k6-inference-arm-tuned-warmup", "job/k6-inference-arm-tuned-r1"]
+    assert "k6 generators" not in out
+
+
+def test_the_java_plan_shows_both_generators_of_every_k6_load(plan, monkeypatch):
+    applied = []
+    monkeypatch.setattr(cell, "apply_stdin", lambda text, what: applied.append(what))
+    out = plan("--workload", "java", "--cell", "arm-tuned", "--runs", "1")
+    jobs = [w for w in applied if w.startswith("job/k6-")]
+    assert jobs == [f"job/k6-java-arm-tuned-{what}-g{g}"
+                    for what in ("warmup", "knee", "fine-r1", "r1") for g in (1, 2)]
+    assert "# 2 k6 generators, each at 1/2 of the load" in out
