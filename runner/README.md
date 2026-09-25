@@ -327,7 +327,7 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   al 37-41 % de CPU: un solo proceso le suma ~0,8 ms (+13 %) al p99 a esa
   tasa, y eso corre los knees cerca del SLO de 10 ms. Inferencia se queda en
   un Job: es un lazo cerrado de 4 VUs, no hay nada que repartir. Los dos Jobs
-  piden 8 vCPU cada uno y el loader es un `c7i.8xlarge` (32 vCPU); el guard
+  piden 8 vCPU cada uno y el loader es un `c8i.16xlarge` (64 vCPU); el guard
   del loader sigue mirando el nodo entero.
   Los dos resúmenes se fusionan en **uno** con el mismo esquema
   (`knee.merge_summaries`), así que el knee, `step_reasons`,
@@ -380,9 +380,10 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   abajo al múltiplo de 2. En el disco queda el reporte fusionado con el nombre
   de siempre (`knee-t128.txt`, `ycsb.txt`) y al lado la salida de cada
   cliente sin tocar (`knee-t128-c1.txt`, `ycsb-c2.txt`...). Ojo con el guard
-  del loader: en la calibración el `c7i.8xlarge` llegó al 71 % con dos
-  clientes a 128 hilos, por encima del 70 % del guard; los escalones más
-  altos pueden invalidar la escalera por el loader.
+  del loader: en la calibración el `c7i.8xlarge` (32 vCPU) llegó al 71 % con dos
+  clientes a 128 hilos, por encima del 70 % del guard, y los escalones más
+  altos invalidaban la escalera por el loader; por eso el loader pasó a
+  `c8i.16xlarge` (64 vCPU) el 2026-09-25.
 - **corridas inválidas**: `http_req_failed.rate > 0.01`, una tasa de
   `dropped_iterations` > 0.1 %, p99 por encima del SLO (`fixed_over_slo`; en
   Mongo, el p99 de READ), throughput por debajo de 0.95 x lo pedido

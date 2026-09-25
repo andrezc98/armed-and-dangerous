@@ -121,12 +121,13 @@ locals {
     })
 
     # k6, go-ycsb and the llama client. Untainted and x86 on purpose: go-ycsb is
-    # built amd64 only. A loader over 70% CPU invalidates the run. 8xlarge since
-    # the smoke gate: a 4xlarge hit 80% at 60k rps of k6 and 98% at 100k.
+    # built amd64 only. A loader over 70% CPU invalidates the run. c7i.4xlarge hit
+    # 80% at 60k rps of k6 and 98% at 100k (gate); c7i.8xlarge read 71% with two
+    # go-ycsb clients at 128 threads (calibration) -> c8i.16xlarge, 64 vCPU.
     "loader" = merge(local.support_common, {
       name           = "aws-aad-mng-loader"
       ami_type       = "BOTTLEROCKET_x86_64"
-      instance_types = ["c7i.8xlarge"]
+      instance_types = ["c8i.16xlarge"]
       labels         = { "aad/role" = "loader" }
     })
 

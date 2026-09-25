@@ -26,7 +26,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
  runner (Mac, sin terraform) ── escala MNG de la celda 0→1 ── aplica overlay (nodeSelector aad/cell)
         │
         ▼
- loader c7i.8xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
+ loader c8i.16xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
                                                    x86-stock | x86-tuned | x86-smtoff  (m8i.4xlarge)
                                                    amd-stock | amd-tuned               (m8a.4xlarge)
                                                    arm-stock | arm-tuned               (m9g.4xlarge)

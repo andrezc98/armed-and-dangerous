@@ -46,7 +46,7 @@ Las tres CRD de Karpenter (`infra/karpenter/`) usan `karpenter.sh/v1` y
 | `aws-aad-mng-amd-tuned` | `m8a.4xlarge` | x86_64 | 0/2/0 | `aad/cell=amd-tuned` | `base.toml` + THP `always` |
 | `aws-aad-mng-arm-stock` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-stock` | Bottlerocket tal cual (+ `base.toml`) |
 | `aws-aad-mng-arm-tuned` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-tuned` | `base.toml` + THP `always` |
-| `aws-aad-mng-loader` | `c7i.8xlarge` | x86_64 | 1/1/1 | `aad/role=loader` | k6, go-ycsb, cliente llama |
+| `aws-aad-mng-loader` | `c8i.16xlarge` | x86_64 | 1/1/1 | `aad/role=loader` | k6, go-ycsb, cliente llama |
 | `aws-aad-mng-tools` | `m7g.large` | ARM_64 | 1/1/1 | `aad/role=tools` | Pyroscope y el controlador de Karpenter |
 
 Las siete celdas llevan el taint `aad/sut=true:NO_SCHEDULE`. En la API de EKS el
@@ -290,7 +290,7 @@ que el `apply` falle si nadie decidió quién entra.
 **La AZ se verifica antes de crear nada.**
 `terraform_data.instance_types_offered_in_az` corta el plan si la AZ elegida no
 ofrece las cinco instancias del lab (`m8i.4xlarge`, `m8a.4xlarge`, `m9g.4xlarge`,
-`c7i.8xlarge`, `m7g.large`), en vez de descubrirlo cuando el `loader` no
+`c8i.16xlarge`, `m7g.large`), en vez de descubrirlo cuando el `loader` no
 arranca. Ofrecer no es tener: el gate prueba que la AZ vende el tipo, no que
 haya stock. La capacidad se confirma el día del gate, en el apply mismo, y el
 plan B de la spec es mover todas las node groups de AZ antes que cambiar de
