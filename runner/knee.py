@@ -11,6 +11,7 @@ This module also owns the two parsers that build a series, because both the knee
 search and `analysis.stats` read the same raw files (one-way import: stats -> knee).
 """
 
+import math
 import re
 
 # k6 tags each held step of the ladder (runner/k6/lib.js reqTags); the samples
@@ -331,6 +332,114 @@ def merge_ycsb(texts):
         body = ", ".join(f"{field}: {_ycsb_number(v)}" for field, v in merged.items())
         lines.append(f"{kind:<6} - {body}")
     return "\n".join(lines) + "\n"
+
+
+# --- pgbench (PostgreSQL 18.6) -------------------------------------------------
+# pgbench's summary has no percentiles (printResults in pgbench.c, REL_18_6), so
+# the run Job (manifests/workloads/postgres/base/pgbench-run-job.yaml) logs a
+# sample of its transactions (-l --sampling-rate), and after pgbench exits
+# prints this marker and a histogram of the sampled latencies: `uniq -c` lines,
+# "<count> <microseconds>". The log's `time` field is "transaction's elapsed
+# time, in microseconds" (https://www.postgresql.org/docs/18/pgbench.html); in
+# the source it is now - txn_scheduled, so under -R it includes the schedule
+# lag, the same scheduled-start latency the summary reports. Failed transactions
+# log "failed" there, which the Job's awk drops (they are counted separately).
+PGBENCH_MARKER = "---AAD-PGBENCH-LATENCY-US---"
+
+# The summary lines pgbench 18.6 prints (printResults), e.g.
+#   duration: 60 s
+#   number of transactions actually processed: 1889218
+#   number of failed transactions: 0 (0.000%)
+#   tps = 188999.384247 (without initial connection time)
+_PGBENCH_FIELDS = {
+    "seconds": re.compile(r"^duration: (\d+) s$", re.M),
+    "count": re.compile(r"^number of transactions actually processed: (\d+)", re.M),
+    "failed": re.compile(r"^number of failed transactions: (\d+)", re.M),
+    "tps": re.compile(r"^tps = ([0-9.]+) ", re.M),
+}
+_PERCENTILES = (("50th(us)", 0.50), ("90th(us)", 0.90), ("95th(us)", 0.95),
+                ("99th(us)", 0.99), ("99.9th(us)", 0.999))
+
+
+def parse_pgbench(text):
+    """One pgbench Job's stdout as {"seconds", "count", "failed", "tps", "hist"},
+    hist = {latency_us: sampled transactions}. None when there is no report: no
+    marker (the Job never got past pgbench) or no tps line (pgbench died; the
+    marker is printed either way)."""
+    if PGBENCH_MARKER not in text:
+        return None
+    summary, tail = text.split(PGBENCH_MARKER, 1)
+    found = {k: rx.search(summary) for k, rx in _PGBENCH_FIELDS.items()}
+    if not (found["tps"] and found["count"]):
+        return None
+    hist = {}
+    for line in tail.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            hist[int(parts[1])] = hist.get(int(parts[1]), 0) + int(parts[0])
+    return {"seconds": int(found["seconds"].group(1)) if found["seconds"] else 0,
+            "count": int(found["count"].group(1)),
+            "failed": int(found["failed"].group(1)) if found["failed"] else 0,
+            "tps": float(found["tps"].group(1)), "hist": hist}
+
+
+def _hist_percentile(hist, q, total):
+    """Nearest-rank percentile of a {value: count} histogram."""
+    rank, seen = max(math.ceil(q * total), 1), 0
+    for value in sorted(hist):
+        seen += hist[value]
+        if seen >= rank:
+            return value
+    return None
+
+
+def merge_pgbench(texts):
+    """N pgbench processes that ran one step together, each with 1/N of the
+    clients and of -R, as ONE report in go-ycsb's line format, so parse_ycsb,
+    series_from_ycsb, ycsb_invalid_reasons and analysis.stats read it unchanged.
+
+    Unlike merge_ycsb, the percentiles here are exact for the union of the
+    samples: the histograms add up. Count, failed and tps are summed (every
+    process ran the same -T). READ and TOTAL are the same line: select-only is
+    one read per transaction. "" when any process has no report or nothing was
+    sampled: a step with half its load unaccounted for has no report.
+    """
+    parsed = [parse_pgbench(text) for text in texts]
+    if not parsed or None in parsed:
+        return ""
+    hist = {}
+    for p in parsed:
+        for us, n in p["hist"].items():
+            hist[us] = hist.get(us, 0) + n
+    samples = sum(hist.values())
+    if not samples:
+        return ""
+    fields = {
+        "Takes(s)": max(p["seconds"] for p in parsed),
+        "Count": sum(p["count"] for p in parsed),
+        "OPS": round(sum(p["tps"] for p in parsed), 1),
+        "Avg(us)": round(sum(us * n for us, n in hist.items()) / samples, 1),
+        "Min(us)": min(hist),
+        "Max(us)": max(hist),
+        **{name: _hist_percentile(hist, q, samples) for name, q in _PERCENTILES},
+        "Samples": samples,
+        "Failed": sum(p["failed"] for p in parsed),
+    }
+    body = ", ".join(f"{field}: {_ycsb_number(v)}" for field, v in fields.items())
+    return (f"# merged from {len(texts)} pgbench clients (runner/knee.py merge_pgbench)\n"
+            f"READ   - {body}\nTOTAL  - {body}\n")
+
+
+def pgbench_reasons(line, min_samples):
+    """Why a merged pgbench line (a knee step or a fixed run) does not count:
+    too few sampled transactions to put a p99 on, or any failed transaction."""
+    why = []
+    if line.get("Samples", 0) < min_samples:
+        why.append(f"{line.get('Samples', 0):.0f} sampled transactions < {min_samples}: "
+                   "p99 not resolved")
+    if line.get("Failed", 0):
+        why.append(f"{line['Failed']:.0f} failed transactions")
+    return why
 
 
 def series_from_ycsb(runs):

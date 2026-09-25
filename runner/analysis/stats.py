@@ -6,6 +6,7 @@ nothing here rewrites them.
 A cell directory looks like results/<date>/<workload>/<cell>/ and holds
 knee.json plus run-1/, run-2/, ... Each run holds whichever of these the workload
 produces: k6.json (java, go), llama.json (inference), ycsb.txt (mongo),
+pgbench.txt (postgres),
 iperf.json / iperf-reverse.json (net), and top.json for the CPU samples.
 """
 
@@ -83,16 +84,19 @@ def summarize(cell_dir, usd_per_hour=None):
             tokens = summary["metrics"].get("llama_predicted_tokens")
             if tokens:
                 tok_s.append(tokens["values"]["count"] / (summary["state"]["testRunDurationMs"] / 1000.0))
-        elif (run / "ycsb.txt").exists():
+        elif report := next((run / name for name in ("ycsb.txt", "pgbench.txt")
+                             if (run / name).exists()), None):
             # go-ycsb prints its report only if it finished. A run killed part
             # way through leaves a file with no READ line, and reading that as a
             # KeyError would take the whole analysis down with it; it is one
             # invalid run, exactly like a k6 Job that printed no summary.
-            parsed = knee.parse_ycsb((run / "ycsb.txt").read_text())
+            # pgbench.txt (postgres) is knee.merge_pgbench's output, the same
+            # line format on purpose.
+            parsed = knee.parse_ycsb(report.read_text())
             missing = [line for line in ("READ", "TOTAL") if line not in parsed]
             if missing:
                 out["excluded"].append(
-                    {"run": run.name, "reasons": [f"ycsb.txt has no {'/'.join(missing)} line"]}
+                    {"run": run.name, "reasons": [f"{report.name} has no {'/'.join(missing)} line"]}
                 )
                 continue
             reasons = knee.ycsb_invalid_reasons(parsed, slo_ms, meta.get("target_ops"))

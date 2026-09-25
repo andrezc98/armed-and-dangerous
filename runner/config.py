@@ -259,6 +259,48 @@ WORKLOADS = {
         "warm_max_min": 20,  # give up warming after this and refuse to measure EBS
         "cells": ["x86-stock", "x86-tuned", "amd-stock", "amd-tuned", "arm-stock", "arm-tuned"],
     },
+    # PostgreSQL 18.6 + pgbench select-only next to Mongo (speaker ruling R2,
+    # 2026-09-25): Mongo queues on admission-control tickets before the CPU runs
+    # out, so the SQL database is the second DB story. Every value below is a
+    # default the calibration day is allowed to move (manifests/workloads/
+    # postgres/README.md, "Qué decide la calibración").
+    "postgres": {
+        "loader": "pgbench",
+        "resource": "statefulset/postgres",
+        # Pyroscope's service_name is the process.executable.name of the backends.
+        "service_name": "postgres",
+        "slo_ms": 5,  # p99 of a select-only transaction, same line as Mongo's READ
+        # pgbench -c, the total over pgbench_clients processes. The top step has
+        # to stay under the server's max_connections (check_pgbench_clients).
+        "clients": [16, 32, 64, 128, 256, 512],
+        # pgbench processes (Jobs) per step, each with clients/N and -R rate/N
+        # (pgbench 18.6 splits -R across its own threads, pgbench.c
+        # "throttle_delay *= nthreads", so N processes offer N x rate/N). Two,
+        # for the reason k6 and go-ycsb run two: one generator capped the step.
+        "pgbench_clients": 2,
+        # -j per process, and the vCPUs its Job requests (the template ties
+        # them). pgbench caps -j at -c itself (pgbench.c "if (nthreads >
+        # nclients) nthreads = nclients"); so does the runner, for the request.
+        "pgbench_threads": 8,
+        # pgbench -i -s: 100,000 pgbench_accounts rows per unit (pgbench docs),
+        # 86 MB at scale 5 on 18.6 (pg_database_size, laptop 2026-09-25), so
+        # scale 1000 is ~17 GB: inside a 64 GiB node, like Mongo's 20 GB.
+        "scale": 1000,
+        "step_seconds": 60,  # -T of every knee step, ~Mongo's one-minute steps
+        # --sampling-rate of the per-transaction log the p99 is computed from. A
+        # step with fewer sampled transactions than min_samples has no p99 worth
+        # the name (knee.pgbench_reasons).
+        "sampling_rate": 0.02,
+        "min_samples": 10000,
+        "fixed_seconds": 480,
+        "warmup_seconds": 60,  # -T of each warm-up pass
+        # 8 KiB pages the pod read from its disks (cgroup io.stat rbytes / 8192)
+        # per warm-up pass that count as flat, and the wall-clock bound; same
+        # flags as Mongo's (--warm-pages, --warm-max-min).
+        "warm_pages": 8192,
+        "warm_max_min": 20,
+        "cells": ["x86-stock", "x86-tuned", "amd-stock", "amd-tuned", "arm-stock", "arm-tuned"],
+    },
     "net": {
         "loader": "iperf3",
         "resource": "deploy/iperf3-server",
