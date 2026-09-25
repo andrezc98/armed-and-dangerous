@@ -9,7 +9,9 @@ locals {
   # The four images apps/build-multiarch.sh builds. One repository each: ECR has
   # no namespaces, the repository name is the whole path after the registry, so
   # "aad-java" is what becomes <account>.dkr.ecr.<region>.amazonaws.com/aad-java.
-  repositories = ["aad-java", "aad-go", "aad-iperf3", "aad-ycsb"]
+  # aad-llama: llama.cpp server built with Arm KleidiAI for arm64 only
+  # (apps/llama/build-kleidiai.sh), added on calibration day 2026-09-24.
+  repositories = ["aad-java", "aad-go", "aad-iperf3", "aad-ycsb", "aad-llama"]
 }
 
 ################################################################################
