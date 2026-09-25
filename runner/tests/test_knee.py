@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import knee
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -267,6 +269,25 @@ def _gen(p99, count, failed, *, rate_tag=5000, avg=1.0, min_ms=0.2, dropped=0, i
         "dropped_iterations": {"type": "counter", "values": {"count": dropped, "rate": dropped / 60}},
         "vus_max": {"type": "gauge", "values": {"value": 1000}},
     }}
+
+
+def test_a_real_ladder_merged_with_itself_doubles_the_load_not_the_latency():
+    """A real k6 v2.2.0 ladder summary (calibration day, java arm-tuned) as both
+    generators: the per-step passes/fails weighting and the step-key scaling on
+    the shape k6 actually writes, not on a hand-made fixture."""
+    real = json.loads((Path(__file__).parent / "fixtures" / "k6-knee-java-arm-2026-09-24.json")
+                      .read_text())
+    merged = knee.merge_summaries([real, real])
+    single = dict(knee.series_from_summary(real))
+    double = dict(knee.series_from_summary(merged))
+    assert sorted(double) == [2 * r for r in sorted(single)]
+    assert all(double[2 * r] == p for r, p in single.items())
+    m, r = merged["metrics"], real["metrics"]
+    step = sorted(single)[3]
+    assert m[f"http_reqs{{rate:{2 * step}}}"]["values"]["count"] == \
+        2 * r[f"http_reqs{{rate:{step}}}"]["values"]["count"]
+    assert m[f"http_req_failed{{rate:{2 * step}}}"]["values"]["rate"] == \
+        pytest.approx(r[f"http_req_failed{{rate:{step}}}"]["values"]["rate"])
 
 
 def test_two_generator_summaries_merge_conservatively():

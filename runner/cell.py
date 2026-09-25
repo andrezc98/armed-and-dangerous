@@ -666,12 +666,16 @@ def run_k6(spec, name, cell, mode, env, timeout):
 
 def write_summaries(out_dir, out_name, summaries, merged):
     """The merged summary under the name everything reads, and next to it each
-    generator's own (k6-g1.json, knee-raw-g2.json ...), untouched."""
-    (out_dir / out_name).write_text(json.dumps(merged, indent=1))
+    generator's own (k6-g1.json, knee-raw-g2.json ...), untouched. merged=None
+    (a generator printed nothing) still keeps the generators that did, for the
+    post-mortem."""
+    if merged is not None:
+        (out_dir / out_name).write_text(json.dumps(merged, indent=1))
     if len(summaries) > 1:
         stem = out_name.removesuffix(".json")
         for g, summary in enumerate(summaries, 1):
-            (out_dir / f"{stem}-g{g}.json").write_text(json.dumps(summary, indent=1))
+            if summary is not None:
+                (out_dir / f"{stem}-g{g}.json").write_text(json.dumps(summary, indent=1))
 
 
 LADDER_REMEDY = ("raise the top of the ladder (--rate-max, or --threads for mongo) "
@@ -765,6 +769,8 @@ def k6_knee(spec, workload, cell, out_dir, env_extra, ladder=None, name=None,
         # made-up number on the slide. One generator's summary is not the load
         # either: it saw 1/N of it.
         if not config.DRY_RUN:
+            if out_dir is not None:
+                write_summaries(out_dir, raw_name, summaries, None)
             raise RuntimeError("\n".join(
                 f"job/{job} produced no {SUMMARY_MARKER} block:\n{job_failure(job)}"
                 for job in missing))
@@ -1529,6 +1535,8 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         for job, summary in zip(names, summaries):
             if summary is None:
                 no_summary(run_meta, job)
+        if not config.DRY_RUN:
+            write_summaries(run_dir, out_name, summaries, None)
     elif not config.DRY_RUN:
         # Merged: http_reqs rate summed, so fixed_underdelivered compares the
         # aggregate delivered against the aggregate RATE in run_meta.
