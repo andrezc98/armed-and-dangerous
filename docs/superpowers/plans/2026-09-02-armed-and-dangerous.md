@@ -179,6 +179,8 @@ Cambios de la ronda de fixes 1 que tocan la spec: la exclusividad de CPU pasa a 
 
 **Estado 2026-09-24 (lote post-gate aplicado):** los cambios de arriba están en el código, con tres correcciones tras revisarlos contra los archivos crudos del gate: escalera de Java 10k→120k de a 5k (a pasos de 10k el knee de x86-tuned, entre 30k y 40k, se redondea un 25 % hacia abajo; empezar en 20k arriesgaba que `x86-smtoff` cruzara en el primer escalón) con presupuesto de VUs 2000/16000 por defecto en escalera, warmup y corridas fijas; Mongo a 10M operaciones por escalón (con 2M cada escalón duró 10-15 s, no un minuto) e hilos 16→512; Go con `ECHO_N` 1e6 y escalera 5k→100k (**estimado, sin medir**: con 5e4 el knee quedaba por encima del loader; la primera celda Go del día 1 lo confirma). Antes del día 1: cuota de vCPU on-demand ≥ 66 (loader 32 + tools 2 + dos nodos SUT en la celda de red).
 
+**Estado 2026-09-25 (columna AMD, decisión del speaker):** en el código y sin aplicar. Node groups `amd-stock`/`amd-tuned` (`m8a.4xlarge`, 16 núcleos sin SMT, $0.97376/h) espejo de `x86-stock`/`x86-tuned`, overlays AMD en los cinco workloads (Go solo `amd-stock`), DaemonSets de C-states y red extendidos a `amd-tuned` (C-states ahora busca C1 por nombre), runner y charts con AMD como tercera familia; spec §3 enmendada. Requiere un `terraform apply` (GATED) y una corrida de calibración AMD antes de medir: flags de Java, `-t` de inferencia, C-states/THP/cpuset en un nodo m8a real y techo de las escaleras.
+
 **Estado (2026-09-04, después del apply fallido).** El primer intento de este
 gate murió en el `apply` con dos defectos reales, los dos ya corregidos (Task 4b
 y el commit `fix(infra)` del mismo día):

@@ -3,7 +3,7 @@
 Demo repo de la charla (AWS Community Day Argentina 2026, waitlist → ACD Perú
 2026 → AWS Women Colombia 2026): tres clases de workload — Java de alta
 concurrencia, MongoDB y inferencia LLM en CPU — medidas en el mismo clúster
-EKS con nodos x86 (`m8i`) y Graviton5 (`m9g`), explicadas con flame graphs de
+EKS con nodos x86 (`m8i` Intel y `m8a` AMD) y Graviton5 (`m9g`), explicadas con flame graphs de
 eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 
 > Slides: `slides/contenido.md` · fuentes y caveats de cada número:
@@ -18,7 +18,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 - OTel eBPF profiler `otel/opentelemetry-collector-ebpf-profiler` (tag del día) · APerf (`kubectl-aperf`) · metrics-server (addon EKS)
 - Apps (verificado y probado en local 2026-09-03, ver `apps/*/Dockerfile`): `spring-petclinic-rest` master@`4cd8e1b0` (v4.0.2, Boot 4.1.1) sobre `eclipse-temurin:25.0.4_7-jre-noble`, build `maven:3.9.16-eclipse-temurin-25-noble` · Go `golang:1.27.1` + `gcr.io/distroless/static-debian13:nonroot` · `alpine:3.24.1` + iperf3 3.20-r0 · go-ycsb v1.0.3 · k6 `grafana/k6:2.2.0` (imagen oficial, amd64+arm64)
 - Pendientes de Task 5: MongoDB 8.0 y llama.cpp `ghcr.io/ggml-org/llama.cpp:server-b10775` (imágenes oficiales; modelo `unsloth/Llama-3.1-8B-Instruct-GGUF` Q4_0, ver spec §9)
-- EKS con Bottlerocket: `m8i.4xlarge` (x86, Xeon 6) vs `m9g.4xlarge` (Graviton5), un node group por celda stock/tuned
+- EKS con Bottlerocket: `m8i.4xlarge` (x86, Xeon 6), `m8a.4xlarge` (x86, AMD EPYC 9R45, 16 núcleos sin SMT; columna agregada el 2026-09-25) y `m9g.4xlarge` (Graviton5), un node group por celda stock/tuned
 
 ## El lab en una línea
 
@@ -28,6 +28,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
         ▼
  loader c7i.8xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
                                                    x86-stock | x86-tuned | x86-smtoff  (m8i.4xlarge)
+                                                   amd-stock | amd-tuned               (m8a.4xlarge)
                                                    arm-stock | arm-tuned               (m9g.4xlarge)
                                                       │            │
                                    kubectl aperf ─────┘            └── DaemonSet profiler eBPF
