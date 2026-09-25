@@ -213,7 +213,7 @@ def unwrap(raw):
     return {k: (v["value"] if isinstance(v, dict) and "value" in v else v) for k, v in raw.items()}
 
 
-def cluster_info(day_dir):
+def cluster_info(day_dir, mng=None):
     """Cluster and node group names, read from results/<date>/cluster.json.
 
     That file is `terraform output -json` redirected by the person who ran the
@@ -226,6 +226,13 @@ def cluster_info(day_dir):
     missing = [k for k in ("cluster_name", "nodegroup_names") if not info.get(k)]
     if missing:
         raise SystemExit(f"{path} has no {', '.join(missing)}.\n{CLUSTER_JSON_HELP}")
+    # A cluster applied before a node group existed (the AMD column, 2026-09-25)
+    # has no name for it; say so instead of a KeyError further down.
+    if mng is not None and mng not in info["nodegroup_names"]:
+        raise SystemExit(
+            f"{path} has no node group {mng}: that cluster was applied before "
+            f"infra/nodegroups.tf had it. Apply (gated) and write the file again.\n{CLUSTER_JSON_HELP}"
+        )
     return info
 
 
@@ -1267,9 +1274,9 @@ def run_cell(args):
     if not config.DRY_RUN:
         cell_dir.mkdir(parents=True, exist_ok=True)
 
-    info = cluster_info(day_dir)
-    load_images(day_dir, args.image_tag)
     mng = config.node_cell(cell)
+    info = cluster_info(day_dir, mng)
+    load_images(day_dir, args.image_tag)
     nodes_wanted = spec.get("nodes", 1)
     label = f"aad/cell={mng}"
     invalid = []

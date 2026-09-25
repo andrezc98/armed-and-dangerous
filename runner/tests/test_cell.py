@@ -141,6 +141,23 @@ def test_a_cluster_json_without_the_node_groups_is_refused(tmp_path):
         cell.cluster_info(day)
 
 
+def test_a_cluster_json_from_before_a_node_group_existed_names_it(tmp_path):
+    day = tmp_path / "2026-09-11"
+    day.mkdir()
+    (day / "cluster.json").write_text(json.dumps({
+        "cluster_name": {"value": "x"},
+        "nodegroup_names": {"value": {"x86-tuned": "aws-aad-mng-x86-tuned"}},
+    }))
+    with pytest.raises(SystemExit, match="no node group amd-tuned"):
+        cell.cluster_info(day, "amd-tuned")
+
+
+def test_the_dry_run_plans_an_amd_cell_on_its_node_group(plan):
+    out = plan("--workload", "java", "--cell", "amd-tuned-vthreads", "--date", "2000-01-01")
+    assert "aws-aad-mng-amd-tuned" in out
+    assert "m8a.4xlarge" in out
+
+
 # --- C6: a Job name is reused only after the old Job is gone -----------------
 
 def test_the_plan_waits_for_the_previous_job_to_be_deleted(plan):

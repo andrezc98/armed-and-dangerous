@@ -23,10 +23,20 @@ import cost  # noqa: E402
 from analysis import stats  # noqa: E402
 
 SLIDES = config.REPO / "slides" / "assets"
-# One colour per silicon, so a reader tells the two families apart before
-# reading a single label.
+# One colour per silicon, so a reader tells the three families apart before
+# reading a single label. AMD (m8a) joined on 2026-09-25; a cell or arc family
+# named neither arm* nor amd* is the Intel one.
 ARM = "#1b6ca8"
 X86 = "#b8562f"
+AMD = "#3a8a4f"
+
+
+def _color(name):
+    if name.startswith("arm"):
+        return ARM
+    if name.startswith("amd"):
+        return AMD
+    return X86
 
 
 def _plottable(summaries, key):
@@ -37,7 +47,7 @@ def _plottable(summaries, key):
 
 
 def _colors(cells):
-    return [ARM if c.startswith("arm") else X86 for c in cells]
+    return [_color(c) for c in cells]
 
 
 def _errbars(spreads):
@@ -112,7 +122,7 @@ def arc_chart(points, out, ylabel="rps en el knee"):
     fig, ax = plt.subplots(figsize=(7, 4))
     for family, series in points.items():
         ax.plot([p[0] for p in series], [p[1] for p in series], marker="o",
-                label=family, color=ARM if family.startswith("arm") else X86)
+                label=family, color=_color(family))
     ax.set_ylabel(ylabel)
     ax.set_title("Arco generacional")
     ax.grid(alpha=0.3)

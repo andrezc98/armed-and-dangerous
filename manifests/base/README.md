@@ -87,7 +87,7 @@ kubectl -n aad get pods -l app=net-tuned    # Ready = TODAS las IRQ pineadas, RP
 
 El DaemonSet `cstates` abre `/dev/cpu_dma_latency` y escribe **la latencia de
 salida de C1 del nodo**
-(`/sys/devices/system/cpu/cpu0/cpuidle/state1/latency`), no 0. La regla del
+(`/sys/devices/system/cpu/cpu0/cpuidle/stateN/latency`), no 0. La regla del
 gobernador de cpuidle es una comparación contra la latencia de salida de cada
 estado: los gobernadores "should never select any idle states with exit latency
 beyond that limit"
@@ -103,21 +103,36 @@ El valor se escribe con el formato hexadecimal de 10 caracteres que documenta
 using the 10 char long format e.g. '0x12345678'"), que es el único de los dos
 formatos que un shell POSIX puede producir para un número cualquiera.
 
-Las dos rutas (`PMQOS_DEV`, `C1_LATENCY`) son variables de entorno del contenedor
-para poder correr el script contra un árbol sintético, sin nodo. Sacando el
-`command` y el `readinessProbe` del YAML a dos archivos:
+**C1 se busca por nombre, no por posición (2026-09-25).** Hasta la columna AMD el
+script leía `state1` dando por hecho que era C1, que es como numera `intel_idle`
+en el m8i. En el m8a (AMD EPYC) el driver puede ser `acpi_idle`, con otra
+numeración y otros nombres. El script recorre `cpuidle/state*/name`, toma el
+estado que se llama `C1` y, si ninguno se llama así (por ejemplo `C1_ACPI`), el
+estado menos profundo que no sea `POLL`, que es C1 con otro nombre. El valor
+elegido queda en `LIMIT_FILE` y la sonda compara contra él. **Sin verificar en un
+nodo m8a real**: el nombre del driver y las latencias se leen en la calibración
+AMD (`cat /sys/devices/system/cpu/cpu0/cpuidle/state*/{name,latency}` y
+`cat /sys/devices/system/cpu/cpuidle/current_driver`).
+
+Las rutas (`PMQOS_DEV`, `CPUIDLE_DIR`, `LIMIT_FILE`) son variables de entorno
+del contenedor para poder correr el script contra un árbol sintético, sin nodo.
+`runner/tests/test_knobs.py` lo hace en cada `pytest` con tres árboles (C1 en
+`state1` como en `intel_idle`, C1 en otra posición, y nombres `*_ACPI` sin C1).
+A mano, sacando el `command` y el `readinessProbe` del YAML a dos archivos:
 
 ```bash
-# El script lee state1/latency y escribe el hex de 10 caracteres exacto.
+# El script busca C1 y escribe el hex de 10 caracteres exacto.
 docker run --rm -v "$PWD/cstates-cmd.sh:/cmd.sh:ro" alpine:3.24.1 sh -c '
-  mkdir -p /fake/cpuidle/state1 && printf 2 > /fake/cpuidle/state1/latency && : > /fake/dev
-  PMQOS_DEV=/fake/dev C1_LATENCY=/fake/cpuidle/state1/latency sh /cmd.sh
+  mkdir -p /fake/cpuidle/state0 /fake/cpuidle/state1 && : > /fake/dev
+  echo POLL > /fake/cpuidle/state0/name && echo 0 > /fake/cpuidle/state0/latency
+  echo C1 > /fake/cpuidle/state1/name && echo 2 > /fake/cpuidle/state1/latency
+  PMQOS_DEV=/fake/dev CPUIDLE_DIR=/fake/cpuidle LIMIT_FILE=/tmp/limit sh /cmd.sh
   cat /fake/dev'                                    # -> 0x00000002
 
 # La sonda, contra un "device" con el s32 que devolvería el kernel.
 docker run --rm -v "$PWD/cstates-probe.sh:/probe.sh:ro" alpine:3.24.1 sh -c '
-  mkdir -p /fake/cpuidle/state1 && printf 2 > /fake/cpuidle/state1/latency
-  export PMQOS_DEV=/fake/dev C1_LATENCY=/fake/cpuidle/state1/latency
+  printf 2 > /tmp/limit
+  export PMQOS_DEV=/fake/dev LIMIT_FILE=/tmp/limit
   printf "\002\000\000\000" > /fake/dev && sh /probe.sh; echo "match  -> $?"
   printf "\000\000\000\000" > /fake/dev && sh /probe.sh; echo "cero   -> $?"'
 ```
@@ -140,7 +155,7 @@ pase a Ready.
 `requests = limits` solo compra QoS Guaranteed. Con la política por defecto del
 CPU manager el kubelet aplica el límite con una cuota CFS y los hilos del pod
 siguen paseando por los 16 vCPU, compartiéndolos con los DaemonSets y las IRQ.
-Por eso las cinco celdas SUT arrancan con `settings.kubernetes.cpu-manager-policy
+Por eso las siete celdas SUT arrancan con `settings.kubernetes.cpu-manager-policy
 = "static"` en el user data (`infra/userdata/base.toml`, es un **control**, no una
 perilla: va también en las celdas stock).
 
@@ -185,11 +200,11 @@ kubectl delete -k manifests/workloads/java/overlays/arm-tuned
 
 | Workload | Celdas (overlays) | Service |
 |---|---|---|
-| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | `java.aad.svc:9966` |
-| `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | `mongo.aad.svc:27017` |
-| `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `arm-stock`, `arm-tuned` | `llama.aad.svc:8080` |
-| `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | `iperf3-server.aad.svc:5201` |
-| `go` | `x86-stock`, `arm-stock` | `go.aad.svc:8080` |
+| `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `amd-tuned-vthreads`, `arm-tuned-vthreads` | `java.aad.svc:9966` |
+| `mongo` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | `mongo.aad.svc:27017` |
+| `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned`, `arm-tuned-kleidiai` | `llama.aad.svc:8080` |
+| `net` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | `iperf3-server.aad.svc:5201` |
+| `go` | `x86-stock`, `amd-stock`, `arm-stock` | `go.aad.svc:8080` |
 
 `x86-t8` no es un node group: corre sobre `aad/cell=x86-tuned` con `-t 8`, un
 hilo por core físico, el consejo habitual para llama.cpp en x86. Hasta el
@@ -200,7 +215,10 @@ consejo que no se sostuvo. El número es 15 y no 16 porque con el CPU manager en
 `static` el pod es dueño exactamente de los 15 vCPU que pide; `-t 16` habría sido
 el proceso sobresuscribiéndose a sí mismo. Por lo mismo `arm-tuned` usa `-t 15` y
 no `-t 16`, aunque el m9g.4xlarge tenga 16 cores físicos: el vCPU 16 es el
-reservado.
+reservado. `amd-tuned` arranca igual, `-t 15`: en el m8a.4xlarge los 15 vCPU
+exclusivos son 15 núcleos físicos (sin SMT). Es un valor inicial y se calibra en
+la corrida de calibración AMD, igual que los flags de Java de `amd-tuned` (hoy
+el set de `x86-tuned`, a comparar contra el de CMP333 que usa `arm-tuned`).
 
 Los Jobs no son parte de ningún kustomization; son plantillas que el runner
 renderiza y aplica en orden:
@@ -299,6 +317,9 @@ Nada de esto se puede confirmar sin un nodo Bottlerocket real:
   vCPU dentro del pod medido) y que el vCPU reservado alcance para los DaemonSets
   que caen en la celda: kube-proxy, aws-node, ebs-csi-node, el profiler y las
   perillas suman unos 450m de `requests` sobre un solo core compartido.
+- En la columna AMD (`m8a.4xlarge`): driver de cpuidle y latencias de C1, THP
+  `always` efectivo, cpuset exclusivo de 15 y allocatable del nodo. Nada de eso
+  se leyó todavía en un nodo m8a.
 - En x86 con SMT el vCPU reservado (cpu0) comparte core físico con uno de los 15
   hilos del pod. Es inherente a medir 15 de 16 vCPU y hay que decirlo en el
   slide, no esconderlo.

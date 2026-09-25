@@ -1,0 +1,34 @@
+# Tuned AMD: 15 threads = the pod's 15 exclusive vCPUs, which on m8a.4xlarge are
+# 15 physical cores (one thread per core, no SMT siblings to include or skip).
+# Initial value, mirrors x86-tuned and arm-tuned. Calibrate on the AMD calibration run.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: llama
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-tuned
+  # Append -t instead of restating the whole args list, so a change to the base
+  # flags does not have to be made five times.
+  - target:
+      kind: Deployment
+      name: llama
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "-t"
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "15" # calibrate on the AMD calibration run

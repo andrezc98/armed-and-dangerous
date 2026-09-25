@@ -1,0 +1,21 @@
+# AMD column, mirrors x86-tuned: the knob is net-tuned-daemonset.yaml, applied
+# by the runner around the net cell.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: iperf3-server
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-tuned

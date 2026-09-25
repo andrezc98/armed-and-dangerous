@@ -71,3 +71,16 @@ def test_a_cell_with_too_few_valid_runs_is_not_drawn(tmp_path):
     written = sorted(p.name for p in charts.render_all(day, tmp_path / "figs"))
     assert "net-cpu-per-gbps.png" not in written
     assert "java-knee.png" in written
+
+
+def test_each_silicon_family_gets_its_own_colour():
+    assert charts._colors(["x86-tuned", "amd-tuned", "arm-tuned", "x86-t8",
+                           "amd-tuned-vthreads", "arm-tuned-kleidiai"]) == [
+        charts.X86, charts.AMD, charts.ARM, charts.X86, charts.AMD, charts.ARM]
+    assert len({charts.X86, charts.AMD, charts.ARM}) == 3
+
+
+def test_an_arc_with_an_amd_line_renders(tmp_path):
+    out = charts.arc_chart({"arm": [["m7g", 1], ["m9g", 2]], "amd": [["m7a", 1], ["m8a", 2]],
+                            "x86": [["m7i", 1], ["m8i", 2]]}, tmp_path / "arc.png")
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

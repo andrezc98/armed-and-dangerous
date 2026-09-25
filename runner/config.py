@@ -83,18 +83,22 @@ def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, std
 
 # --- cells -------------------------------------------------------------------
 # Overlay name -> managed node group key in `terraform output -json nodegroup_names`.
-# The three that are not 1:1 are cells of a workload, not node groups: x86-t8 is
-# llama.cpp with -t 8 (one thread per physical core) on the x86-tuned node group, and the two -vthreads cells
-# are the same tuned nodes with a different JVM flag.
+# The ones that are not 1:1 are cells of a workload, not node groups: x86-t8 is
+# llama.cpp with -t 8 (one thread per physical core) on the x86-tuned node group,
+# arm-tuned-kleidiai is another llama image on arm-tuned, and the three -vthreads
+# cells are the same tuned nodes with a different JVM flag.
 CELL_MNG = {
     "x86-stock": "x86-stock",
     "x86-tuned": "x86-tuned",
     "x86-smtoff": "x86-smtoff",
+    "amd-stock": "amd-stock",
+    "amd-tuned": "amd-tuned",
     "arm-stock": "arm-stock",
     "arm-tuned": "arm-tuned",
     "x86-t8": "x86-tuned",
     "arm-tuned-kleidiai": "arm-tuned",
     "x86-tuned-vthreads": "x86-tuned",
+    "amd-tuned-vthreads": "amd-tuned",
     "arm-tuned-vthreads": "arm-tuned",
 }
 
@@ -102,12 +106,17 @@ INSTANCE = {
     "x86-stock": "m8i.4xlarge",
     "x86-tuned": "m8i.4xlarge",
     "x86-smtoff": "m8i.4xlarge",
+    # AMD EPYC 9R45 (Turin), 16 vCPU = 16 cores, one thread per core (EC2
+    # describe-instance-types, 2026-09-24). Added 2026-09-25, speaker ruling.
+    "amd-stock": "m8a.4xlarge",
+    "amd-tuned": "m8a.4xlarge",
     "arm-stock": "m9g.4xlarge",
     "arm-tuned": "m9g.4xlarge",
 }
 
 # Exclusive vCPUs the measured pod must own (static CPU manager + 1 reserved
-# vCPU, infra/userdata/base.toml). x86-smtoff is 8 vCPUs, so 7.
+# vCPU, infra/userdata/base.toml). x86-smtoff is 8 vCPUs, so 7. The AMD cells
+# take the default: m8a.4xlarge is 16 vCPUs, 15 of them exclusive = 15 cores.
 EXCLUSIVE_CPUS = {"x86-smtoff": 7}
 DEFAULT_EXCLUSIVE_CPUS = 15
 
@@ -165,8 +174,9 @@ WORKLOADS = {
         "fine_stage_seconds": 45,
         "fixed_seconds": 480,
         "warmup_seconds": 180,
-        "cells": ["x86-stock", "x86-tuned", "x86-smtoff", "arm-stock", "arm-tuned",
-                  "x86-tuned-vthreads", "arm-tuned-vthreads"],
+        "cells": ["x86-stock", "x86-tuned", "x86-smtoff", "amd-stock", "amd-tuned",
+                  "arm-stock", "arm-tuned",
+                  "x86-tuned-vthreads", "amd-tuned-vthreads", "arm-tuned-vthreads"],
     },
     "go": {
         "loader": "k6",
@@ -195,7 +205,7 @@ WORKLOADS = {
         "fine_stage_seconds": 45,
         "fixed_seconds": 480,
         "warmup_seconds": 60,
-        "cells": ["x86-stock", "arm-stock"],
+        "cells": ["x86-stock", "amd-stock", "arm-stock"],
     },
     "inference": {
         "loader": "k6",
@@ -216,8 +226,8 @@ WORKLOADS = {
         "saturate_vus": 4,
         "fixed_seconds": 360,
         "warmup_seconds": 60,
-        "cells": ["x86-stock", "x86-tuned", "x86-t8", "arm-stock", "arm-tuned",
-                  "arm-tuned-kleidiai"],
+        "cells": ["x86-stock", "x86-tuned", "x86-t8", "amd-stock", "amd-tuned",
+                  "arm-stock", "arm-tuned", "arm-tuned-kleidiai"],
     },
     "mongo": {
         "loader": "ycsb",
@@ -239,7 +249,7 @@ WORKLOADS = {
         "warmup_seconds": 300,
         "warm_pages": 1000,  # 'pages read into cache' delta per pass that counts as flat
         "warm_max_min": 20,  # give up warming after this and refuse to measure EBS
-        "cells": ["x86-stock", "x86-tuned", "arm-stock", "arm-tuned"],
+        "cells": ["x86-stock", "x86-tuned", "amd-stock", "amd-tuned", "arm-stock", "arm-tuned"],
     },
     "net": {
         "loader": "iperf3",
@@ -251,7 +261,7 @@ WORKLOADS = {
         "fixed_seconds": 60,
         "warmup_seconds": 0,
         "nodes": 2,  # client and server on two nodes of the same node group
-        "cells": ["x86-stock", "x86-tuned", "arm-stock", "arm-tuned"],
+        "cells": ["x86-stock", "x86-tuned", "amd-stock", "amd-tuned", "arm-stock", "arm-tuned"],
     },
 }
 

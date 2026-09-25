@@ -26,7 +26,7 @@
 # + hostPath), not /.bottlerocket/rootfs, which is the admin/superpowered-host
 # container path. Bottlerocket's SECURITY_GUIDANCE.md calls this exact
 # combination "nearly unlimited access to the host" - which is the honest framing
-# for the talk: done deliberately, on two labelled cells, for the length of one
+# for the talk: done deliberately, on three labelled cells, for the length of one
 # measurement.
 #
 # The round-robin puts one IRQ on every vCPU, the exclusive ones included. That
@@ -70,6 +70,7 @@ spec:
                     operator: In
                     values:
                       - x86-tuned
+                      - amd-tuned
                       - arm-tuned
       tolerations:
         - key: aad/sut

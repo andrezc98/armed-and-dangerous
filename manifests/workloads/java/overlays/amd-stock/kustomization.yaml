@@ -1,0 +1,27 @@
+# Stock cell: fixed heap only, same as x86-stock and arm-stock (controls, not
+# knobs).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-stock
+            containers:
+              - name: java
+                env:
+                  - name: JAVA_TOOL_OPTIONS
+                    value: "-Xms24g -Xmx24g"

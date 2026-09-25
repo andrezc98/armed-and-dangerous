@@ -1,0 +1,29 @@
+# Tuned AMD: initial value is the x86-tuned set (THP, tiered compilation left
+# on). The A/B against the CMP333 bundle (-XX:-TieredCompilation + 64M code
+# cache, what arm-tuned runs) happens on the AMD calibration run; "tuned" is
+# the best measured on each chip. Calibrate on the AMD calibration run.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: java
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-tuned
+            containers:
+              - name: java
+                env:
+                  - name: JAVA_TOOL_OPTIONS
+                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages" # calibrate on the AMD calibration run

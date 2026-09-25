@@ -1,0 +1,21 @@
+# AMD column, mirrors x86-tuned: the knobs are node-level (THP on the node
+# group, C-states DaemonSet), nothing changes in the pod.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aad
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: mongo
+        namespace: aad
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aad/cell: amd-tuned

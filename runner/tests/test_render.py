@@ -112,6 +112,17 @@ def test_rendering_without_a_registry_is_refused(monkeypatch):
     # same reasoning as mongo.
     ("inference", "x86-t8", None),
     ("net", "arm-tuned", "aad-iperf3"),
+    # The AMD column (2026-09-25): every overlay it added.
+    ("java", "amd-stock", "aad-java"),
+    ("java", "amd-tuned", "aad-java"),
+    ("java", "amd-tuned-vthreads", "aad-java"),
+    ("go", "amd-stock", "aad-go"),
+    ("mongo", "amd-stock", None),
+    ("mongo", "amd-tuned", None),
+    ("inference", "amd-stock", None),
+    ("inference", "amd-tuned", None),
+    ("net", "amd-stock", "aad-iperf3"),
+    ("net", "amd-tuned", "aad-iperf3"),
 ])
 def test_an_overlay_renders_through_the_throwaway_kustomization(workload, cell_name, own_image):
     """The images transformer runs from a temp dir outside the repo, so the
@@ -123,5 +134,23 @@ def test_an_overlay_renders_through_the_throwaway_kustomization(workload, cell_n
     inference has no own image), so each is rendered here."""
     rendered = cell.kustomize_overlay(workload, cell_name)
     assert cell.UNSET_TAG not in rendered
+    # The pod lands on the node group the runner scales for this cell.
+    assert f"aad/cell: {config.node_cell(cell_name)}" in rendered
     if own_image:
         assert f"{ECR}/{own_image}:2026-09-19" in rendered
+
+
+@pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl is not installed")
+def test_the_amd_tuned_overlays_carry_the_initial_tuned_values():
+    """Initial values, to be calibrated: the x86-tuned JVM set and -t 15."""
+    java = cell.kustomize_overlay("java", "amd-tuned")
+    assert "-Xms24g -Xmx24g -XX:+UseTransparentHugePages" in java
+    vthreads = [d for d in yaml.safe_load_all(cell.kustomize_overlay("java", "amd-tuned-vthreads"))
+                if d and d.get("kind") == "Deployment"][0]
+    env = {e["name"]: e.get("value") for e in vthreads["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["SPRING_THREADS_VIRTUAL_ENABLED"] == "true"
+    assert env["JAVA_TOOL_OPTIONS"] == "-Xms24g -Xmx24g -XX:+UseTransparentHugePages"
+    llama = [d for d in yaml.safe_load_all(cell.kustomize_overlay("inference", "amd-tuned"))
+             if d and d.get("kind") == "Deployment"][0]
+    args = llama["spec"]["template"]["spec"]["containers"][0]["args"]
+    assert args[args.index("-t") + 1] == "15"

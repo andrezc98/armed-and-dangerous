@@ -22,9 +22,12 @@
 # never select any idle states with exit latency beyond that limit"
 # (https://www.kernel.org/doc/html/latest/admin-guide/pm/cpuidle.html, read
 # 2026-09-04). So the limit to write is C1's own exit latency, read from
-# /sys/devices/system/cpu/cpu0/cpuidle/state1/latency ("Exit latency of the idle
+# /sys/devices/system/cpu/cpu0/cpuidle/stateN/latency ("Exit latency of the idle
 # state in microseconds", same page): C1 stays selectable, C1E/C6 and anything
-# deeper do not. A limit of 0 would exclude C1 too and leave only the POLL state,
+# deeper do not. The state is found by its `name` ("Name of the idle state",
+# same page), not assumed to be state1: m8a (AMD EPYC) may run acpi_idle
+# instead of intel_idle, with its own numbering and names. No state named C1
+# -> the shallowest state that is not POLL. UNVERIFIED on a real m8a node. A limit of 0 would exclude C1 too and leave only the POLL state,
 # which is the CPU spinning in a loop instead of idling - a different experiment,
 # and not the one the slide claims.
 #
@@ -36,15 +39,17 @@
 # which is exactly what the runner wants between cells.
 #
 # PM QoS does not flip /sys/devices/system/cpu/cpu*/cpuidle/state*/disable, so
-# the readiness probe reads the device back instead and compares it with that
-# same state1/latency: the aggregated target value must equal it.
+# the readiness probe reads the device back instead and compares it with the
+# limit the script chose (LIMIT_FILE): the aggregated target value must equal it.
 #
 # Only x86: "AWS Graviton processors have built-in power saving modes and operate
 # at a fixed frequency. Therefore, they do not provide the ability for the
 # operating system to control C-states and P-states"
 # (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/processor_state_control.html),
 # and m8i.4xlarge is listed there under "C-states only". That asymmetry is the
-# point of the talk, not an omission.
+# point of the talk, not an omission. amd-tuned (m8a.4xlarge, added 2026-09-25)
+# gets the same knob: m8a.4xlarge is in the same "C-states only" list (read
+# 2026-09-25).
 #
 # nodeAffinity In, not nodeSelector: "Kubernetes only schedules the Pod onto
 # nodes that have each of the labels you specify" - nodeSelector is equality
@@ -81,6 +86,7 @@ spec:
                     values:
                       - x86-tuned
                       - x86-smtoff
+                      - amd-tuned
       tolerations:
         - key: aad/sut
           operator: Equal
@@ -94,18 +100,48 @@ spec:
             # synthetic tree outside a node (see manifests/base/README.md).
             - name: PMQOS_DEV
               value: /dev/cpu_dma_latency
-            - name: C1_LATENCY
-              value: /sys/devices/system/cpu/cpu0/cpuidle/state1/latency
+            - name: CPUIDLE_DIR
+              value: /sys/devices/system/cpu/cpu0/cpuidle
+            # Where the script leaves the limit it chose, for the probe.
+            - name: LIMIT_FILE
+              value: /tmp/cpuidle-limit
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              if [ ! -r "${C1_LATENCY}" ]; then
-                echo "no ${C1_LATENCY}: this kernel exposes no C1 idle state to cap against"
+              # C1 by name, not by index: intel_idle and acpi_idle number their
+              # states differently. No state named C1 (e.g. acpi_idle's
+              # C1_ACPI spelling) -> the shallowest non-POLL state, which is C1
+              # under any name.
+              want=""
+              pick=""
+              for d in "${CPUIDLE_DIR}"/state*; do
+                [ -r "${d}/name" ] || continue
+                if [ "$(cat "${d}/name")" = "C1" ]; then
+                  want=$(cat "${d}/latency")
+                  pick=C1
+                  break
+                fi
+              done
+              if [ -z "${want}" ]; then
+                for d in "${CPUIDLE_DIR}"/state*; do
+                  [ -r "${d}/name" ] || continue
+                  name=$(cat "${d}/name")
+                  if [ "${name}" = "POLL" ]; then continue; fi
+                  lat=$(cat "${d}/latency")
+                  if [ -z "${want}" ] || [ "${lat}" -lt "${want}" ]; then
+                    want=${lat}
+                    pick=${name}
+                  fi
+                done
+              fi
+              if [ -z "${want}" ]; then
+                echo "no non-POLL idle state under ${CPUIDLE_DIR}: nothing to cap against"
                 exit 1
               fi
-              want=$(cat "${C1_LATENCY}")
+              echo "C1 limit from state ${pick}: ${want} us"
+              printf '%s' "${want}" > "${LIMIT_FILE}"
               # fd 3 stays open for the life of this shell; closing it drops the request.
               exec 3>"${PMQOS_DEV}"
               printf '0x%08x' "${want}" >&3
@@ -121,7 +157,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - test "$(od -An -td4 -N4 "${PMQOS_DEV}" | tr -d ' ')" = "$(cat "${C1_LATENCY}")"
+                - test "$(od -An -td4 -N4 "${PMQOS_DEV}" | tr -d ' ')" = "$(cat "${LIMIT_FILE}")"
             # The command above has to open the device and write before the probe
             # can read a 0 back; probing at t=0 costs one guaranteed failure and
             # an extra restart-looking event in kubectl describe.
