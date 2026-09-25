@@ -276,6 +276,48 @@ def parse_ycsb(text):
     return out
 
 
+def _ycsb_number(value):
+    return str(int(value)) if value == int(value) else f"{value:.1f}"
+
+
+def merge_ycsb(texts):
+    """N go-ycsb reports of clients that ran concurrently, each with 1/N of the
+    threads and operations, as ONE report in go-ycsb's own line format, so
+    parse_ycsb, series_from_ycsb and analysis.stats read it unchanged.
+
+    Per operation line (READ, UPDATE, TOTAL ...): OPS and Count summed, Takes(s)
+    and every percentile and Max the MAX across clients, Min the min, Avg(us)
+    count-weighted (exact, unlike the percentiles of the union, which the parts
+    cannot give back: the max errs only towards slower). A line one client did
+    not print is left out, so a client with no report makes a step with no
+    report. go-ycsb v1.0.3 splits --target across its own threads
+    (pkg/client/client.go, targetPerThread), so N processes offer N x target/N.
+    """
+    if len(texts) == 1:
+        return texts[0]
+    parsed = [parse_ycsb(text) for text in texts]
+    kinds = [k for k in parsed[0] if all(k in p for p in parsed)]
+    lines = [f"# merged from {len(texts)} go-ycsb clients (runner/knee.py merge_ycsb)"]
+    for kind in kinds:
+        rows = [p[kind] for p in parsed]
+        merged = {}
+        for field in rows[0]:
+            values = [r[field] for r in rows if field in r]
+            if field in ("OPS", "Count"):
+                merged[field] = sum(values)
+            elif field == "Min(us)":
+                merged[field] = min(values)
+            elif field == "Avg(us)" and all("Count" in r for r in rows):
+                counts = sum(r["Count"] for r in rows)
+                merged[field] = round(sum(r["Avg(us)"] * r["Count"] for r in rows) / counts
+                                      if counts else 0, 1)
+            else:  # Takes(s), Max(us), every NNth(us)
+                merged[field] = max(values)
+        body = ", ".join(f"{field}: {_ycsb_number(v)}" for field, v in merged.items())
+        lines.append(f"{kind:<6} - {body}")
+    return "\n".join(lines) + "\n"
+
+
 def series_from_ycsb(runs):
     """(threads, READ p99 in ms) out of [(threads, ycsb stdout)].
 

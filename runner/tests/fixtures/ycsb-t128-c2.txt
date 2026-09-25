@@ -1,0 +1,27 @@
+Using request distribution 'uniform' a keyrange of [0 19999999]
+Connected to MongoDB!
+***************** properties *****************
+"target"="0"
+"workload"="core"
+"readproportion"="0.95"
+"command"="run"
+"mongodb.url"="mongodb://mongo.aad.svc:27017/ycsb?w=1"
+"recordcount"="20000000"
+"requestdistribution"="uniform"
+"readallfields"="true"
+"scanproportion"="0"
+"dotransactions"="true"
+"operationcount"="5000000"
+"threadcount"="64"
+"table"="usertable"
+"insertproportion"="0"
+"updateproportion"="0.05"
+**********************************************
+READ   - Takes(s): 10.0, Count: 1139811, OPS: 113981.1, Avg(us): 530, Min(us): 81, Max(us): 98303, 50th(us): 340, 90th(us): 1031, 95th(us): 1321, 99th(us): 9999, 99.9th(us): 3999, 99.99th(us): 29000
+TOTAL  - Takes(s): 10.0, Count: 1199802, OPS: 119980.2, Avg(us): 535, Min(us): 81, Max(us): 98303, 50th(us): 342, 90th(us): 1033, 95th(us): 1325, 99th(us): 9999, 99.9th(us): 4599, 99.99th(us): 29500
+UPDATE - Takes(s): 10.0, Count: 59991, OPS: 5999.1, Avg(us): 640, Min(us): 99, Max(us): 97855, 50th(us): 370, 90th(us): 1050, 95th(us): 1350, 99th(us): 9999, 99.9th(us): 25000, 99.99th(us): 52000
+**********************************************
+Run finished, takes 41.3s
+READ   - Takes(s): 41.1, Count: 4750611, OPS: 115586.6, Avg(us): 508, Min(us): 84, Max(us): 101311, 50th(us): 329, 90th(us): 1007, 95th(us): 1290, 99th(us): 1695, 99.9th(us): 3799, 99.99th(us): 20511
+TOTAL  - Takes(s): 41.1, Count: 5000000, OPS: 121654.5, Avg(us): 514, Min(us): 84, Max(us): 101311, 50th(us): 331, 90th(us): 1009, 95th(us): 1293, 99th(us): 1712, 99.9th(us): 4379, 99.99th(us): 21503
+UPDATE - Takes(s): 41.1, Count: 249389, OPS: 6067.8, Avg(us): 631, Min(us): 102, Max(us): 99711, 50th(us): 367, 90th(us): 1043, 95th(us): 1339, 99th(us): 2155, 99.9th(us): 25087, 99.99th(us): 53247

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import config
 import knee
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -337,3 +338,37 @@ def test_a_merged_fixed_run_is_judged_against_the_aggregate_rate():
     short = knee.merge_summaries([_gen(4.0, 13600 * 60, 0.0), _gen(4.0, 10400 * 60, 0.0)])
     assert knee.invalid_reasons(short, 10, 27200) == [
         "fixed_underdelivered: 24000 rps < 0.95 x 27200 rps offered"]
+
+
+# --- N go-ycsb clients per step (2026-09-25) ----------------------------------
+
+def _clients():
+    fixtures = config.RUNNER / "tests" / "fixtures"
+    return [(fixtures / f"ycsb-t128-c{c}.txt").read_text() for c in (1, 2)]
+
+
+def test_two_ycsb_clients_merge_into_one_report_parse_ycsb_reads():
+    merged = knee.parse_ycsb(knee.merge_ycsb(_clients()))
+    assert list(merged) == ["READ", "TOTAL", "UPDATE"]
+    read, total = merged["READ"], merged["TOTAL"]
+    # Throughput and counts add up; the final report, not the 10 s interim one.
+    assert total["OPS"] == pytest.approx(121065.4 + 121654.5)
+    assert read["OPS"] == pytest.approx(115001.7 + 115586.6)
+    assert total["Count"] == 10000000 and read["Count"] == 4749522 + 4750611
+    # Every percentile is the slower client's; Takes the longer one.
+    assert read["99th(us)"] == 1695 and total["99th(us)"] == 1712
+    assert read["99.9th(us)"] == 3851 and read["50th(us)"] == 331
+    assert merged["UPDATE"]["99.99th(us)"] == 53247
+    assert total["Takes(s)"] == 41.3
+    assert (total["Min(us)"], total["Max(us)"]) == (81, 101311)
+    assert read["Avg(us)"] == pytest.approx((512 * 4749522 + 508 * 4750611) / 9500133, abs=0.05)
+    assert knee.series_from_ycsb([(128, knee.merge_ycsb(_clients()))]) == [(128, 1.695)]
+
+
+def test_a_client_without_a_report_leaves_the_merged_step_without_one():
+    truncated = _clients()[0].split("Run finished")[0].split("READ   -")[0]
+    assert "READ" not in knee.parse_ycsb(knee.merge_ycsb([truncated, _clients()[1]]))
+
+
+def test_one_client_is_its_own_report():
+    assert knee.merge_ycsb(_clients()[:1]) == _clients()[0]

@@ -236,6 +236,14 @@ WORKLOADS = {
         "slo_ms": 5,  # READ p99
         # arm-stock read 3.2 ms at 128 threads at the gate and never crossed 5 ms.
         "threads": [16, 32, 64, 128, 256, 512],
+        # go-ycsb processes per step, each with threads/N, operationcount/N and
+        # --target/N (runner/cell.py run_ycsb). Calibration 2026-09-25
+        # (results/2026-09-25-cal-mongo2client/mongo2client.json), arm-stock, 128
+        # threads, 10M ops: one process 191.1k ops/s, READ p99 2.71 ms, SUT 8.3
+        # cores; two (64+64) 242.2k ops/s (+27 %), p99 1.68/1.70 ms, SUT 9.8 cores.
+        # One client capped the step, as one k6 process did for Java. Every thread
+        # count and operationcount must divide by it (check_ycsb_clients).
+        "ycsb_clients": 2,
         "recordcount": 20000000,  # same value as ycsb-load-job.yaml, on purpose
         "workload_file": "workloadb",  # 95/5 read heavy; the load itself is workloada
         # The knee jobs run unthrottled (--target 0), so their length is

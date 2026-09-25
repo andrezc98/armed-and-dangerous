@@ -1012,6 +1012,70 @@ def ycsb_job_yaml(name, cell, spec, threads, target, operationcount, load=False)
     return text
 
 
+YCSB_WARM_THREADS = 64  # the warm-up passes' thread count, split like any other
+
+
+def ycsb_clients(spec):
+    """How many go-ycsb Jobs share one load (config.WORKLOADS mongo ycsb_clients)."""
+    return spec.get("ycsb_clients", 1)
+
+
+def check_ycsb_clients(spec):
+    """Every thread count and operationcount the cell will ask for splits into
+    whole parts per client, checked before anything is paid for. The fixed
+    run's --target is rounded down to a multiple of N in measure(), which makes
+    its operationcount (target x fixed_seconds) divide too."""
+    n = ycsb_clients(spec)
+    if n == 1 or "threads" not in spec:
+        return
+    counts = {f"threads {t}": t for t in spec["threads"]}
+    counts[f"warm-up threads {YCSB_WARM_THREADS}"] = YCSB_WARM_THREADS
+    for key in ("knee_operationcount", "warm_operationcount"):
+        counts[f"{key} {spec[key]}"] = spec[key]
+    bad = [what for what, count in counts.items() if count % n or count < n]
+    if bad:
+        raise SystemExit(f"{', '.join(bad)} cannot be split across ycsb_clients={n} "
+                         f"whole parts per client; pick multiples of {n}")
+
+
+def run_ycsb(spec, name, cell, threads, target, operationcount, timeout):
+    """One YCSB load, as ycsb_clients(spec) Jobs started together (run_jobs),
+    each with 1/N of the threads, the --target and the operations. Returns
+    (Job names, their stdouts). Names get -c1..-cN only when there is more than
+    one; knee.merge_ycsb turns the reports back into one."""
+    n = ycsb_clients(spec)
+    names = [name] if n == 1 else [f"{name}-c{c}" for c in range(1, n + 1)]
+    if n > 1:
+        print(f"# {n} go-ycsb clients, each with 1/{n} of the threads and ops: "
+              f"{', '.join(names)}")
+    jobs = [(job, ycsb_job_yaml(job, cell, spec, threads // n, target // n, operationcount // n))
+            for job in names]
+    return names, run_jobs(jobs, timeout)
+
+
+def ycsb_window(names, begin):
+    """The step's window: the earliest client's start to the latest client's
+    finish (cluster clock, job_times). A client whose time cannot be read gives
+    way to this laptop's clock for that end, which can only widen the window."""
+    times = [job_times(job) for job in names]
+    starts, ends = [t[0] for t in times], [t[1] for t in times]
+    return (min(starts) if None not in starts else begin,
+            max(ends) if None not in ends else now())
+
+
+def write_ycsb(out_dir, out_name, logs, merged):
+    """The merged report under the name everything reads (knee-t128.txt,
+    ycsb.txt) and, with more than one client, each client's raw stdout next to
+    it (knee-t128-c1.txt ...). merged=None still keeps the raw ones."""
+    if merged is not None:
+        (out_dir / out_name).write_text(merged)
+    if len(logs) > 1:
+        stem = out_name.removesuffix(".txt")
+        for c, text in enumerate(logs, 1):
+            if text:
+                (out_dir / f"{stem}-c{c}.txt").write_text(text)
+
+
 def ycsb_knee(spec, cell, cell_dir):
     """The thread ladder, walked as it runs.
 
@@ -1025,30 +1089,29 @@ def ycsb_knee(spec, cell, cell_dir):
     for threads in spec["threads"]:
         name = f"ycsb-run-{cell}-t{threads}-knee"
         begin = now()
-        logs = run_job(
-            name,
-            ycsb_job_yaml(name, cell, spec, threads, 0, spec["knee_operationcount"]),
-            spec["fixed_seconds"] + 900,
-        )
-        # One Job per step, so the step's window is the Job's own container
-        # (cluster clock, job_times); this laptop's clock only if that is gone.
-        started, finished = job_times(name)
-        windows[threads] = (started if started is not None else begin,
-                            finished if finished is not None else now())
+        names, client_logs = run_ycsb(spec, name, cell, threads, 0,
+                                      spec["knee_operationcount"], spec["fixed_seconds"] + 900)
+        # One set of Jobs per step, so the step's window is their own containers
+        # (cluster clock): earliest start to latest finish.
+        windows[threads] = ycsb_window(names, begin)
         if config.DRY_RUN:
             continue
         # Both lines are needed: READ carries the p99 the SLO is about, TOTAL
-        # the throughput the fixed runs are throttled to.
+        # the throughput the fixed runs are throttled to. A client without them
+        # leaves them out of the merge: the step has no report.
+        logs = knee.merge_ycsb(client_logs)
         parsed = knee.parse_ycsb(logs) if logs else {}
         missing = [line for line in ("READ", "TOTAL") if line not in parsed]
         if missing:
+            write_ycsb(cell_dir, f"knee-t{threads}.txt", client_logs, None)
             if ended_by is None:
-                raise RuntimeError(
-                    f"job/{name} printed no {'/'.join(missing)} line:\n{job_failure(name)}"
-                )
+                raise RuntimeError("\n".join(
+                    f"job/{job} printed no {'/'.join(missing)} line:\n{job_failure(job)}"
+                    for job, text in zip(names, client_logs)
+                    if not {"READ", "TOTAL"} <= knee.parse_ycsb(text).keys()))
             ignored[threads] = f"no {'/'.join(missing)} line, past the end of the walk"
             continue
-        (cell_dir / f"knee-t{threads}.txt").write_text(logs)
+        write_ycsb(cell_dir, f"knee-t{threads}.txt", client_logs, logs)
         runs.append((threads, logs))
         series = knee.series_from_ycsb(runs)
         ended_by = knee.walk(series, spec["slo_ms"])[1]
@@ -1144,11 +1207,8 @@ def mongo_prepare(spec, cell, meta, date, reload=False):
     while True:
         before = mongo_pages_read()
         name = f"ycsb-run-{cell}-warm{attempt}"
-        run_job(
-            name,
-            ycsb_job_yaml(name, cell, spec, 64, 0, spec["warm_operationcount"]),
-            spec["warmup_seconds"] + 900,
-        )
+        run_ycsb(spec, name, cell, YCSB_WARM_THREADS, 0, spec["warm_operationcount"],
+                 spec["warmup_seconds"] + 900)
         delta = mongo_pages_read() - before
         meta["mongo_warmup"].append(delta)
         if config.DRY_RUN or delta < spec["warm_pages"]:
@@ -1316,6 +1376,8 @@ def run_cell(args):
     check_images(workload, cell)
     check_fine_ladder(spec, args.env)
     check_generators(spec, args.env)
+    if workload == "mongo":
+        check_ycsb_clients(spec)
 
     # From here on the money is running, so everything is inside the try: the
     # scale-up included, because a scale-up that half succeeded still bills.
@@ -1526,19 +1588,24 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
 
     if workload == "mongo":
         threads = kneed["knee"] if kneed else spec["threads"][0]
-        target = int(0.8 * (kneed["ops"] if kneed else 0)) or 1
+        n = ycsb_clients(spec)
+        target = int(0.8 * (kneed["ops"] if kneed else 0))
+        # ponytail: whole ops/s per client by rounding down (< N ops/s off the 80 %).
+        target = (target - target % n) or n
         name = f"ycsb-run-{cell}-t{threads}-r{i}"
-        logs = run_job(
-            name,
-            ycsb_job_yaml(name, cell, spec, threads, target,
-                          int(target * spec["fixed_seconds"])),
-            spec["fixed_seconds"] + 900,
-        )
+        names, client_logs = run_ycsb(spec, name, cell, threads, target,
+                                      target * spec["fixed_seconds"], spec["fixed_seconds"] + 900)
+        # The aggregate target: the merged TOTAL OPS is judged against it.
         run_meta["threads"], run_meta["target_ops"] = threads, target
-        if not logs:
-            no_summary(run_meta, name)
+        if not all(client_logs):
+            for job, text in zip(names, client_logs):
+                if not text:
+                    no_summary(run_meta, job)
+            if not config.DRY_RUN:
+                write_ycsb(run_dir, "ycsb.txt", client_logs, None)
         elif not config.DRY_RUN:
-            (run_dir / "ycsb.txt").write_text(logs)
+            logs = knee.merge_ycsb(client_logs)
+            write_ycsb(run_dir, "ycsb.txt", client_logs, logs)
             parsed = knee.parse_ycsb(logs)
             if "READ" in parsed and "TOTAL" in parsed:  # a truncated report: stats says so
                 reasons = knee.ycsb_invalid_reasons(parsed, spec["slo_ms"], target)

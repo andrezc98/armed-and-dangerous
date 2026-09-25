@@ -14,6 +14,7 @@ import yaml
 import capture
 import cell
 import config
+import knee
 
 COST_MD = """| instance | usd_per_hour | captured (date, source) |
 |---|---|---|
@@ -436,6 +437,8 @@ def test_an_empty_collection_is_loaded_and_a_complete_one_is_reused(monkeypatch)
     jobs = []
     monkeypatch.setattr(config, "DRY_RUN", False)
     monkeypatch.setattr(cell, "run_job", lambda name, *a, **k: jobs.append(name) or "")
+    monkeypatch.setattr(cell, "run_jobs",
+                        lambda j, timeout: jobs.extend(n for n, _ in j) or ["" for _ in j])
     monkeypatch.setattr(cell, "mongo_pages_read", lambda: 0)
 
     monkeypatch.setattr(cell, "mongo_int", lambda js: 0)
@@ -949,9 +952,17 @@ def _ycsb(p99_us):
     return text.replace("99th(us): 1300", f"99th(us): {p99_us}")
 
 
-def _ycsb_ladder(monkeypatch, logs, times=""):
+def _ycsb_ladder(monkeypatch, logs, times="", seen=None):
+    """Every client of a step answers logs["t<threads>"] (a str), or its own
+    entry of it (a list, one per client); `seen` collects the (name, yaml)."""
+    def fake(jobs, timeout):
+        if seen is not None:
+            seen.extend(jobs)
+        step = logs[re.search(r"-(t\d+)-knee", jobs[0][0]).group(1)]
+        return list(step) if isinstance(step, list) else [step for _ in jobs]
+
     monkeypatch.setattr(config, "DRY_RUN", False)
-    monkeypatch.setattr(cell, "run_job", lambda name, *a, **k: logs[name.split("-")[-2]])
+    monkeypatch.setattr(cell, "run_jobs", fake)
     monkeypatch.setattr(cell, "kn", lambda *a, **k: times)
     monkeypatch.setattr(cell, "job_failure", lambda name: "Events: OOMKilled")
 
@@ -970,7 +981,7 @@ def test_a_mongo_crossing_survives_an_overloaded_step_above_it(monkeypatch, tmp_
 def test_a_mongo_step_without_a_report_before_any_crossing_still_breaks_the_ladder(
         monkeypatch, tmp_path):
     _ycsb_ladder(monkeypatch, {"t16": _ycsb(1300), "t32": "", "t64": _ycsb(9000)})
-    with pytest.raises(RuntimeError, match="t32-knee printed no READ/TOTAL"):
+    with pytest.raises(RuntimeError, match="t32-knee-c1 printed no READ/TOTAL"):
         cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16, 32, 64]),
                        "x86-stock", tmp_path)
 
@@ -1154,3 +1165,102 @@ def test_the_java_plan_shows_both_generators_of_every_k6_load(plan, monkeypatch)
     assert jobs == [f"job/k6-java-arm-tuned-{what}-g{g}"
                     for what in ("warmup", "knee", "fine-r1", "r1") for g in (1, 2)]
     assert "# 2 k6 generators, each at 1/2 of the load" in out
+
+
+# --- N go-ycsb clients per step (2026-09-25) ----------------------------------
+
+def _t128(c):
+    return (config.RUNNER / "tests" / "fixtures" / f"ycsb-t128-c{c}.txt").read_text()
+
+
+def _args(yaml_text):
+    args = yaml.safe_load(yaml_text)["spec"]["template"]["spec"]["containers"][0]["args"]
+    return {"threads": args[args.index("--threads") + 1],
+            "target": args[args.index("--target") + 1],
+            "ops": next(a for a in args if a.startswith("operationcount="))}
+
+
+def test_each_knee_step_runs_two_clients_with_half_the_threads_and_ops(monkeypatch, tmp_path):
+    seen = []
+    _ycsb_ladder(monkeypatch, {"t128": [_t128(1), _t128(2)]}, seen=seen)
+    result = cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[128]), "arm-stock", tmp_path)
+    assert [name for name, _ in seen] == ["ycsb-run-arm-stock-t128-knee-c1",
+                                          "ycsb-run-arm-stock-t128-knee-c2"]
+    for _, text in seen:
+        assert _args(text) == {"threads": "64", "target": "0", "ops": "operationcount=5000000"}
+    assert result["series"] == [(128, 1.695)]
+    assert result["ops"] == pytest.approx(242719.9)
+    # The merged report under the old name, each client's raw stdout next to it.
+    assert knee.parse_ycsb((tmp_path / "knee-t128.txt").read_text())["TOTAL"]["Count"] == 10000000
+    assert (tmp_path / "knee-t128-c1.txt").read_text() == _t128(1)
+    assert (tmp_path / "knee-t128-c2.txt").read_text() == _t128(2)
+
+
+def test_one_client_without_a_report_before_the_crossing_breaks_the_ladder(monkeypatch, tmp_path):
+    _ycsb_ladder(monkeypatch, {"t16": [_t128(1), ""]})
+    with pytest.raises(RuntimeError, match="t16-knee-c2 printed no READ/TOTAL") as err:
+        cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16]), "x86-stock", tmp_path)
+    assert "knee-c1" not in str(err.value)
+    assert (tmp_path / "knee-t16-c1.txt").exists() and not (tmp_path / "knee-t16.txt").exists()
+
+
+def test_a_mongo_step_window_spans_every_client(monkeypatch, tmp_path):
+    times = {"ycsb-run-x86-stock-t16-knee-c1": (100.0, 170.0),
+             "ycsb-run-x86-stock-t16-knee-c2": (98.0, 165.0)}
+    _ycsb_ladder(monkeypatch, {"t16": _ycsb(1300)})
+    monkeypatch.setattr(cell, "job_times", lambda name: times[name])
+    result = cell.ycsb_knee(dict(config.WORKLOADS["mongo"], threads=[16]), "x86-stock", tmp_path)
+    assert result["windows"][16] == (98.0, 170.0)
+
+
+def test_a_mongo_client_without_times_widens_the_window_to_this_laptop(monkeypatch):
+    monkeypatch.setattr(cell, "job_times", lambda name: (None, 170.0) if name == "a" else (98.0, 165.0))
+    monkeypatch.setattr(cell, "now", lambda: 200.0)
+    assert cell.ycsb_window(["a", "b"], 90.0) == (90.0, 170.0)
+
+
+def test_the_warm_up_passes_are_split_too(monkeypatch):
+    seen = []
+    monkeypatch.setattr(config, "DRY_RUN", True)
+    monkeypatch.setattr(cell, "run_jobs", lambda j, timeout: seen.extend(j) or ["" for _ in j])
+    cell.mongo_prepare(dict(config.WORKLOADS["mongo"]), "x86-stock", {}, "2026-09-25")
+    warm = [(n, t) for n, t in seen if "warm" in n]
+    assert [n for n, _ in warm] == ["ycsb-run-x86-stock-warm0-c1", "ycsb-run-x86-stock-warm0-c2"]
+    assert {_args(t)["threads"] for _, t in warm} == {"32"}
+    assert {_args(t)["ops"] for _, t in warm} == {"operationcount=1000000"}
+
+
+def test_a_fixed_mongo_run_splits_the_target_and_judges_the_sum(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "run_jobs",
+                        lambda j, timeout: seen.extend(j) or [_t128(1), _t128(2)])
+    (tmp_path / "knee.json").write_text(json.dumps({"knee": 128, "ops": 242246.6}))
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    meta = {}
+    spec = dict(config.WORKLOADS["mongo"])
+    cell.measure(spec, "mongo", "arm-stock", 1, run_dir, meta, None)
+    # 80 % = 193797.28 -> 193796, the nearest whole ops/s per client below it.
+    assert meta["target_ops"] == 193796 and meta["threads"] == 128
+    for _, text in seen:
+        assert _args(text) == {"threads": "64", "target": "96898",
+                               "ops": f"operationcount={96898 * spec['fixed_seconds']}"}
+    assert "invalid" not in meta  # 242.7k delivered >= 0.95 x 193796
+    assert knee.parse_ycsb((run_dir / "ycsb.txt").read_text())["READ"]["99th(us)"] == 1695
+    assert (run_dir / "ycsb-c2.txt").read_text() == _t128(2)
+
+
+def test_the_default_mongo_ladder_splits_across_the_clients():
+    assert cell.check_ycsb_clients(dict(config.WORKLOADS["mongo"])) is None
+
+
+@pytest.mark.parametrize("override, what", [
+    ({"threads": [16, 33]}, "threads 33"),
+    ({"threads": [1]}, "threads 1"),
+    ({"knee_operationcount": 10000001}, "knee_operationcount 10000001"),
+    ({"warm_operationcount": 3}, "warm_operationcount 3"),
+])
+def test_a_mongo_count_that_does_not_split_stops_the_cell(override, what):
+    with pytest.raises(SystemExit, match=what):
+        cell.check_ycsb_clients(dict(config.WORKLOADS["mongo"], **override))
