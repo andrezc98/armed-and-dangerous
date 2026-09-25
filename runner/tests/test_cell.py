@@ -71,7 +71,7 @@ def _day(tmp_path, estimate="3.00"):
     ("go", "x86-stock"),
     ("mongo", "x86-stock"),
     ("inference", "arm-tuned"),
-    ("inference", "x86-t15"),
+    ("inference", "x86-t8"),
     ("net", "arm-tuned"),
 ])
 def test_every_workload_plans_a_whole_cell(plan, workload, cell_name):

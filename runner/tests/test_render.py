@@ -26,7 +26,7 @@ def test_the_k6_job_is_valid_yaml_and_carries_the_env():
 
 def test_every_job_the_runner_renders_is_labelled_with_its_cell():
     """The label the cell deletes its own Jobs by at the end of the cell."""
-    k6 = yaml.safe_load(cell.k6_job_yaml("k6-java-x86-t15-r1", "x86-t15", "java.js", {}))
+    k6 = yaml.safe_load(cell.k6_job_yaml("k6-java-x86-t8-r1", "x86-t8", "java.js", {}))
     ycsb = yaml.safe_load(
         cell.ycsb_job_yaml("ycsb-run-arm-tuned-t64-r1", "arm-tuned",
                            config.WORKLOADS["mongo"], 64, 900, 432000)
@@ -35,7 +35,7 @@ def test_every_job_the_runner_renders_is_labelled_with_its_cell():
         cell.render(config.MANIFESTS / "workloads" / "net" / "base" / "iperf3-client-job.yaml",
                     NAME="iperf3-client-arm-tuned-fwd-r1", CELL="arm-tuned")
     )
-    assert k6["metadata"]["labels"] == {"aad/cell": "x86-t15"}
+    assert k6["metadata"]["labels"] == {"aad/cell": "x86-t8"}
     assert ycsb["metadata"]["labels"] == {"aad/cell": "arm-tuned"}
     assert iperf["metadata"]["labels"] == {"aad/cell": "arm-tuned"}
 
@@ -110,7 +110,7 @@ def test_rendering_without_a_registry_is_refused(monkeypatch):
     ("mongo", "x86-stock", None),
     # inference is entirely third-party images (curlimages/curl, llama.cpp);
     # same reasoning as mongo.
-    ("inference", "x86-t15", None),
+    ("inference", "x86-t8", None),
     ("net", "arm-tuned", "aad-iperf3"),
 ])
 def test_an_overlay_renders_through_the_throwaway_kustomization(workload, cell_name, own_image):

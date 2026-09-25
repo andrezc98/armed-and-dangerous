@@ -187,17 +187,20 @@ kubectl delete -k manifests/workloads/java/overlays/arm-tuned
 |---|---|---|
 | `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | `java.aad.svc:9966` |
 | `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | `mongo.aad.svc:27017` |
-| `inference` | `x86-stock`, `x86-tuned`, `x86-t15`, `arm-stock`, `arm-tuned` | `llama.aad.svc:8080` |
+| `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `arm-stock`, `arm-tuned` | `llama.aad.svc:8080` |
 | `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | `iperf3-server.aad.svc:5201` |
 | `go` | `x86-stock`, `arm-stock` | `go.aad.svc:8080` |
 
-`x86-t15` no es un node group: corre sobre `aad/cell=x86-tuned` con `-t 15` para
-medir el costo de sobresuscribir SMT (15 hilos sobre 8 cores físicos). El número
-es 15 y no 16 porque con el CPU manager en `static` el pod es dueño exactamente
-de los 15 vCPU que pide; `-t 16` habría sido el proceso sobresuscribiéndose a sí
-mismo encima del SMT, con los dos efectos mezclados. Por lo mismo `arm-tuned` usa
-`-t 15` y no `-t 16`, aunque el m9g.4xlarge tenga 16 cores físicos: el vCPU 16 es
-el reservado.
+`x86-t8` no es un node group: corre sobre `aad/cell=x86-tuned` con `-t 8`, un
+hilo por core físico, el consejo habitual para llama.cpp en x86. Hasta el
+2026-09-24 esa era la celda tuned; en la calibración midió 40.6 tok/s contra
+57.5 con `-t 15` (los hermanos SMT incluidos, +42 %), así que `x86-tuned` pasó a
+`-t 15` ("tuned" = lo mejor medido en cada chip) y `x86-t8` queda para mostrar el
+consejo que no se sostuvo. El número es 15 y no 16 porque con el CPU manager en
+`static` el pod es dueño exactamente de los 15 vCPU que pide; `-t 16` habría sido
+el proceso sobresuscribiéndose a sí mismo. Por lo mismo `arm-tuned` usa `-t 15` y
+no `-t 16`, aunque el m9g.4xlarge tenga 16 cores físicos: el vCPU 16 es el
+reservado.
 
 Los Jobs no son parte de ningún kustomization; son plantillas que el runner
 renderiza y aplica en orden:

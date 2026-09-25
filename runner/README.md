@@ -129,11 +129,11 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 |---|---|---|
 | `java` | `x86-stock`, `x86-tuned`, `x86-smtoff`, `arm-stock`, `arm-tuned`, `x86-tuned-vthreads`, `arm-tuned-vthreads` | k6, escalera 10k→120k rps de a 10k + escalera fina por corrida (de a 2k), SLO p99 10 ms |
 | `go` | `x86-stock`, `arm-stock` | k6, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
-| `inference` | `x86-stock`, `x86-tuned`, `x86-t15`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
+| `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `arm-stock`, `arm-tuned` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
 | `mongo` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | go-ycsb, escalera de hilos 16/32/64/128/256/512, SLO p99 READ 5 ms |
 | `net` | `x86-stock`, `x86-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
 
-`x86-t15`, `x86-tuned-vthreads` y `arm-tuned-vthreads` no son node groups: son
+`x86-t8`, `x86-tuned-vthreads` y `arm-tuned-vthreads` no son node groups: son
 celdas de un workload que corren sobre la node group tuned que les corresponde
 (`config.CELL_MNG`).
 

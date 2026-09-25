@@ -83,8 +83,8 @@ def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, std
 
 # --- cells -------------------------------------------------------------------
 # Overlay name -> managed node group key in `terraform output -json nodegroup_names`.
-# The three that are not 1:1 are cells of a workload, not node groups: x86-t15 is
-# llama.cpp with -t 15 on the x86-tuned node group, and the two -vthreads cells
+# The three that are not 1:1 are cells of a workload, not node groups: x86-t8 is
+# llama.cpp with -t 8 (one thread per physical core) on the x86-tuned node group, and the two -vthreads cells
 # are the same tuned nodes with a different JVM flag.
 CELL_MNG = {
     "x86-stock": "x86-stock",
@@ -92,7 +92,7 @@ CELL_MNG = {
     "x86-smtoff": "x86-smtoff",
     "arm-stock": "arm-stock",
     "arm-tuned": "arm-tuned",
-    "x86-t15": "x86-tuned",
+    "x86-t8": "x86-tuned",
     "x86-tuned-vthreads": "x86-tuned",
     "arm-tuned-vthreads": "arm-tuned",
 }
@@ -204,7 +204,7 @@ WORKLOADS = {
         "saturate_vus": 4,
         "fixed_seconds": 360,
         "warmup_seconds": 60,
-        "cells": ["x86-stock", "x86-tuned", "x86-t15", "arm-stock", "arm-tuned"],
+        "cells": ["x86-stock", "x86-tuned", "x86-t8", "arm-stock", "arm-tuned"],
     },
     "mongo": {
         "loader": "ycsb",

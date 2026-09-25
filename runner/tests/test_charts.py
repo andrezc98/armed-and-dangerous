@@ -25,7 +25,7 @@ def _day(tmp_path):
         (day / "java" / cell / "knee.json").write_text(
             json.dumps({"unit": "rps", "knee": int(rps * 10), "slo_ms": 100})
         )
-    for cell in ("arm-tuned", "x86-t15"):
+    for cell in ("arm-tuned", "x86-t8"):
         for i in RUNS:
             d = day / "inference" / cell / f"run-{i}"
             d.mkdir(parents=True)

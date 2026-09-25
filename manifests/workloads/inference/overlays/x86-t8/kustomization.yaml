@@ -1,12 +1,11 @@
-# Same node group as x86-tuned (nodeSelector aad/cell: x86-tuned), 15 threads
-# instead of 8: the cost of oversubscribing SMT, measured rather than argued.
-# This is a cell of the inference workload, not a node group.
-#
-# 15, not 16 (renamed 2026-09-04): with the static CPU manager policy the pod
-# owns exactly the 15 vCPUs it requests, so 16 threads would have been the
-# process oversubscribing itself on top of the SMT oversubscription and the two
-# effects would be impossible to tell apart. 15 threads on 8 physical cores is
-# still 2x SMT oversubscription, which is the thing being measured.
+# Same node group as x86-tuned (nodeSelector aad/cell: x86-tuned), 8 threads:
+# one per PHYSICAL core of the m8i.4xlarge (8 cores with SMT), the usual advice
+# for llama.cpp on x86. Until 2026-09-24 this was the tuned setting; on
+# calibration day it measured 40.6 tok/s against 57.5 with 15 threads (SMT
+# siblings included, +42 %), so x86-tuned moved to -t 15 ("tuned" = best
+# measured per chip) and this cell keeps the advice that did not hold.
+# Results: results/2026-09-24-cal-llama-{x86,x86t15}/. This is a cell of the
+# inference workload, not a node group.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aad
@@ -37,4 +36,4 @@ patches:
         value: "-t"
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "15"
+        value: "8"

@@ -1,4 +1,7 @@
-# Tuned x86: one thread per physical core. m8i.4xlarge is 8 cores with SMT.
+# Tuned x86: 15 threads = the pod's 15 exclusive vCPUs (static CPU manager, the
+# 16th is reserved), i.e. SMT siblings included. Calibration day 2026-09-24:
+# 57.5 tok/s with -t 15 vs 40.6 with one thread per physical core (-t 8, now
+# the x86-t8 cell); "tuned" is the best measured on each chip.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: aad
@@ -29,4 +32,4 @@ patches:
         value: "-t"
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "8"
+        value: "15"
