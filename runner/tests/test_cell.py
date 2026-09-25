@@ -1264,3 +1264,13 @@ def test_the_default_mongo_ladder_splits_across_the_clients():
 def test_a_mongo_count_that_does_not_split_stops_the_cell(override, what):
     with pytest.raises(SystemExit, match=what):
         cell.check_ycsb_clients(dict(config.WORKLOADS["mongo"], **override))
+
+
+def test_no_test_can_reach_the_cluster():
+    """conftest's guard: the one process funnel refuses live commands in tests."""
+    config.DRY_RUN = False
+    try:
+        with pytest.raises(AssertionError, match="live command"):
+            config.sh(["kubectl", "-n", "aad", "apply", "-f", "-"], stdin="x")
+    finally:
+        config.DRY_RUN = False
