@@ -2,7 +2,7 @@
 
 Demo repo de la charla (AWS Community Day Argentina 2026, waitlist → ACD Perú
 2026 → AWS Women Colombia 2026): tres clases de workload — Java de alta
-concurrencia, MongoDB y inferencia LLM en CPU — medidas en el mismo clúster
+concurrencia, bases de datos (MongoDB y PostgreSQL) e inferencia LLM en CPU — medidas en el mismo clúster
 EKS con nodos x86 (`m8i` Intel y `m8a` AMD) y Graviton5 (`m9g`), explicadas con flame graphs de
 eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 
@@ -17,6 +17,7 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
 - Karpenter v1.14.1 (chart OCI oficial) · Pyroscope chart 2.2.1 (appVersion 2.2.1; v2.3.0 no tiene chart aún) · k6 v2.2.0
 - OTel eBPF profiler `otel/opentelemetry-collector-ebpf-profiler` (tag del día) · APerf (`kubectl-aperf`) · metrics-server (addon EKS)
 - Apps (verificado y probado en local 2026-09-03, ver `apps/*/Dockerfile`): `spring-petclinic-rest` master@`4cd8e1b0` (v4.0.2, Boot 4.1.1) sobre `eclipse-temurin:25.0.4_7-jre-noble`, build `maven:3.9.16-eclipse-temurin-25-noble` · Go `golang:1.27.1` + `gcr.io/distroless/static-debian13:nonroot` · `alpine:3.24.1` + iperf3 3.20-r0 · go-ycsb v1.0.3 · k6 `grafana/k6:2.2.0` (imagen oficial, amd64+arm64)
+- PostgreSQL `postgres:18.6` (imagen oficial, amd64+arm64, verificada 2026-09-25) con pgbench select-only desde el loader: `manifests/workloads/postgres/README.md`
 - Pendientes de Task 5: MongoDB 8.0 y llama.cpp `ghcr.io/ggml-org/llama.cpp:server-b10775` (imágenes oficiales; modelo `unsloth/Llama-3.1-8B-Instruct-GGUF` Q4_0, ver spec §9)
 - EKS con Bottlerocket: `m8i.4xlarge` (x86, Xeon 6), `m8a.4xlarge` (x86, AMD EPYC 9R45, 16 núcleos sin SMT; columna agregada el 2026-09-25) y `m9g.4xlarge` (Graviton5), un node group por celda stock/tuned
 
@@ -26,14 +27,14 @@ eBPF (señal de Profiles de OpenTelemetry) y un harness open source completo.
  runner (Mac, sin terraform) ── escala MNG de la celda 0→1 ── aplica overlay (nodeSelector aad/cell)
         │
         ▼
- loader c8i.16xlarge ─ k6 / go-ycsb / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
-                                                   x86-stock | x86-tuned | x86-smtoff  (m8i.4xlarge)
-                                                   amd-stock | amd-tuned               (m8a.4xlarge)
-                                                   arm-stock | arm-tuned               (m9g.4xlarge)
-                                                      │            │
-                                   kubectl aperf ─────┘            └── DaemonSet profiler eBPF
-                                   (PMU: IPC, stalls, TLB)              ─▶ Pyroscope (tools m7g.large)
-        │                                                                     ─▶ flame graphs
+ loader c8i.16xlarge ─ k6 / go-ycsb / pgbench / iperf3 -c ─▶ SUT de la celda (1 pod, taint aad/sut)
+                                                             x86-stock | x86-tuned | x86-smtoff  (m8i.4xlarge)
+                                                             amd-stock | amd-tuned               (m8a.4xlarge)
+                                                             arm-stock | arm-tuned               (m9g.4xlarge)
+                                                                │            │
+                                   kubectl aperf ───────────────┘            └── DaemonSet profiler eBPF
+                                   (PMU: IPC, stalls, TLB)                        ─▶ Pyroscope (tools m7g.large)
+        │                                                                               ─▶ flame graphs
         └── knee (ramping) → fija 80% ×n → JSON + tarball APerf + PNG ─▶ results/ ─▶ charts ─▶ slides
 ```
 
@@ -140,7 +141,7 @@ helm uninstall karpenter -n kube-system --ignore-not-found
 kubectl delete nodepool --all --ignore-not-found
 kubectl get nodes -l aad/role=arc            # tiene que quedar vacío
 
-# 2. Todo lo que el runner dejó vivo en el clúster: StatefulSet de Mongo, el
+# 2. Todo lo que el runner dejó vivo en el clúster: StatefulSets de Mongo y PostgreSQL, el
 #    chart de Pyroscope (antes de su PVC; se reinstala el día siguiente), PVCs,
 #    Jobs de k6/YCSB/iperf3 y la perilla de red. Repite el paso 1 por las dudas
 #    e imprime este checklist al terminar.
@@ -254,7 +255,7 @@ infra/       Terraform: EKS 21.25.0, 7 MNG (5 SUT por celda + loader + tools), K
 infra/ecr/   Terraform aparte (estado propio, se aplica una vez): los 4 repos ECR privados
 infra/bootstrap/ Terraform aparte, a mano y una sola vez: bucket de estado, proveedor OIDC de GitHub, rol aws-aad-gha
 manifests/   base/ (Pyroscope, profiler eBPF, DaemonSets de perillas: C-states y red, StorageClass)
-             workloads/<java|mongo|inference|net|go>/ (kustomize base + overlays por celda)
+             workloads/<java|mongo|postgres|inference|net|go>/ (kustomize base + overlays por celda)
 runner/      Python 3.13 + uv: cell.py (orquestador), knee.py, capture.py, cost.py, analysis/, k6/*.js, tests/
 results/     JSONs crudos (n≥3 por celda), tarballs/HTML APerf, flame graphs PNG, cost.md, profiler-gate.md
 slides/      contenido.md + fuentes.md + assets/ (entregable para la plantilla oficial)

@@ -57,12 +57,13 @@ kubectl aperf --help
 | cpuset de la celda de Go | `kubectl get --raw /api/v1/namespaces/aad/services/go:8080/proxy/healthz` | https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/ — la forma es `.../services/[https:]<service_name>[:port_name]/proxy`, y `<service_name>:<port_name>` "proxies to the specified port name or port number using http" ("You can also use the port number in place of the *port_name*"). Del otro lado, `runtime.NumCPU()` "returns the number of logical CPUs usable by the current process" (https://pkg.go.dev/runtime#NumCPU), o sea respeta la máscara de afinidad |
 | Sub-métricas por escalón del knee | thresholds sobre `http_req_failed{rate:R}` (`rate<0.01`) y `http_reqs{rate:R}` (`count>0`) | un threshold sobre una sub-métrica etiquetada es lo que hace que k6 la reporte; verificado con `docker run --rm -v $PWD/runner/k6:/scripts:ro grafana/k6:2.2.0 run --quiet -e MODE=knee ... -e SUMMARY_PATH=/dev/stdout /scripts/go.js`, cuyo resumen trae `http_reqs{rate:10}` y `http_req_failed{rate:10}` |
 | Forma del resumen de k6 que se fusiona (dos generadores) | `data.metrics[nombre] = {type, contains, values, thresholds}`; un `rate` trae `rate`, `passes`, `fails`; un `counter` trae `count`, `rate` | https://github.com/grafana/k6-docs/blob/main/docs/sources/k6/v2.2.x/results-output/end-of-test/custom-summary.md (Context7, 2026-09-25) y un resumen real de k6 v2.2.0 del lab, `results/2026-09-04/java/arm-tuned/run-1/k6.json`: `http_req_failed` = `{"rate": 0, "passes": 0, "fails": 15352454}` |
+| Salida de pgbench 18.6 y p99 | resumen de `printResults` (`tps = …`, sin percentiles) + log por transacción muestreado (`-l --sampling-rate`), reducido en el pod a un histograma `uniq -c`; `-R` es el total del proceso, `-R 0` es fatal | https://www.postgresql.org/docs/18/pgbench.html y `src/bin/pgbench/pgbench.c` en `REL_18_6` (leídos 2026-09-25); ensayado con `docker run postgres:18.6`. Detalle en `manifests/workloads/postgres/README.md` |
 | Reporte de go-ycsb que se fusiona (dos clientes) y `--target` por proceso | líneas `READ   - Takes(s): .., Count: .., OPS: .., Avg(us): .., Min(us): .., Max(us): .., 50th(us): .., ..., 99.99th(us): ..`; el último reporte (después de `Run finished`) es el que vale; `--target` es el total del proceso | go-ycsb v1.0.3, `pkg/client/client.go` (https://github.com/pingcap/go-ycsb/blob/v1.0.3/pkg/client/client.go, leído 2026-09-25): `targetPerThread := float64(v) / float64(threadCount)`. Forma del reporte: salida real del lab, `results/2026-09-24-cal-mongo-arm/mongo/arm-stock/knee-t128.txt` |
 
 `service_name` sale de la regla de reetiquetado del chart de Pyroscope
 (`labelmap process.executable.name → service_name`, en
 `manifests/base/pyroscope-values.yaml`), así que es el nombre del ejecutable:
-`java`, `aad-go`, `mongod`, `llama-server`, `iperf3`.
+`java`, `aad-go`, `mongod`, `postgres`, `llama-server`, `iperf3`.
 
 ## Correr una celda
 
@@ -133,6 +134,7 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 | `go` | `x86-stock`, `amd-stock`, `arm-stock` | k6 con **dos generadores**, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
 | `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned`, `arm-tuned-kleidiai` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
 | `mongo` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | go-ycsb con **dos clientes**, escalera de hilos 16/32/64/128/256/512, SLO p99 READ 5 ms |
+| `postgres` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | pgbench select-only con **dos procesos**, escalera de clientes 16/32/64/128/256/512 (60 s por escalón, se detiene en el cruce), SLO p99 5 ms, escala 1000; detalle y citas en `manifests/workloads/postgres/README.md` |
 | `net` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
 
 `x86-t8`, `arm-tuned-kleidiai` y las tres `*-tuned-vthreads` no son node groups:
@@ -149,11 +151,13 @@ color.
 
 Todos los defaults viven en `config.WORKLOADS` y se pueden pisar desde la CLI:
 `--slo-ms`, `--rate-start`, `--rate-step`, `--rate-max`, `--stage-seconds`,
-`--ramp-seconds`, `--fixed-seconds`, `--warmup-seconds`, `--threads`, `--runs`,
+`--ramp-seconds`, `--fixed-seconds`, `--warmup-seconds`, `--threads`,
+`--clients` (la escalera de pgbench), `--runs`,
 `--date`, `--override-budget`, `--image-tag` (el tag de las imágenes propias en
 ECR, si no el de `results/images.json`), `--warm-pages` y `--warm-max-min` (los
-dos topes del calentamiento de Mongo), `--reload` (bota la colección de YCSB y la
-vuelve a cargar antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
+dos topes del calentamiento de Mongo y de PostgreSQL; en PostgreSQL las páginas
+son de 8 KiB leídas de disco según el `io.stat` del contenedor), `--reload` (bota
+la colección de YCSB, o corre de nuevo el init de pgbench, antes de la celda) y `--env K=V` (repetible) para cualquier otra variable
 de los scripts de k6. `--app-env K=V` (repetible) pone variables de entorno en el contenedor del SUT,
 como un parche del mismo kustomization descartable que agrega el registro (ver
 más abajo), sin editar ningún overlay: es la perilla del día de calibración para
@@ -168,7 +172,7 @@ presupuesto).
 Al terminar el día de lab, antes de que la persona corra `terraform destroy`:
 
 ```bash
-uv run cell --teardown-day     # NodePools, Jobs, perilla de red, sts de Mongo y
+uv run cell --teardown-day     # NodePools, Jobs, perilla de red, sts de Mongo y de PostgreSQL y
                                # todos los PVC; después los dos describe-volumes
 ```
 
@@ -185,6 +189,8 @@ overlay** al terminar: el StatefulSet tiene
 llevaría el PVC y el dataset con él. El pod queda `Pending` cuando la node group
 baja a cero y vuelve a programarse sobre el nodo de la celda siguiente;
 `--teardown-day` es el único lugar que borra el StatefulSet y los PVC.
+PostgreSQL hace lo mismo con su dataset de pgbench (escala 1000, init una vez por
+día) y por la misma razón.
 
 ## Qué escribe
 
@@ -202,11 +208,13 @@ results/
       knee-raw.json | knee-t<N>.txt        # la salida cruda de la búsqueda del knee
       knee-raw-g<N>.json                   # el resumen propio de cada generador de k6
       knee-t<N>-c<C>.txt                   # la salida propia de cada cliente de go-ycsb
+      knee-c<N>.txt + knee-c<N>-c<C>.txt   # postgres: escalón fusionado y salida de cada proceso de pgbench
       run-<i>/
         knee-fine.json + knee-fine-raw.json  # escalera fina de la corrida (java, go)
         knee-fine-raw-g<N>.json + k6-g<N>.json  # resumen propio de cada generador
         k6.json | llama.json | ycsb.txt | iperf.json + iperf-reverse.json
         ycsb-c<C>.txt                      # la salida propia de cada cliente de go-ycsb
+        pgbench.txt + pgbench-c<C>.txt     # postgres: reporte fusionado (formato go-ycsb) y cada proceso
         top.json                           # kubectl top cada 10 s; `nodes` trae
                                            # TODOS los nodos de la celda (red usa 2)
         meta.json                          # cpuset, aperf, flamegraph, invalidaciones
