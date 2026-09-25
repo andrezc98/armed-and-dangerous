@@ -129,13 +129,13 @@ resource "terraform_data" "sandbox_account" {
 }
 
 ################################################################################
-# Availability zone gate: does this AZ offer the four instance types at all?
+# Availability zone gate: does this AZ offer the five instance types at all?
 ################################################################################
 
 locals {
   # Every instance type nodegroups.tf asks for. One AZ carries all of them or
   # the lab moves AZ (spec plan B), it never changes instance size.
-  required_instance_types = ["m8i.4xlarge", "m9g.4xlarge", "c7i.8xlarge", "m7g.large"]
+  required_instance_types = ["m8i.4xlarge", "m8a.4xlarge", "m9g.4xlarge", "c7i.8xlarge", "m7g.large"]
 }
 
 # location_type turns the "location" filter into an AZ name: "Location type.

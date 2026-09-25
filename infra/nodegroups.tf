@@ -8,7 +8,7 @@ locals {
   # module ships bootstrap_extra_args as the whole user data and EKS merges it
   # over its own settings, so the files carry their own [settings.*] headers.
   #
-  # base.toml is the CPU manager CONTROL and goes on all five SUT cells; thp.toml
+  # base.toml is the CPU manager CONTROL and goes on all seven SUT cells; thp.toml
   # is a KNOB and only goes on the tuned ones. The two files declare disjoint
   # tables, so concatenating them is still one valid TOML document.
   base_user_data      = file("${path.module}/userdata/base.toml")
@@ -80,6 +80,26 @@ locals {
         threads_per_core = 1
       }
       max_size = 1 # not an iperf3 cell
+    })
+
+    # AMD column (speaker ruling 2026-09-25): m8a.4xlarge is AMD EPYC 9R45
+    # (Turin), 16 vCPU = 16 physical cores, one thread per core, so it answers
+    # "compare 16 real x86 cores with 16 Graviton cores". It mirrors x86-stock
+    # and x86-tuned exactly; there is no SMT-off cell because there is no SMT.
+    "amd-stock" = merge(local.sut_common, {
+      name                 = "aws-aad-mng-amd-stock"
+      ami_type             = "BOTTLEROCKET_x86_64"
+      instance_types       = ["m8a.4xlarge"]
+      labels               = { "aad/cell" = "amd-stock" }
+      bootstrap_extra_args = local.base_user_data
+    })
+
+    "amd-tuned" = merge(local.sut_common, {
+      name                 = "aws-aad-mng-amd-tuned"
+      ami_type             = "BOTTLEROCKET_x86_64"
+      instance_types       = ["m8a.4xlarge"]
+      labels               = { "aad/cell" = "amd-tuned" }
+      bootstrap_extra_args = local.tuned_sut_user_data
     })
 
     "arm-stock" = merge(local.sut_common, {

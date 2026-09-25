@@ -1,6 +1,6 @@
 # infra — el clúster EKS del lab
 
-Un clúster EKS con siete managed node groups: cinco celdas de medición (un
+Un clúster EKS con nueve managed node groups: siete celdas de medición (un
 silicio en una configuración), un `loader` y un `tools`. Las celdas viven en
 `min_size = 0`; el runner las sube a 1 (o a 2 en la celda de red) mientras dura
 la corrida y las devuelve a 0. Terraform no se ejecuta nunca desde el runner.
@@ -35,27 +35,37 @@ Las tres CRD de Karpenter (`infra/karpenter/`) usan `karpenter.sh/v1` y
 `karpenter.k8s.aws/v1`: son las únicas versiones que sirve el chart 1.14.1
 (`crds/karpenter.sh_nodepools.yaml`, `crds/karpenter.k8s.aws_ec2nodeclasses.yaml`).
 
-## Las siete node groups
+## Las nueve node groups
 
 | Node group | Instancia | AMI | min/max/desired | Etiqueta | Distintivo |
 |---|---|---|---|---|---|
 | `aws-aad-mng-x86-stock` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-stock` | Bottlerocket tal cual (+ `base.toml`) |
 | `aws-aad-mng-x86-tuned` | `m8i.4xlarge` | x86_64 | 0/2/0 | `aad/cell=x86-tuned` | `base.toml` + THP `always` |
 | `aws-aad-mng-x86-smtoff` | `m8i.4xlarge` | x86_64 | 0/1/0 | `aad/cell=x86-smtoff` | `base.toml` + THP `always` + `cpu_options` 8 núcleos, 1 hilo |
+| `aws-aad-mng-amd-stock` | `m8a.4xlarge` | x86_64 | 0/2/0 | `aad/cell=amd-stock` | Bottlerocket tal cual (+ `base.toml`) |
+| `aws-aad-mng-amd-tuned` | `m8a.4xlarge` | x86_64 | 0/2/0 | `aad/cell=amd-tuned` | `base.toml` + THP `always` |
 | `aws-aad-mng-arm-stock` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-stock` | Bottlerocket tal cual (+ `base.toml`) |
 | `aws-aad-mng-arm-tuned` | `m9g.4xlarge` | ARM_64 | 0/2/0 | `aad/cell=arm-tuned` | `base.toml` + THP `always` |
 | `aws-aad-mng-loader` | `c7i.8xlarge` | x86_64 | 1/1/1 | `aad/role=loader` | k6, go-ycsb, cliente llama |
 | `aws-aad-mng-tools` | `m7g.large` | ARM_64 | 1/1/1 | `aad/role=tools` | Pyroscope y el controlador de Karpenter |
 
-Las cinco celdas llevan el taint `aad/sut=true:NO_SCHEDULE`. En la API de EKS el
+Las siete celdas llevan el taint `aad/sut=true:NO_SCHEDULE`. En la API de EKS el
 efecto se escribe en mayúsculas y con guion bajo (`NO_SCHEDULE`); dentro de un
 NodePool de Karpenter, en cambio, se escribe `NoSchedule`.
 
-`max_size = 2` en las cuatro celdas de red, no 1: la celda de iperf3 necesita un
+`max_size = 2` en las seis celdas de red, no 1: la celda de iperf3 necesita un
 segundo nodo del mismo tipo para el cliente (spec sección 4), y la spec sección 3
 dice `max=1`. Se resolvió a favor de la sección 4 porque `max_size` no cuesta
 nada mientras `desired_size` siga en 0 y el runner es quien lo mueve.
 `x86-smtoff` no corre la celda de red y se queda en 1.
+
+La columna AMD (`amd-stock`, `amd-tuned`) entró el 2026-09-25 por decisión del
+speaker: `m8a.4xlarge` es AMD EPYC 9R45 (Turin), 16 vCPU = 16 núcleos físicos
+(`DefaultThreadsPerCore` 1, sin SMT), 4,5 GHz sostenidos, 64 GiB, a
+$0.97376/h on-demand en us-east-1 (EC2 `describe-instance-types` y
+`pricing get-products`, 2026-09-24). Responde la objeción "el Intel tiene 8
+núcleos con SMT; la comparación justa es contra 16 núcleos x86 reales". No hay celda AMD sin SMT
+porque no hay SMT que apagar.
 
 ## Reproducir
 
@@ -157,7 +167,7 @@ y sin ningún secreto de registro en el clúster.
 el módulo oficial `terraform-aws-modules/vpc/aws` (`module "vpc"` en `main.tf`):
 una VPC `var.vpc_cidr` (default `10.42.0.0/16`) con dos subnets públicas y nada
 más. La primera, `var.nodes_subnet_cidr` en `var.availability_zone`, es donde
-viven las siete node groups y los nodos de Karpenter: loader y SUT siempre en la
+viven las nueve node groups y los nodos de Karpenter: loader y SUT siempre en la
 misma AZ (requisito del runbook de performance de Graviton). EKS exige "at least
 two subnets that are in different Availability Zones" para el control plane, así
 que la segunda, `var.control_plane_subnet_cidr` en otra AZ, se pasa únicamente en
@@ -186,7 +196,7 @@ los tags de cada subnet (`main.tf` del módulo en v6.7.2, recurso
 dos y Karpenter podría poner un nodo en la del control plane.
 
 **CPU exclusiva es un control, no una perilla.** `infra/userdata/base.toml` va en
-las **cinco** celdas SUT, stock incluidas, y pone el CPU manager del kubelet en
+las **siete** celdas SUT, stock incluidas, y pone el CPU manager del kubelet en
 `static`. Sin eso `requests = limits` solo compra QoS Guaranteed: el kubelet
 aplica el límite con una cuota CFS y los hilos del pod siguen paseando por los 16
 vCPU junto a los DaemonSets y las IRQ. La regla es explícita: "Only containers
@@ -279,7 +289,7 @@ que el `apply` falle si nadie decidió quién entra.
 
 **La AZ se verifica antes de crear nada.**
 `terraform_data.instance_types_offered_in_az` corta el plan si la AZ elegida no
-ofrece las cuatro instancias del lab (`m8i.4xlarge`, `m9g.4xlarge`,
+ofrece las cinco instancias del lab (`m8i.4xlarge`, `m8a.4xlarge`, `m9g.4xlarge`,
 `c7i.8xlarge`, `m7g.large`), en vez de descubrirlo cuando el `loader` no
 arranca. Ofrecer no es tener: el gate prueba que la AZ vende el tipo, no que
 haya stock. La capacidad se confirma el día del gate, en el apply mismo, y el
@@ -351,7 +361,7 @@ submódulo, las dos por el mismo apply fallido del 2026-09-04:
   standard IAM policies have a limit of 6,144 characters versus an inline role
   policy's limit of 10,240" (`modules/karpenter/variables.tf` de
   terraform-aws-eks v21.25.0).
-- `enable_spot_termination = false` — todo el lab es on-demand (las cinco celdas,
+- `enable_spot_termination = false` — todo el lab es on-demand (las siete celdas,
   el `loader`, el `tools` y las dos NodePool del arco fijan
   `karpenter.sh/capacity-type: on-demand`), así que la cola SQS y las cuatro
   reglas de EventBridge del submódulo nunca verían un evento. Con la bandera en
@@ -460,7 +470,7 @@ kubectl patch nodepool aad-arc-arm64 --type merge -p \
 - Que `CpuOptions` sea aceptado en el launch template de una managed node group.
   La documentación de EKS solo enumera lo prohibido y `CpuOptions` no aparece;
   la conclusión es por ausencia y se confirma en el primer apply.
-- Capacidad de `m9g.4xlarge` y `m8i.4xlarge` en la AZ elegida. El gate de
+- Capacidad de `m9g.4xlarge`, `m8i.4xlarge` y `m8a.4xlarge` en la AZ elegida. El gate de
   ofertas ya descarta la AZ que ni siquiera vende el tipo, pero ofrecer no es
   tener: con una sola AZ y `max_size` chico, `InsufficientInstanceCapacity`
   sigue siendo un riesgo real, y se confirma recién en el apply. El plan B de la

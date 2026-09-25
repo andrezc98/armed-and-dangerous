@@ -31,7 +31,7 @@ module "karpenter" {
   enable_inline_policy = true
 
   # "Determines whether to enable native spot termination handling" (same file,
-  # default true). Every node in this lab is on-demand - the five cells, the
+  # default true). Every node in this lab is on-demand - the seven cells, the
   # loader, the tools group and both arc NodePools all pin
   # karpenter.sh/capacity-type = on-demand - so the SQS queue, its policy and the
   # four EventBridge rules the module would create never see an event. Turning

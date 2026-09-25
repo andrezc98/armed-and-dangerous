@@ -1,5 +1,5 @@
 variable "region" {
-  description = "AWS region. m9g.4xlarge and m8i.4xlarge are both offered in us-east-1."
+  description = "AWS region. m9g.4xlarge, m8i.4xlarge and m8a.4xlarge are all offered in us-east-1."
   type        = string
   default     = "us-east-1"
 }
@@ -60,7 +60,7 @@ variable "nodes_subnet_cidr" {
 }
 
 variable "availability_zone" {
-  description = "AZ of the node subnet. Must offer m8i.4xlarge, m9g.4xlarge, c7i.8xlarge and m7g.large."
+  description = "AZ of the node subnet. Must offer m8i.4xlarge, m8a.4xlarge, m9g.4xlarge, c7i.8xlarge and m7g.large."
   type        = string
   default     = "us-east-1a"
 }
