@@ -27,7 +27,8 @@
 # deeper do not. The state is found by its `name` ("Name of the idle state",
 # same page), not assumed to be state1: m8a (AMD EPYC) may run acpi_idle
 # instead of intel_idle, with its own numbering and names. No state named C1
-# -> the shallowest state that is not POLL. UNVERIFIED on a real m8a node. A limit of 0 would exclude C1 too and leave only the POLL state,
+# -> the shallowest state that is not POLL. UNVERIFIED on a real m8a node.
+# A limit of 0 would exclude C1 too and leave only the POLL state,
 # which is the CPU spinning in a loop instead of idling - a different experiment,
 # and not the one the slide claims.
 #

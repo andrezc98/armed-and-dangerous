@@ -636,6 +636,26 @@ def test_the_waiver_never_reaches_the_steps_up_to_the_knee():
     assert cell.loader_guard(result, samples, sut_cpus=15)[0].startswith("loader node CPU 80%")
 
 
+def test_a_tuned_cell_without_its_cstates_knob_is_not_comparable(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", False)
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: "false\n")
+    monkeypatch.setattr(cell, "wait_until", lambda pred, *a: pred() or (_ for _ in ()).throw(
+        RuntimeError("timed out")))
+    assert cell.check_cstates("amd-tuned", "node-a", {}, timeout=1) == [
+        "cstates knob not Ready on node-a after 1s"]
+
+
+def test_a_ready_knob_passes_and_stock_cells_are_not_asked(monkeypatch):
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: "true\n")
+    monkeypatch.setattr(cell, "wait_until", lambda pred, *a: pred())
+    meta = {}
+    assert cell.check_cstates("x86-tuned-vthreads", "node-a", meta) == []
+    assert meta["cstates_ready"] is True
+    monkeypatch.setattr(cell, "kn", lambda *a, **k: pytest.fail("stock cells have no knob"))
+    assert cell.check_cstates("arm-tuned", "node-a", {}) == []
+    assert cell.check_cstates("x86-stock", "node-a", {}) == []
+
+
 def test_the_knee_records_the_sut_cpu_per_step():
     """Whether a knee is the CPU running out is read off the SUT node's cores
     at each step, on the metrics windows like the loader's."""

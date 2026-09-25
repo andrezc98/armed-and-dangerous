@@ -442,6 +442,35 @@ def cpuset_size(cpuset):
     return total
 
 
+# Node groups whose cells promise the C-states knob (manifests/base/
+# cstates-daemonset.yaml, its nodeAffinity list): a tuned cell measured with the
+# knob pod crash-looping is a stock cell with a "tuned" label on the slide.
+CSTATES_NODE_CELLS = ("x86-tuned", "x86-smtoff", "amd-tuned")
+
+
+def check_cstates(cell, sut, meta, timeout=300):
+    """The C-states knob pod on THIS SUT node is Ready, or the cell is not
+    comparable. Review of the AMD column (2026-09-25): nothing checked it, and
+    on a node whose cpuidle list the script cannot use the pod exits 1 and
+    restarts forever while the cell runs untuned."""
+    if config.node_cell(cell) not in CSTATES_NODE_CELLS:
+        return []
+
+    def ready():
+        out = kn("get", "pods", "-l", "app=cstates", "--field-selector",
+                 f"spec.nodeName={sut}", "-o",
+                 r'jsonpath={range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}',
+                 capture=True, quiet=True, check=False)
+        return "true" in out.split() or None
+
+    try:
+        wait_until(ready, timeout, f"cstates knob Ready on {sut}")
+    except RuntimeError:
+        return [f"cstates knob not Ready on {sut} after {timeout}s"]
+    meta["cstates_ready"] = True
+    return []
+
+
 def check_cpuset(spec, cell, meta):
     """The control that makes cells comparable: the pod must own its vCPUs.
 
@@ -1321,6 +1350,7 @@ def run_cell(args):
         if workload == "inference":
             meta["llama_system_info"] = llama_system_info(spec)
         invalid += check_cpuset(spec, cell, meta)
+        invalid += check_cstates(cell, sut, meta)
         if invalid:
             raise RuntimeError(f"cell not comparable: {invalid}")
 
