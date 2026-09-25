@@ -1337,6 +1337,7 @@ def run_cell(args):
                 "instance_type": config.instance_type(cell), "nodes": nodes_wanted,
                 "minutes": round(minutes, 1), "runs": args.runs, "invalid": invalid,
                 "app_env": args.app_env,
+                "llama_system_info": meta.get("llama_system_info"),
             }, indent=1))
         print(f"\n# {workload}/{cell}: {minutes:.1f} min")
         write_ledger(day_dir)
