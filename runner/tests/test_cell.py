@@ -1189,7 +1189,7 @@ def test_each_knee_step_runs_two_clients_with_half_the_threads_and_ops(monkeypat
     for _, text in seen:
         assert _args(text) == {"threads": "64", "target": "0", "ops": "operationcount=5000000"}
     assert result["series"] == [(128, 1.695)]
-    assert result["ops"] == pytest.approx(242719.9)
+    assert result["ops"] == pytest.approx(10_000_000 / 41.3, abs=0.1)
     # The merged report under the old name, each client's raw stdout next to it.
     assert knee.parse_ycsb((tmp_path / "knee-t128.txt").read_text())["TOTAL"]["Count"] == 10000000
     assert (tmp_path / "knee-t128-c1.txt").read_text() == _t128(1)

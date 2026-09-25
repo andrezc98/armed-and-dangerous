@@ -352,8 +352,8 @@ def test_two_ycsb_clients_merge_into_one_report_parse_ycsb_reads():
     assert list(merged) == ["READ", "TOTAL", "UPDATE"]
     read, total = merged["READ"], merged["TOTAL"]
     # Throughput and counts add up; the final report, not the 10 s interim one.
-    assert total["OPS"] == pytest.approx(121065.4 + 121654.5)
-    assert read["OPS"] == pytest.approx(115001.7 + 115586.6)
+    assert total["OPS"] == pytest.approx(10_000_000 / 41.3, abs=0.1)  # count / longest client
+    assert read["OPS"] == pytest.approx((4749522 + 4750611) / 41.3, abs=0.1)
     assert total["Count"] == 10000000 and read["Count"] == 4749522 + 4750611
     # Every percentile is the slower client's; Takes the longer one.
     assert read["99th(us)"] == 1695 and total["99th(us)"] == 1712
@@ -372,3 +372,12 @@ def test_a_client_without_a_report_leaves_the_merged_step_without_one():
 
 def test_one_client_is_its_own_report():
     assert knee.merge_ycsb(_clients()[:1]) == _clients()[0]
+
+
+def test_a_ycsb_client_killed_mid_run_is_no_report():
+    """Its interim lines look like a report; only what follows Run finished is."""
+    fx = Path(__file__).parent / "fixtures"
+    c1 = (fx / "ycsb-t128-c1.txt").read_text()
+    killed = c1.split("Run finished")[0]  # interim reports only
+    merged = knee.merge_ycsb([killed, (fx / "ycsb-t128-c2.txt").read_text()])
+    assert knee.parse_ycsb(merged) == {}

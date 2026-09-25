@@ -280,6 +280,9 @@ def _ycsb_number(value):
     return str(int(value)) if value == int(value) else f"{value:.1f}"
 
 
+_YCSB_FINISHED = "Run finished"
+
+
 def merge_ycsb(texts):
     """N go-ycsb reports of clients that ran concurrently, each with 1/N of the
     threads and operations, as ONE report in go-ycsb's own line format, so
@@ -295,7 +298,13 @@ def merge_ycsb(texts):
     """
     if len(texts) == 1:
         return texts[0]
-    parsed = [parse_ycsb(text) for text in texts]
+    # Only what follows go-ycsb's "Run finished" line is a final report: the
+    # periodic reports before it use the same line format, so a client killed
+    # at 30 s would otherwise pass its 30 s interim numbers off as a finished
+    # step (review of 8dd4b8f). No such line = no report from that client.
+    finals = [text.rsplit(_YCSB_FINISHED, 1)[1] if _YCSB_FINISHED in text else ""
+              for text in texts]
+    parsed = [parse_ycsb(text) for text in finals]
     kinds = [k for k in parsed[0] if all(k in p for p in parsed)]
     lines = [f"# merged from {len(texts)} go-ycsb clients (runner/knee.py merge_ycsb)"]
     for kind in kinds:
@@ -313,6 +322,12 @@ def merge_ycsb(texts):
                                       if counts else 0, 1)
             else:  # Takes(s), Max(us), every NNth(us)
                 merged[field] = max(values)
+        # The clients start and finish seconds apart; while one runs alone it
+        # runs faster, so the sum of their own OPS overstates what the SUT gave
+        # the step. Total operations over the longest client's time is what was
+        # actually delivered across the step.
+        if "Count" in merged and merged.get("Takes(s)"):
+            merged["OPS"] = round(merged["Count"] / merged["Takes(s)"], 1)
         body = ", ".join(f"{field}: {_ycsb_number(v)}" for field, v in merged.items())
         lines.append(f"{kind:<6} - {body}")
     return "\n".join(lines) + "\n"
