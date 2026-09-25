@@ -134,7 +134,7 @@ Celdas válidas por workload (las mismas que los overlays de `manifests/`):
 | `go` | `x86-stock`, `amd-stock`, `arm-stock` | k6 con **dos generadores**, escalera 5k→100k rps de a 5k + escalera fina por corrida (de a 1k), SLO p99 20 ms |
 | `inference` | `x86-stock`, `x86-tuned`, `x86-t8`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned`, `arm-tuned-kleidiai` | k6 `MODE=saturate`, 4 VUs, 6 min, sin escalera ni SLO de latencia (`SLO_MS=0`); el calentamiento tiene la misma forma que la medición |
 | `mongo` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | go-ycsb con **dos clientes**, escalera de hilos 16/32/64/128/256/512, SLO p99 READ 5 ms |
-| `postgres` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | pgbench select-only con **dos procesos**, escalera de clientes 16/32/64/128/256/512 (60 s por escalón, se detiene en el cruce), SLO p99 5 ms, escala 1000; detalle y citas en `manifests/workloads/postgres/README.md` |
+| `postgres` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | pgbench select-only con **dos procesos** de 16 hilos, escalera de clientes 16/32/64/128/256/512 (60 s por escalón, se detiene en el cruce), SLO p99 5 ms de servicio; corridas fijas con el doble de clientes del knee y presupuesto de schedule lag de 1 ms; escala 1000; detalle y citas en `manifests/workloads/postgres/README.md` |
 | `net` | `x86-stock`, `x86-tuned`, `amd-stock`, `amd-tuned`, `arm-stock`, `arm-tuned` | iperf3 `-P 8 -t 60`, ida y vuelta, n=3 |
 
 `x86-t8`, `arm-tuned-kleidiai` y las tres `*-tuned-vthreads` no son node groups:
@@ -190,7 +190,9 @@ llevaría el PVC y el dataset con él. El pod queda `Pending` cuando la node gro
 baja a cero y vuelve a programarse sobre el nodo de la celda siguiente;
 `--teardown-day` es el único lugar que borra el StatefulSet y los PVC.
 PostgreSQL hace lo mismo con su dataset de pgbench (escala 1000, init una vez por
-día) y por la misma razón.
+día) y por la misma razón. Como los dos StatefulSets toleran el taint del SUT,
+una celda de una de las dos bases escala la otra a 0 réplicas antes de aplicar
+su overlay (el PVC queda).
 
 ## Qué escribe
 
