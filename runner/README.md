@@ -548,28 +548,51 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   `postgres-0`, y lo borra antes de bajar la node group a 0 para que el pod
   alcance a restaurar el valor. Pedirlo en una celda stock o en otro workload
   corta la celda antes de pagar nada.
+  El DaemonSet monta solo `/sys/kernel/mm/transparent_hugepage` (hostPath
+  `Directory`), no todo `/sys`. Si no llega a Ready en 120 s, el error de la
+  celda trae las últimas 20 líneas de su log (ahí dice por qué se negó).
+  **Fugas**: toda celda que no pidió la opción (cualquier workload) borra antes
+  de escalar su node group un DaemonSet que haya quedado de una corrida caída
+  (`kubectl delete --ignore-not-found --wait`; si falla, la celda se corta sin
+  haber pagado nada). Si el borrado del final falla, el runner imprime un
+  WARNING y no frena la bajada a 0.
   Evidencia en el bloque `postgres` de `cell.json`, en **todas** las celdas de
   PostgreSQL (con o sin la opción): `shmem_thp`, `shmem_enabled_before` (del log
-  del DaemonSet, solo con la opción), y en `after_warmup` y `after_ladder` el
-  `shmem_enabled` activo del nodo, el de `hugepages-2048kB` y `Shmem`,
-  `ShmemHugePages` y `ShmemPmdMapped` de `/proc/meminfo` (leídos dentro del
-  contenedor de postgres: el sysfs y `/proc/meminfo` son los del nodo), junto a
-  `huge_pages_status`, que sigue en `off` porque THP no es `MAP_HUGETLB`. Con la
-  opción puesta y `ShmemHugePages` por debajo de 1 GiB queda la nota
-  `shmem_thp_unused` en `notes`: la corrida vale como tuned, no como tuned con THP.
+  del DaemonSet, o del contenedor anterior con `--previous`; si no está, WARNING
+  y `null`), y en `after_warmup` y `after_ladder` el `shmem_enabled` activo del
+  nodo, el de `hugepages-2048kB`, `Shmem`, `ShmemHugePages` y `ShmemPmdMapped`
+  de `/proc/meminfo` (leídos dentro del contenedor de postgres: el sysfs y
+  `/proc/meminfo` son los del nodo), `shmem_huge_share` = `ShmemHugePages` /
+  `shared_buffers`, y el texto crudo (`raw`); si la lectura no trae la línea
+  `shmem_enabled`, queda `error` y no se concluye nada. `huge_pages_status`
+  sigue en `off` porque THP no es `MAP_HUGETLB`.
+  Reglas: sin la opción, un `shmem_enabled` distinto de `never` (el default del
+  kernel: `mm/shmem.c`, y la configuración del kernel de Bottlerocket no lo
+  cambia) agrega `shmem_thp_leak` al `invalid` de la celda; con la opción, uno
+  distinto de `always` agrega `shmem_thp_not_applied`. Con la opción puesta y
+  `ShmemHugePages` por debajo de 1 GiB queda la nota `shmem_thp_unused` en
+  `notes`: la corrida vale como tuned, no como tuned con THP.
 - **Wait events de PostgreSQL**. Durante cada escalón del knee y cada corrida
   fija, cada ~2 s, `SELECT wait_event_type, wait_event, count(*) FROM
   pg_stat_activity WHERE backend_type = 'client backend'` (sin el propio psql)
-  por `kubectl exec`. `wait_event` NULL = el backend no espera nada = está en
-  CPU ("Wait event name if backend is currently waiting, otherwise NULL",
-  https://www.postgresql.org/docs/18/monitoring-stats.html, leído 2026-09-25).
-  Se guarda `wait_events_by_step` en `knee.json` (por escalón) y en el
-  `meta.json` de cada corrida (`run`): `samples`, `errors` y `backends` =
-  conteos sumados sobre las muestras (`CPU`, `LWLock:BufferMapping`,
-  `Client:ClientRead`, ...); dividido por `samples` da los backends promedio en
-  cada estado. Responde por qué arm-stock quedó en 12,7 de 15 núcleos a 256
-  clientes. Cada muestra es un psql dentro del pod de postgres: unos ms de su
-  CPU cada 2 s y una de las conexiones reservadas.
+  por `kubectl exec` (10 s de tope por muestra). `wait_event` NULL se guarda
+  como `NoWait`, no como "CPU": la documentación dice "Wait event name if
+  backend is currently waiting, otherwise NULL", así que NULL es un backend en
+  CPU, listo en la cola de ejecución o en tiempo de kernel que nadie
+  instrumenta (los fallos de página, por ejemplo). Además "the system does not
+  attempt to synchronize different aspects of activity data for a backend. As
+  a result, ephemeral discrepancies may exist between the view's columns"
+  (https://www.postgresql.org/docs/18/monitoring-stats.html, leído 2026-09-25).
+  Solo cuentan las muestras con al menos el 90 % de las sesiones del escalón
+  conectadas: el arranque y el cierre de cada pgbench diluirían el escalón con
+  un servidor medio vacío. Se guarda `wait_events_by_step` en `knee.json` (por
+  escalón) y en el `meta.json` de cada corrida (`run`): `samples` (las que
+  cuentan), `dropped` (menos del 90 % conectado), `errors` (sin respuesta) y
+  `backends` = conteos sumados sobre las muestras que cuentan (`NoWait`,
+  `LWLock:BufferMapping`, `Client:ClientRead`, ...); dividido por `samples` da
+  los backends promedio en cada estado. Sirve para ver por qué arm-stock quedó
+  en 12,7 de 15 núcleos a 256 clientes. Cada muestra es un psql dentro del pod
+  de postgres: unos ms de su CPU cada 2 s y una de las conexiones reservadas.
 - **Si `uv run cell` dice `ModuleNotFoundError: No module named 'cell'`**, el
   `.pth` del install editable quedó con el flag `UF_HIDDEN`, y desde CPython 3.13
   `site.addpackage` saltea los `.pth` ocultos, así que el script de consola no

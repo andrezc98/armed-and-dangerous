@@ -91,9 +91,14 @@ local con `docker run postgres:18.6`, escala 5. Esas salidas son los fixtures de
   el mismo chip. Mecanismo, citas y evidencia: `runner/README.md`, "Detalles
   que no son obvios".
 - **Wait events.** Cada escalón y cada corrida fija guardan
-  `wait_events_by_step` (muestras de `pg_stat_activity` cada ~2 s; `CPU` =
-  `wait_event` NULL) para leer en qué se va el tiempo cuando la CPU no llega
-  al 100 %.
+  `wait_events_by_step` (muestras de `pg_stat_activity` cada ~2 s, solo las que
+  tienen al menos el 90 % de las sesiones conectadas) para leer en qué se va el
+  tiempo cuando la CPU no llega al 100 %. `NoWait` = `wait_event` NULL: "Wait
+  event name if backend is currently waiting, otherwise NULL"
+  (https://www.postgresql.org/docs/18/monitoring-stats.html). No es lo mismo
+  que CPU: incluye backends listos en la cola de ejecución y tiempo de kernel
+  sin instrumentar, como los fallos de página, y la vista puede tener
+  "ephemeral discrepancies" entre columnas.
 
 Las perillas viven en un solo lugar: variables `PG_SHARED_BUFFERS`,
 `PG_EFFECTIVE_CACHE_SIZE` y `PG_MAX_CONNECTIONS` del StatefulSet, expandidas en

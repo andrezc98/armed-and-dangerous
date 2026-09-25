@@ -23,11 +23,15 @@
 # madvise( / MADV_HUGEPAGE anywhere in src/ of REL_18_STABLE, grep 2026-09-25).
 # advise would be a knob that does nothing.
 #
-# The per-size knob hugepages-2048kB/shmem_enabled (PMD size with 4 KiB pages,
-# x86_64 and Bottlerocket's arm64 alike) only follows the global one when it
-# says `inherit` ("By default, PMD-sized hugepages have enabled="inherit"",
-# same page). Anything else there would make `always` a silent no-op, so the
-# script refuses to start. It only reads that file, never writes it.
+# The per-size knob hugepages-2048kB/shmem_enabled (PMD size with 4 KiB pages:
+# x86_64, and Bottlerocket's arm64 is CONFIG_ARM64_4K_PAGES=y in
+# bottlerocket-kernel-kit packages/kernel-6.12 and 6.18 config-full-*) only follows the global one when it
+# says `inherit` ("will only use the setting of the global knob when the
+# per-size knob is set to 'inherit'", same page). Its default is set in
+# mm/shmem.c shmem_init(): "Default to setting PMD-sized THP to inherit the
+# global setting and disable all other multi-size THPs" (torvalds/linux
+# master, read 2026-09-25). Anything else there would make `always` a silent
+# no-op, so the script refuses to start. It only reads that file.
 #
 # Why a DaemonSet and not a Bottlerocket setting: settings.kernel.hugepages
 # has static.<size>.count, static.essential, transparent.defrag and
@@ -55,11 +59,14 @@
 # sees this knob either way: it is not in manifests/base/kustomization.yaml,
 # like net-tuned-daemonset.yaml, and its nodes are new each cell.
 #
-# ponytail: a crash-restarted pod would read `always` as "before" and restore
-# to always; the node is thrown away at the end of the cell anyway.
+# ponytail: a crash-restarted pod reads `always` as "before" and would restore
+# to always. The runner reads "before" from the first container's log
+# (kubectl logs --previous when the current one lacks it), deletes any leftover
+# of this DaemonSet before every cell that did not ask for it, and marks a cell
+# invalid (shmem_thp_leak) when its node is not at the default `never`.
 #
-# Host access as in net-tuned-daemonset.yaml: privileged + hostPath /sys,
-# mounted under /host so the container keeps its own sysfs.
+# Host access as in net-tuned-daemonset.yaml (privileged), but the hostPath is
+# only /sys/kernel/mm/transparent_hugepage, not all of /sys.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -97,9 +104,9 @@ spec:
             - name: MODE
               value: always
             - name: SHMEM_FILE
-              value: /host/sys/kernel/mm/transparent_hugepage/shmem_enabled
+              value: /host/thp/shmem_enabled
             - name: PMD_FILE
-              value: /host/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/shmem_enabled
+              value: /host/thp/hugepages-2048kB/shmem_enabled
           command:
             - /bin/sh
             - -c
@@ -159,9 +166,10 @@ spec:
           securityContext:
             privileged: true
           volumeMounts:
-            - name: host-sys
-              mountPath: /host/sys
+            - name: host-thp
+              mountPath: /host/thp
       volumes:
-        - name: host-sys
+        - name: host-thp
           hostPath:
-            path: /sys
+            path: /sys/kernel/mm/transparent_hugepage
+            type: Directory

@@ -38,7 +38,8 @@ def require_sandbox() -> None:
         )
 
 
-def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, stderr=None):
+def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, stderr=None,
+       timeout=None):
     """The only place this runner spawns a process.
 
     One funnel so --dry-run can print the exact command plan, and so the AWS CLI
@@ -48,6 +49,9 @@ def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, std
     `stderr` is an optional list the child's stderr is appended to, for the
     callers that have to put it in an error message (capture=True only; without
     capture the child writes straight to the terminal).
+
+    `timeout` (seconds) kills the child and raises RuntimeError, for the
+    sampling loops that must never hang on one stuck call.
     """
     line = "$ " + shlex.join(cmd)
     if stdin is not None:
@@ -61,14 +65,18 @@ def sh(cmd, *, capture=False, check=True, cwd=None, stdin=None, quiet=False, std
         print(line, flush=True)
     if DRY_RUN:
         return ""
-    out = subprocess.run(
-        cmd,
-        cwd=cwd,
-        input=stdin,
-        text=True,
-        capture_output=capture,
-        check=False,
-    )
+    try:
+        out = subprocess.run(
+            cmd,
+            cwd=cwd,
+            input=stdin,
+            text=True,
+            capture_output=capture,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{shlex.join(cmd)} timed out after {timeout}s") from exc
     if stderr is not None and out.stderr:
         stderr.append(out.stderr)
     if check and out.returncode:
