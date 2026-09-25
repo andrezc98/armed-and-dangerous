@@ -141,15 +141,17 @@ def test_an_overlay_renders_through_the_throwaway_kustomization(workload, cell_n
 
 
 @pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl is not installed")
-def test_the_amd_tuned_overlays_carry_the_initial_tuned_values():
-    """Initial values, to be calibrated: the x86-tuned JVM set and -t 15."""
+def test_the_amd_tuned_overlays_carry_the_calibrated_tuned_values():
+    """AMD calibration 2026-09-25: the CMP333 JVM bundle (like arm-tuned) and -t 15."""
     java = cell.kustomize_overlay("java", "amd-tuned")
     assert "-Xms24g -Xmx24g -XX:+UseTransparentHugePages" in java
     vthreads = [d for d in yaml.safe_load_all(cell.kustomize_overlay("java", "amd-tuned-vthreads"))
                 if d and d.get("kind") == "Deployment"][0]
     env = {e["name"]: e.get("value") for e in vthreads["spec"]["template"]["spec"]["containers"][0]["env"]}
     assert env["SPRING_THREADS_VIRTUAL_ENABLED"] == "true"
-    assert env["JAVA_TOOL_OPTIONS"] == "-Xms24g -Xmx24g -XX:+UseTransparentHugePages"
+    assert env["JAVA_TOOL_OPTIONS"] == ("-Xms24g -Xmx24g -XX:+UseTransparentHugePages "
+                                        "-XX:-TieredCompilation -XX:ReservedCodeCacheSize=64M "
+                                        "-XX:InitialCodeCacheSize=64M")
     llama = [d for d in yaml.safe_load_all(cell.kustomize_overlay("inference", "amd-tuned"))
              if d and d.get("kind") == "Deployment"][0]
     args = llama["spec"]["template"]["spec"]["containers"][0]["args"]

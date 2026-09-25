@@ -1,7 +1,8 @@
-# Tuned AMD: initial value is the x86-tuned set (THP, tiered compilation left
-# on). The A/B against the CMP333 bundle (-XX:-TieredCompilation + 64M code
-# cache, what arm-tuned runs) happens on the AMD calibration run; "tuned" is
-# the best measured on each chip. Calibrate on the AMD calibration run.
+# Tuned AMD: THP + the CMP333 bundle (-XX:-TieredCompilation, 64M code cache),
+# the same set as arm-tuned. "Tuned" is the best measured per chip; AMD
+# calibration 2026-09-25 (n=1, p99 < 10 ms): both variants knee at 90k rps, and
+# the bundle reads lower p99 at every high step (80k: 4.37 vs 5.10 ms; 90k: 7.00
+# vs 8.98 ms). Results: results/2026-09-25-cal-j-amd-{tuned,cmp333}/.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -26,4 +27,4 @@ patches:
               - name: java
                 env:
                   - name: JAVA_TOOL_OPTIONS
-                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages" # calibrate on the AMD calibration run
+                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages -XX:-TieredCompilation -XX:ReservedCodeCacheSize=64M -XX:InitialCodeCacheSize=64M" # calibrate on the AMD calibration run
