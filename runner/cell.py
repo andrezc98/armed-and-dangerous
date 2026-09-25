@@ -1369,11 +1369,19 @@ def pgbench_pod_guard(samples, windows, jobs, threads, skip=()):
     Samples are TopSampler's metrics-API pod samples (capture.parse_pod_metrics,
     loader_pods / loader_pods_window), attributed by overlap like the node
     guard's; a pod belongs to a Job when its name is the Job's plus "-". Keys
-    in `skip` are recorded, not judged. No sample is no reason: the node-level
-    guard is the fail-closed one."""
+    in `skip` are not judged for saturation.
+
+    Fail closed (N1, review round 2): this guard is the only one that can see a
+    saturated pgbench, so a Job of a window with no pod sample at all is a
+    window nobody can say the generator kept up in. Returns (saturation
+    reasons, {key: {pod: peak cores}}, {key: [Jobs never sampled]}); the
+    callers word the unobserved ones like loader_guard / fixed_loader_guard.
+    A skipped key still needs its observation: the waiver excuses saturation
+    at the crossing, not a missing sample. Nothing is unobserved under
+    --dry-run, where no sampler runs."""
     split = capture.by_overlap([s for s in samples if s.get("loader_pods")], windows,
                                "loader_pods")
-    peaks, reasons = {}, []
+    peaks, reasons, unobserved = {}, [], {}
     for key, in_window in split.items():
         per = {}
         for sample in in_window:
@@ -1381,6 +1389,10 @@ def pgbench_pod_guard(samples, windows, jobs, threads, skip=()):
                 if any(pod.startswith(f"{job}-") for job in jobs.get(key, ())):
                     per[pod] = max(per.get(pod, 0), millicores / 1000)
         peaks[key] = per
+        missing = [job for job in jobs.get(key, ())
+                   if not any(pod.startswith(f"{job}-") for pod in per)]
+        if missing and not config.DRY_RUN:
+            unobserved[key] = missing
         if key in skip:
             continue
         limit = PGBENCH_POD_SATURATED * threads[key]
@@ -1389,7 +1401,7 @@ def pgbench_pod_guard(samples, windows, jobs, threads, skip=()):
         if over:
             where = f"step {key}" if isinstance(key, int) else key
             reasons.append(f"loader_pgbench_saturated: {where}: {'; '.join(over)}")
-    return reasons, peaks
+    return reasons, peaks, unobserved
 
 
 def pgbench_knee_guard(result, samples):
@@ -1401,8 +1413,11 @@ def pgbench_knee_guard(result, samples):
     windows = {step: w for step, w in (result.get("windows") or {}).items()
                if ended_by is None or step <= ended_by["step"]}
     waived = (result.get("loader_guard_waived") or {}).get("step")
-    reasons, peaks = pgbench_pod_guard(samples, windows, result.get("jobs", {}),
-                                       result.get("threads", {}), skip={waived})
+    reasons, peaks, unobserved = pgbench_pod_guard(samples, windows, result.get("jobs", {}),
+                                                   result.get("threads", {}), skip={waived})
+    reasons = [f"capacity_unresolved: no pgbench pod sample for step {step} "
+               f"({', '.join(f'job/{job}' for job in missing)})"
+               for step, missing in sorted(unobserved.items())] + reasons
     result["pgbench_pod_cores_by_step"] = peaks
     result["invalid"] += reasons
     return reasons
@@ -1410,10 +1425,13 @@ def pgbench_knee_guard(result, samples):
 
 def pgbench_run_guard(run_meta, samples, begin, end):
     """pgbench_pod_guard over one fixed run (its Jobs, the whole run)."""
-    reasons, peaks = pgbench_pod_guard(
+    reasons, peaks, unobserved = pgbench_pod_guard(
         samples, {"run": (begin, end)}, {"run": run_meta.get("pgbench_jobs", [])},
         {"run": run_meta.get("pgbench_threads", 1)})
     run_meta["pgbench_pod_cores"] = peaks["run"]
+    if unobserved.get("run"):
+        reasons.insert(0, "loader_unobserved: no pgbench pod sample for "
+                          + ", ".join(f"job/{job}" for job in unobserved["run"]))
     return reasons
 
 

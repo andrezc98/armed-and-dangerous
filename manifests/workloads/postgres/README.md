@@ -129,7 +129,11 @@ PG_SHARED_BUFFERS=24GB` pisa cualquiera sin editar nada.
      pod en ≥ 0,9 × `-j` núcleos es un generador que no podía ir más rápido y el
      escalón no cuenta (`loader_pgbench_saturated`), con la misma dispensa en
      el escalón del cruce si el SUT estaba saturado. El guard del nodo no lo ve:
-     dos pods de 16 hilos al 100 % son el 50 % del loader. A diferencia de Mongo, la escalera **se detiene** en el
+     dos pods de 16 hilos al 100 % son el 50 % del loader. Por eso este guard
+     falla cerrado: cada Job de cada escalón juzgado necesita al menos una
+     muestra de su pod, o el escalón queda `capacity_unresolved` (y la corrida
+     fija `loader_unobserved`); la dispensa del cruce no cubre la falta de
+     muestra. A diferencia de Mongo, la escalera **se detiene** en el
    escalón que cierra el recorrido: los de arriba nadie los mira.
 5. **Corridas fijas** al 80 % de los tps del knee, `-R` repartido entre los dos
    procesos, 480 s, con **el doble de clientes que el knee** (tope
@@ -150,7 +154,10 @@ la latencia **de servicio** (`uniq -c`: "<cantidad> <µs>") y, tras un segundo
 marcador, el del **schedule lag**. La latencia de servicio es el campo `time`
 menos el `schedule_lag`: bajo `-R` pgbench cuenta `time` desde el inicio
 programado, así que trae el atraso del generador adentro; sin `-R` no hay lag
-y `time` ya es la de servicio. El SLO juzga al servidor con la de servicio y el
+y `time` ya es la de servicio. En una corrida con `-R` (el resumen trae
+`rate limit schedule lag:`) el histograma del lag también tiene que sumar
+`samples=`; uno vacío o cortado dejaría pasar el presupuesto de lag sin
+datos, así que ese proceso queda sin reporte. El SLO juzga al servidor con la de servicio y el
 presupuesto de lag juzga al generador aparte. A `kubectl logs` llegan unos
 miles de líneas y no cientos de miles.
 `knee.merge_pgbench` suma los histogramas de los dos procesos, así que el p99

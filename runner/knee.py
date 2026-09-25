@@ -374,6 +374,9 @@ _PGBENCH_SAMPLES = re.compile(r"^samples=(\d+)$", re.M)
 # outside --max-tries), and still prints a tps line after it: a plausible
 # number over a run that stopped part way (tests/fixtures/pgbench-aborted.txt).
 PGBENCH_ABORTED = "Run was aborted"
+# printResults prints this line only when throttling ("if (throttle_delay)"):
+# the run had -R, so its lag histogram has to be whole too (N2).
+PGBENCH_THROTTLED = "rate limit schedule lag:"
 _PERCENTILES = (("50th(us)", 0.50), ("90th(us)", 0.90), ("95th(us)", 0.95),
                 ("99th(us)", 0.99), ("99.9th(us)", 0.999))
 
@@ -400,7 +403,12 @@ def parse_pgbench(text):
       summary it printed is incomplete (I1, review of 5b1896e);
     - samples missing or not the histogram's own total: lines were lost on
       the way (a cut `kubectl logs`, a killed sort) and the p99 would be
-      computed over part of the sample (M4).
+      computed over part of the sample (M4);
+    - a throttled run (-R, the summary's "rate limit schedule lag" line) whose
+      lag histogram does not add up to samples either: an empty or cut one
+      would read as a generator that never lagged, and the lag gate would pass
+      by saying nothing (N2). Every logged non-failed transaction of a -R run
+      carries its lag, so the two totals are the same count.
     """
     if not text or PGBENCH_MARKER not in text:
         return None
@@ -411,14 +419,16 @@ def parse_pgbench(text):
             or rc is None or rc.group(1) != "0" or samples is None):
         return None
     service, _, lag = tail.partition(PGBENCH_LAG_MARKER)
-    hist = _uniq_c(service)
+    hist, lag = _uniq_c(service), _uniq_c(lag)
     if sum(hist.values()) != int(samples.group(1)):
+        return None
+    if PGBENCH_THROTTLED in summary and sum(lag.values()) != int(samples.group(1)):
         return None
     return {"seconds": int(found["seconds"].group(1)) if found["seconds"] else 0,
             "count": int(found["count"].group(1)),
             "failed": int(found["failed"].group(1)) if found["failed"] else 0,
             "tps": float(found["tps"].group(1)), "samples": int(samples.group(1)),
-            "hist": hist, "lag": _uniq_c(lag)}
+            "hist": hist, "lag": lag}
 
 
 def _hist_percentile(hist, q, total):

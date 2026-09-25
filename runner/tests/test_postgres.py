@@ -160,6 +160,21 @@ def test_an_aborted_or_failed_pgbench_is_no_report():
     assert knee.merge_pgbench([aborted, _fx("pgbench-knee-c2.txt")]) == ""
 
 
+def test_a_throttled_run_whose_lag_histogram_does_not_add_up_is_no_report():
+    """N2: under -R the lag gate reads the lag histogram; an empty or cut one
+    would read as no lag at all. pgbench prints "rate limit schedule lag" only
+    with -R (printResults), so that line says the lag histogram must be whole."""
+    fixed = _fx("pgbench-fixed-c1.txt")
+    assert knee.parse_pgbench(fixed) is not None
+    head, _, _ = fixed.partition(knee.PGBENCH_LAG_MARKER)
+    assert knee.parse_pgbench(head + knee.PGBENCH_LAG_MARKER + "\n") is None  # empty
+    lag_lines = fixed.partition(knee.PGBENCH_LAG_MARKER)[2].strip().splitlines()
+    cut = head + knee.PGBENCH_LAG_MARKER + "\n" + "\n".join(lag_lines[:-1]) + "\n"
+    assert knee.parse_pgbench(cut) is None  # truncated
+    # unthrottled: no lag line in the summary, no lag histogram expected
+    assert knee.parse_pgbench(_fx("pgbench-knee-c1.txt"))["lag"] == {}
+
+
 def test_a_histogram_that_does_not_add_up_to_its_samples_is_no_report():
     """M4: a truncated log (kubectl logs cut, a killed sort) loses lines."""
     assert knee.parse_pgbench(_pgbench(1000.0, 60000, {100: 20000}, samples=20001)) is None
@@ -389,13 +404,16 @@ def test_a_pgbench_pod_at_its_thread_count_makes_the_step_loader_invalid():
               "jobs": {16: ["pgbench-run-x-c16-knee-c1", "pgbench-run-x-c16-knee-c2"],
                        64: ["pgbench-run-x-c64-knee-c1", "pgbench-run-x-c64-knee-c2"]},
               "threads": {16: 8, 64: 16}, "invalid": []}
-    samples = [_pods((10, 30), **{"pgbench-run-x-c16-knee-c1-aaaaa": 7.3}),   # 0.91 x 8
-               _pods((90, 110), **{"pgbench-run-x-c64-knee-c2-bbbbb": 10.0})]
+    samples = [_pods((10, 30), **{"pgbench-run-x-c16-knee-c1-aaaaa": 7.3,   # 0.91 x 8
+                                  "pgbench-run-x-c16-knee-c2-ccccc": 7.1}),
+               _pods((90, 110), **{"pgbench-run-x-c64-knee-c1-ddddd": 9.0,
+                                   "pgbench-run-x-c64-knee-c2-bbbbb": 10.0})]
     cell.pgbench_knee_guard(result, samples)
     assert result["invalid"] == [
         "loader_pgbench_saturated: step 16: pgbench-run-x-c16-knee-c1-aaaaa 7.30 cores "
         ">= 0.9 x 8 threads"]
-    assert result["pgbench_pod_cores_by_step"][64] == {"pgbench-run-x-c64-knee-c2-bbbbb": 10.0}
+    assert result["pgbench_pod_cores_by_step"][64] == {"pgbench-run-x-c64-knee-c1-ddddd": 9.0,
+                                                       "pgbench-run-x-c64-knee-c2-bbbbb": 10.0}
 
 
 def test_the_crossing_step_is_waived_when_the_sut_was_saturated():
@@ -409,8 +427,48 @@ def test_the_crossing_step_is_waived_when_the_sut_was_saturated():
 def test_steps_past_the_end_of_the_walk_are_not_guarded():
     result = {"windows": {16: (0, 70), 32: (70, 140)}, "ended_by": {"step": 16, "kind": "crossing"},
               "jobs": {16: ["j16"], 32: ["j32"]}, "threads": {16: 8, 32: 16}, "invalid": []}
-    cell.pgbench_knee_guard(result, [_pods((90, 110), **{"j32-a": 16.0})])
+    cell.pgbench_knee_guard(result, [_pods((10, 30), **{"j16-a": 1.0}),
+                                     _pods((90, 110), **{"j32-a": 16.0})])
     assert result["invalid"] == []
+
+
+def test_a_guarded_step_with_a_pgbench_pod_nobody_sampled_is_unresolved():
+    """N1: the node guard cannot trip on pgbench (2 x 16 threads is 50 % of the
+    loader), so the pod guard is the one that must fail closed: every Job of
+    every guarded step needs at least one pod sample."""
+    result = {"windows": {16: (0, 70), 32: (70, 140)}, "ended_by": {"step": 32, "kind": "crossing"},
+              "jobs": {16: ["j16-c1", "j16-c2"], 32: ["j32-c1", "j32-c2"]},
+              "threads": {16: 8, 32: 16}, "invalid": [], "loader_guard_waived": {"step": 32}}
+    samples = [_pods((10, 30), **{"j16-c1-a": 1.0, "j16-c2-b": 1.0}),
+               _pods((90, 110), **{"j32-c1-a": 1.0}),
+               {"ts": "2026-09-25T10:00:00+00:00", "loader_cpu_percent": 20}]  # no loader pods
+    cell.pgbench_knee_guard(result, samples)
+    # the waiver excuses saturation at the crossing, not the lack of an observation
+    assert result["invalid"] == ["capacity_unresolved: no pgbench pod sample for step 32 "
+                                 "(job/j32-c2)"]
+
+
+def test_a_knee_with_no_pod_samples_at_all_is_unresolved():
+    result = {"windows": {16: (0, 70)}, "ended_by": None, "jobs": {16: ["j16-c1"]},
+              "threads": {16: 8}, "invalid": []}
+    cell.pgbench_knee_guard(result, [{"ts": "2026-09-25T10:00:00+00:00"}])
+    assert result["invalid"] == ["capacity_unresolved: no pgbench pod sample for step 16 "
+                                 "(job/j16-c1)"]
+
+
+def test_a_fixed_run_with_an_unsampled_pgbench_pod_is_loader_unobserved():
+    meta = {"pgbench_jobs": ["r1-c1", "r1-c2"], "pgbench_threads": 16}
+    reasons = cell.pgbench_run_guard(meta, [_pods((10, 30), **{"r1-c1-z": 3.0})], 0, 100)
+    assert reasons == ["loader_unobserved: no pgbench pod sample for job/r1-c2"]
+
+
+def test_the_dry_run_plan_has_no_pod_samples_and_that_is_not_a_reason(monkeypatch):
+    monkeypatch.setattr(config, "DRY_RUN", True)
+    result = {"windows": {16: (0, 70)}, "ended_by": None, "jobs": {16: ["j16-c1"]},
+              "threads": {16: 8}, "invalid": []}
+    cell.pgbench_knee_guard(result, [])
+    assert result["invalid"] == []
+    assert cell.pgbench_run_guard({"pgbench_jobs": ["r1-c1"], "pgbench_threads": 16}, [], 0, 1) == []
 
 
 def test_a_fixed_run_pod_at_its_thread_count_is_loader_invalid():
