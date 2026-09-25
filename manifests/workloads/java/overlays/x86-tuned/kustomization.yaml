@@ -1,7 +1,9 @@
-# Tuned cell: THP for heap and code cache, JIT without tiered compilation, code
-# cache pinned at 64M. Flags verbatim from
-# https://github.com/aws/aws-graviton-getting-started/blob/main/java.md (the same
-# set on both silicons, which is what makes stock-vs-tuned comparable).
+# Tuned cell: THP for heap and code cache, tiered compilation LEFT ON (the JVM
+# default). "Tuned" is the best flag set measured on each chip, not one bundle:
+# on calibration day 2026-09-24 (n=1, Java ladder, p99 < 10 ms) this Xeon 6 node
+# reached 50k rps with tiered on vs 40k with the CMP333 bundle
+# (-XX:-TieredCompilation + 64M code cache, still used on arm-tuned, where it
+# measured 80k vs 70k). Results: results/2026-09-24-cal-j-x86-{h10,tiered}/.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -26,4 +28,4 @@ patches:
               - name: java
                 env:
                   - name: JAVA_TOOL_OPTIONS
-                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages -XX:-TieredCompilation -XX:ReservedCodeCacheSize=64M -XX:InitialCodeCacheSize=64M"
+                    value: "-Xms24g -Xmx24g -XX:+UseTransparentHugePages"

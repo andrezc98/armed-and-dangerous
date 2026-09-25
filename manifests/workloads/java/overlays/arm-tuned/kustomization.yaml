@@ -1,7 +1,9 @@
 # Tuned cell: THP for heap and code cache, JIT without tiered compilation, code
-# cache pinned at 64M. Flags verbatim from
-# https://github.com/aws/aws-graviton-getting-started/blob/main/java.md (the same
-# set on both silicons, which is what makes stock-vs-tuned comparable).
+# cache pinned at 64M (the CMP333 bundle, from
+# https://github.com/aws/aws-graviton-getting-started/blob/main/java.md). Kept on
+# Graviton because it measured best there on calibration day 2026-09-24 (n=1:
+# 80k rps vs 70k with tiered on); x86-tuned leaves tiered on for the same reason
+# the other way round. Results: results/2026-09-24-cal-j-arm-{h10,tiered}/.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
