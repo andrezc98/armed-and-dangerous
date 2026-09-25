@@ -1737,6 +1737,15 @@ def run_cell(args):
         other = {"mongo": "postgres", "postgres": "mongo"}.get(workload)
         if other:
             kn("scale", f"statefulset/{other}", "--replicas=0", check=False)
+            # Its own pod too: when the last cell's node scaled away, the
+            # StatefulSet recreated <db>-0 from the OLD template (Pending), and
+            # a RollingUpdate never replaces a pod that is not Ready ("forced
+            # rollback", StatefulSet docs), so rollout status below timed out
+            # (postgres amd-stock, 2026-09-25). At 0 replicas the apply's
+            # replicas: 1 creates the pod from the new template.
+            kn("scale", spec["resource"], "--replicas=0", check=False)
+            kn("wait", "--for=delete", f"pod/{spec['resource'].split('/')[1]}-0",
+               "--timeout=300s", check=False)
 
         # Not `apply -k`: the overlay only becomes appliable once the images
         # transformer has run over it (kustomize_overlay).

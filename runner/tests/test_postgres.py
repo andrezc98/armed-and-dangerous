@@ -658,6 +658,17 @@ def test_a_db_cell_scales_the_other_db_to_zero_before_its_overlay(plan, workload
     assert out.index(scale_line) < out.index(f"# apply overlay {workload}/arm-tuned")
 
 
+@pytest.mark.parametrize("workload", ["postgres", "mongo"])
+def test_a_db_cell_recreates_its_own_pod_from_the_new_template(plan, workload):
+    """postgres amd-stock 2026-09-25: after the arm node left, <db>-0 came back
+    Pending from the old template and RollingUpdate never replaced it."""
+    out = plan("--workload", workload, "--cell", "amd-stock", "--runs", "1")
+    own = f"$ kubectl -n aad scale statefulset/{workload} --replicas=0"
+    gone = f"$ kubectl -n aad wait --for=delete pod/{workload}-0 --timeout=300s"
+    assert own in out and gone in out
+    assert out.index(own) < out.index(gone) < out.index(f"# apply overlay {workload}/amd-stock")
+
+
 def test_other_cells_leave_both_dbs_alone(plan):
     assert "--replicas=0" not in plan("--workload", "java", "--cell", "arm-tuned", "--runs", "1")
 
