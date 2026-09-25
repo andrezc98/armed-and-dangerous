@@ -46,7 +46,7 @@ _TOP_NODE = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)%")
 _TOP_POD = re.compile(r"^(\S+)\s+(\d+)m\s+(\d+)Mi")
 
 # Pods of the load generators, which run on the loader node and are not the SUT.
-_LOADER_PODS = ("k6-", "ycsb-", "iperf3-client")
+_LOADER_PODS = ("k6-", "ycsb-", "iperf3-client", "pgbench-")
 
 
 APERF_LOG = "aperf.log"
@@ -211,6 +211,35 @@ def parse_node_metrics(body, allocatable, sut, loader, keep=None):
     return sample
 
 
+def parse_pod_metrics(body, prefix):
+    """({pod: millicores}, [begin, end]) for the pods whose name starts with
+    `prefix`, out of GET /apis/metrics.k8s.io/v1beta1/namespaces/<ns>/pods;
+    None when the answer is not a PodMetricsList.
+
+    PodMetrics: "timestamp ... The following fields define time interval from
+    which metrics were collected from the interval [Timestamp-Window,
+    Timestamp]" and "containers ... Metrics for all containers are collected
+    within the same time window"
+    (https://kubernetes.io/docs/reference/external-api/metrics.v1beta1/, read
+    2026-09-25). A pod's CPU is the sum of its containers'. The loader's pods
+    share one kubelet, so the widest interval of the ones kept stands for all.
+    """
+    try:
+        items = json.loads(body)["items"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    pods, begin, end = {}, None, None
+    for item in items:
+        name = item["metadata"]["name"]
+        if not name.startswith(prefix):
+            continue
+        pods[name] = round(sum(_millicores(c["usage"]["cpu"]) for c in item["containers"]))
+        t = _epoch(item["timestamp"])
+        b = t - _seconds(item["window"])
+        begin, end = min(begin, b) if begin is not None else b, max(end, t) if end is not None else t
+    return pods, [begin, end]
+
+
 def _allocatable():
     """{node: allocatable millicores}, read once per sampler."""
     out = config.sh(["kubectl", "get", "nodes", "-o",
@@ -220,7 +249,7 @@ def _allocatable():
             (line.split("=", 1) for line in out.splitlines() if "=" in line)}
 
 
-def _top(nodes, sut, loader, allocatable):
+def _top(nodes, sut, loader, allocatable, pod_prefix=None):
     """One sample: every cell node's CPU, the loader's, and the measured pod's.
 
     Nodes from the metrics API (parse_node_metrics). Only when that is not served
@@ -245,6 +274,15 @@ def _top(nodes, sut, loader, allocatable):
         sample = parse_top(node_text, "", sut, loader, keep=keep)
         sample["source"] = "kubectl-top"
     sample["pod_cpu_millicores"] = parse_top("", pod_text, sut, loader)["pod_cpu_millicores"]
+    if pod_prefix:
+        # Per generator pod (pgbench): each one's CPU against the threads it
+        # was given (cell.pgbench_pod_guard), next to the node-level guard.
+        pods = parse_pod_metrics(config.sh(
+            ["kubectl", "get", "--raw",
+             f"/apis/metrics.k8s.io/v1beta1/namespaces/{config.NAMESPACE}/pods",
+             "--request-timeout=5s"], capture=True, quiet=True, check=False), pod_prefix)
+        if pods and pods[0]:
+            sample["loader_pods"], sample["loader_pods_window"] = pods
     return sample
 
 
@@ -376,8 +414,9 @@ class TopSampler:
     every sample also carries the pool gauges, see `actuator_stats`.
     """
 
-    def __init__(self, nodes, loader, sut=None, interval=10, actuator=None):
+    def __init__(self, nodes, loader, sut=None, interval=10, actuator=None, pod_prefix=None):
         self.nodes = list(nodes)
+        self.pod_prefix = pod_prefix
         self.sut = sut or self.nodes[0]
         self.loader, self.interval, self.actuator = loader, interval, actuator
         self.samples = []
@@ -398,7 +437,7 @@ class TopSampler:
         a stalled actuator must never cost the guard its CPU sample."""
         if not self._allocatable:  # retried until it answers: without it no percent
             self._allocatable = _allocatable()
-        sample = _top(self.nodes, self.sut, self.loader, self._allocatable)
+        sample = _top(self.nodes, self.sut, self.loader, self._allocatable, self.pod_prefix)
         self.samples.append(sample)
         if self.actuator:
             sample["actuator"] = _actuator(self.actuator)

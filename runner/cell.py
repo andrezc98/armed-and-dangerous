@@ -1245,11 +1245,17 @@ def _max_connections(app_env):
     return int(next(e["value"] for e in container["env"] if e["name"] == "PG_MAX_CONNECTIONS"))
 
 
+# Connections left free under max_connections: the runner's own psql, the
+# superuser-reserved slots. The ladder's top step and the fixed run's doubled
+# client count both stay under max_connections - this.
+PG_RESERVED_CONNECTIONS = 10
+
+
 def check_pgbench_clients(spec, app_env=None):
     """Every client count splits into whole sessions per pgbench process, and the
-    top step fits under max_connections (with room for the runner's own psql),
-    checked before anything is paid for. The fixed run's -R is rounded down to a
-    multiple of N in measure()."""
+    top step fits under max_connections - PG_RESERVED_CONNECTIONS, checked
+    before anything is paid for. The fixed run's -R is rounded down to a
+    multiple of N, and its clients capped under the same line, in measure()."""
     n = pgbench_clients(spec)
     counts = {f"clients {c}": c for c in spec["clients"]}
     counts[f"warm-up clients {PGBENCH_WARM_CLIENTS}"] = PGBENCH_WARM_CLIENTS
@@ -1258,19 +1264,26 @@ def check_pgbench_clients(spec, app_env=None):
         raise SystemExit(f"{', '.join(bad)} cannot be split across pgbench_clients={n} "
                          f"whole sessions per process; pick multiples of {n}")
     limit = _max_connections(app_env)
-    if max(spec["clients"]) >= limit:
+    if max(spec["clients"]) > limit - PG_RESERVED_CONNECTIONS:
         raise SystemExit(f"the ladder's top step opens {max(spec['clients'])} sessions and the "
-                         f"server's max_connections is {limit}; raise PG_MAX_CONNECTIONS "
-                         "(statefulset or --app-env) or lower --clients")
+                         f"server's max_connections is {limit} ({PG_RESERVED_CONNECTIONS} kept "
+                         "free); raise PG_MAX_CONNECTIONS (statefulset or --app-env) or lower "
+                         "--clients")
 
 
 def pgbench_job_yaml(name, cell, spec, clients, rate, seconds, init=False):
     base = config.MANIFESTS / "workloads" / "postgres" / "base"
     if init:
-        return render(base / "pgbench-init-job.yaml", NAME=name, SCALE=spec["scale"])
+        return render(base / "pgbench-init-job.yaml", NAME=name, CELL=cell, SCALE=spec["scale"])
     return render(base / "pgbench-run-job.yaml", NAME=name, CELL=cell, CLIENTS=clients,
-                  THREADS=min(spec["pgbench_threads"], clients), SECONDS=seconds,
+                  THREADS=pgbench_threads(spec, clients), SECONDS=seconds,
                   RATE_ARGS=f"-R {rate}" if rate else "", SAMPLING_RATE=spec["sampling_rate"])
+
+
+def pgbench_threads(spec, clients):
+    """-j of one process with `clients` sessions, and the vCPUs its Job asks for:
+    pgbench_threads, never more than the sessions (pgbench caps it there too)."""
+    return min(spec["pgbench_threads"], clients)
 
 
 def run_pgbench(spec, name, cell, clients, rate, seconds):
@@ -1298,11 +1311,15 @@ def pgbench_knee(spec, cell, cell_dir):
     A step with no report while the walk is open breaks the ladder, as in Mongo.
     """
     runs, series, windows, steps, ended_by = [], [], {}, {}, None
+    # Per step, for pgbench_knee_guard: which Jobs ran it and how many threads each had.
+    jobs, threads = {}, {}
+    n = pgbench_clients(spec)
     for clients in spec["clients"]:
         name = f"pgbench-run-{cell}-c{clients}-knee"
         begin = now()
         names, client_logs = run_pgbench(spec, name, cell, clients, 0, spec["step_seconds"])
         windows[clients] = ycsb_window(names, begin)
+        jobs[clients], threads[clients] = names, pgbench_threads(spec, clients // n)
         if config.DRY_RUN:
             continue
         merged = knee.merge_pgbench(client_logs)
@@ -1310,21 +1327,23 @@ def pgbench_knee(spec, cell, cell_dir):
         if not merged:
             raise RuntimeError("\n".join(
                 f"job/{job} printed no pgbench report:\n{job_failure(job)}"
-                for job, text in zip(names, client_logs) if knee.parse_pgbench(text) is None)
-                or f"step {clients} clients: no sampled transaction in any client")
+                for job, text in zip(names, client_logs) if knee.parse_pgbench(text) is None))
         runs.append((clients, merged))
-        why = knee.pgbench_reasons(knee.parse_ycsb(merged)["READ"], spec["min_samples"])
+        line = knee.parse_ycsb(merged)["READ"]
+        why = knee.pgbench_reasons(line, spec["min_samples"])
         if why:
             steps[clients] = "; ".join(why)
-        series = knee.series_from_ycsb(runs)
+        # A step with no sampled transaction has no p99: None, which knee.walk
+        # reads as unresolved (its reason says no_latency_samples).
+        series.append((clients, line["99th(us)"] / 1000.0 if "99th(us)" in line else None))
         ended_by = knee.walk(series, spec["slo_ms"], steps)[1]
         if ended_by:
             break
     if not runs:
         print(f"# (dry-run) assuming knee = {spec['clients'][0]} clients")
         return {"unit": "clients", "knee": spec["clients"][0], "ops": 0,
-                "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": {},
-                "invalid": []}
+                "slo_ms": spec["slo_ms"], "series": [], "ended_by": None, "windows": windows,
+                "jobs": jobs, "threads": threads, "invalid": []}
     found, ended_by = knee.walk(series, spec["slo_ms"], steps)
     # TOTAL tps at the knee: what the fixed runs are throttled to 80 % of.
     ops = next((knee.parse_ycsb(text)["TOTAL"]["OPS"] for c, text in runs if c == found), 0)
@@ -1334,7 +1353,68 @@ def pgbench_knee(spec, cell, cell_dir):
                        f"{ended_by['reason']}")
     return {"unit": "clients", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
             "series": series, "ended_by": ended_by, "windows": windows,
-            "invalid_steps": steps, "invalid": invalid}
+            "jobs": jobs, "threads": threads, "invalid_steps": steps, "invalid": invalid}
+
+
+PGBENCH_POD_SATURATED = 0.9  # share of its own -j threads that counts as a saturated pgbench
+
+
+def pgbench_pod_guard(samples, windows, jobs, threads, skip=()):
+    """Per window, the peak CPU (cores) of every pgbench pod of that window's
+    Jobs, and the reasons: a pod at >= PGBENCH_POD_SATURATED of its -j threads
+    is a generator that could not go faster, so what the window measured is the
+    generator's ceiling (I2, review of 5b1896e). The node-level loader guard
+    cannot see that: two 16-thread pods at 100 % are 32 of 64 vCPUs, 50 %.
+
+    Samples are TopSampler's metrics-API pod samples (capture.parse_pod_metrics,
+    loader_pods / loader_pods_window), attributed by overlap like the node
+    guard's; a pod belongs to a Job when its name is the Job's plus "-". Keys
+    in `skip` are recorded, not judged. No sample is no reason: the node-level
+    guard is the fail-closed one."""
+    split = capture.by_overlap([s for s in samples if s.get("loader_pods")], windows,
+                               "loader_pods")
+    peaks, reasons = {}, []
+    for key, in_window in split.items():
+        per = {}
+        for sample in in_window:
+            for pod, millicores in sample["loader_pods"].items():
+                if any(pod.startswith(f"{job}-") for job in jobs.get(key, ())):
+                    per[pod] = max(per.get(pod, 0), millicores / 1000)
+        peaks[key] = per
+        if key in skip:
+            continue
+        limit = PGBENCH_POD_SATURATED * threads[key]
+        over = [f"{pod} {cores:.2f} cores >= {PGBENCH_POD_SATURATED} x {threads[key]} threads"
+                for pod, cores in sorted(per.items()) if cores >= limit]
+        if over:
+            where = f"step {key}" if isinstance(key, int) else key
+            reasons.append(f"loader_pgbench_saturated: {where}: {'; '.join(over)}")
+    return reasons, peaks
+
+
+def pgbench_knee_guard(result, samples):
+    """pgbench_pod_guard over a knee ladder: the steps through the one that
+    ended the walk, as loader_guard judges them, and the same waiver: the
+    crossing step is not held against the generator when loader_guard found
+    the SUT's CPUs saturated there (loader_guard_waived)."""
+    ended_by = result.get("ended_by")
+    windows = {step: w for step, w in (result.get("windows") or {}).items()
+               if ended_by is None or step <= ended_by["step"]}
+    waived = (result.get("loader_guard_waived") or {}).get("step")
+    reasons, peaks = pgbench_pod_guard(samples, windows, result.get("jobs", {}),
+                                       result.get("threads", {}), skip={waived})
+    result["pgbench_pod_cores_by_step"] = peaks
+    result["invalid"] += reasons
+    return reasons
+
+
+def pgbench_run_guard(run_meta, samples, begin, end):
+    """pgbench_pod_guard over one fixed run (its Jobs, the whole run)."""
+    reasons, peaks = pgbench_pod_guard(
+        samples, {"run": (begin, end)}, {"run": run_meta.get("pgbench_jobs", [])},
+        {"run": run_meta.get("pgbench_threads", 1)})
+    run_meta["pgbench_pod_cores"] = peaks["run"]
+    return reasons
 
 
 def psql(sql):
@@ -1354,14 +1434,16 @@ def postgres_read_pages():
     the stock cell too, whose 128MB shared_buffers never hold the dataset.
 
     Unreadable fails the cell, as in Mongo: two unreadable samples are a delta
-    of 0, which is exactly what a warm cache looks like."""
+    of 0, which is exactly what a warm cache looks like. Returns (pages, the raw
+    io.stat), the raw text for the cell's record (M2)."""
     out = kn("exec", "statefulset/postgres", "--", "sh", "-c",
              "cat /sys/fs/cgroup/io.stat && echo end", capture=True, check=False)
     if "end" not in out and not config.DRY_RUN:
         raise RuntimeError("cache_unreadable: /sys/fs/cgroup/io.stat of the postgres "
                            "container answered nothing; the warm-up control cannot pass by "
                            "saying nothing")
-    return sum(int(b) for b in re.findall(r"rbytes=(\d+)", out)) // 8192
+    raw = out.rsplit("end", 1)[0].strip()
+    return sum(int(b) for b in re.findall(r"rbytes=(\d+)", raw)) // 8192, raw
 
 
 PG_INITIALISED = "SELECT to_regclass('pgbench_accounts_pkey') IS NOT NULL"
@@ -1394,7 +1476,8 @@ def postgres_prepare(spec, cell, meta, date, reload=False):
             raise RuntimeError(
                 f"scale_mismatch: pgbench_branches holds {branches} rows, this cell is written "
                 f"for scale {spec['scale']}. Pass --reload to run the init again.")
-    if config.DRY_RUN or initialised != "t" or reload:
+    initialised_here = config.DRY_RUN or initialised != "t" or reload
+    if initialised_here:
         name = f"pgbench-init-{date}"
         run_job(name, pgbench_job_yaml(name, cell, spec, None, None, None, init=True), 5400)
         done = psql(PG_INITIALISED)
@@ -1402,23 +1485,45 @@ def postgres_prepare(spec, cell, meta, date, reload=False):
             raise RuntimeError(f"init_incomplete: job/{name} ended without "
                                f"pgbench_accounts_pkey:\n{job_failure(name)}")
 
+    pg = meta["postgres"] = {}
     psql("CREATE EXTENSION IF NOT EXISTS pg_prewarm")
-    psql("SELECT pg_prewarm('pgbench_accounts', 'read') + "
-         "pg_prewarm('pgbench_accounts_pkey', 'read')")
+    # pg_prewarm returns "the number of blocks prewarmed" as int8; anything else
+    # (an error, nothing) is a prewarm that did not happen (M1).
+    blocks = psql("SELECT pg_prewarm('pgbench_accounts', 'read') + "
+                  "pg_prewarm('pgbench_accounts_pkey', 'read')")
+    if not blocks.isdigit() and not config.DRY_RUN:
+        raise RuntimeError(f"prewarm_failed: pg_prewarm returned {blocks!r}, not a block count")
+    pg["prewarm_blocks"] = int(blocks) if blocks.isdigit() else None
     row = psql("SELECT pg_database_size(current_database()), "
                + ", ".join(f"current_setting('{k}')" for k in PG_KNOBS)).split("|")
-    pg = meta["postgres"] = dict(zip(PG_KNOBS, row[1:]))
+    pg.update(zip(PG_KNOBS, row[1:]))
     pg["database_bytes"] = int(row[0]) if row[0].isdigit() else None
     print(f"# postgres: {pg}")
 
     pg["warmup_read_pages"] = []
     deadline = now() + spec["warm_max_min"] * 60
     attempt = 0
+    before, raw = postgres_read_pages()
+    pg["io_stat_first"] = raw
+    # The prewarm just read the dataset from EBS, so a container whose io.stat
+    # still says 0 bytes read is one whose reads io.stat does not count (the io
+    # controller not enabled for it), and every delta below would read 0 = warm
+    # (M2). Not after this cell's own init: the dataset was written through
+    # this node's page cache and the prewarm read nothing from disk.
+    if not before and not config.DRY_RUN:
+        if not initialised_here:
+            raise RuntimeError("cache_unreadable: io.stat reports 0 rbytes right after "
+                               "pg_prewarm read the dataset; it is not counting this "
+                               f"container's reads:\n{raw or '<empty>'}")
+        pg["io_stat_unverified"] = ("0 rbytes after this cell's own init: the dataset was "
+                                    "written through the page cache, nothing to read yet")
     while True:
-        before = postgres_read_pages()
         run_pgbench(spec, f"pgbench-run-{cell}-warm{attempt}", cell, PGBENCH_WARM_CLIENTS, 0,
                     spec["warmup_seconds"])
-        delta = postgres_read_pages() - before
+        after, raw = postgres_read_pages()
+        pg["io_stat_last"] = raw
+        delta = after - before
+        before = after
         pg["warmup_read_pages"].append(delta)
         if config.DRY_RUN or delta < spec["warm_pages"]:
             return
@@ -1606,6 +1711,15 @@ def run_cell(args):
             kubectl("apply", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"))
             kn("rollout", "status", "daemonset/net-tuned", "--timeout=300s")
 
+        # The two databases' StatefulSets both tolerate the SUT taint and keep
+        # their last cell's nodeSelector; when that matches this cell, the
+        # other database would come up next to the one being measured. Scaled
+        # to 0 (its PVC and dataset stay); its own next cell's apply brings it
+        # back to 1. Missing is fine, hence check=False (I3).
+        other = {"mongo": "postgres", "postgres": "mongo"}.get(workload)
+        if other:
+            kn("scale", f"statefulset/{other}", "--replicas=0", check=False)
+
         # Not `apply -k`: the overlay only becomes appliable once the images
         # transformer has run over it (kustomize_overlay).
         apply_stdin(kustomize_overlay(workload, cell, args.app_env), f"overlay {workload}/{cell}")
@@ -1630,7 +1744,8 @@ def run_cell(args):
             sync_k6_scripts()
 
         def sampler():
-            return capture.TopSampler(sut_nodes, loader, sut=sut, actuator=spec.get("actuator"))
+            return capture.TopSampler(sut_nodes, loader, sut=sut, actuator=spec.get("actuator"),
+                                      pod_prefix="pgbench-" if workload == "postgres" else None)
 
         # --- warmup: the same shape as the measurement, so what gets warm is
         # what gets measured. Inference has no ladder, so it warms closed-loop on
@@ -1661,6 +1776,8 @@ def run_cell(args):
                 )
             knee_result["invalid"] += loader_guard(knee_result, top.samples,
                                                    config.exclusive_cpus(cell))
+            if workload == "postgres":
+                pgbench_knee_guard(knee_result, top.samples)
             if not config.DRY_RUN:
                 (cell_dir / "knee.json").write_text(json.dumps(knee_result, indent=1))
             check_knee(knee_result, spec["slo_ms"])  # after the file: the record survives
@@ -1702,6 +1819,8 @@ def run_cell(args):
                 if not config.DRY_RUN:
                     top.write(run_dir / "top.json")
                 reasons = fixed_loader_guard(workload, top.samples)
+                if workload == "postgres":
+                    reasons += pgbench_run_guard(run_meta, top.samples, begin, now())
                 if reasons:
                     run_meta.setdefault("invalid", []).extend(reasons)
             finally:
@@ -1830,14 +1949,23 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
         return
 
     if workload == "postgres":
-        clients = kneed["knee"] if kneed else spec["clients"][0]
+        knee_clients = kneed["knee"] if kneed else spec["clients"][0]
         n = pgbench_clients(spec)
+        # Under -R, -c only caps how many transactions can be in flight: at the
+        # knee's own count, 80 % of its tps keeps every session 80 % busy and a
+        # Poisson schedule then queues behind them (schedule lag). Twice the
+        # knee's sessions leave the schedule room; capped under max_connections
+        # (C1, review of 5b1896e).
+        cap = _max_connections(getattr(args, "app_env", None)) - PG_RESERVED_CONNECTIONS
+        clients = min(spec["fixed_clients_factor"] * knee_clients, cap)
+        clients -= clients % n
         target = int(0.8 * (kneed["ops"] if kneed else 0))
         # ponytail: whole tps per client by rounding down (< N tps off the 80 %).
         target = (target - target % n) or n
         names, client_logs = run_pgbench(spec, f"pgbench-run-{cell}-c{clients}-r{i}", cell,
                                          clients, target, spec["fixed_seconds"])
-        run_meta["clients"], run_meta["target_ops"] = clients, target
+        run_meta.update(clients=clients, knee_clients=knee_clients, target_ops=target,
+                        pgbench_jobs=names, pgbench_threads=pgbench_threads(spec, clients // n))
         merged = knee.merge_pgbench(client_logs)
         if not merged:
             for job, text in zip(names, client_logs):
@@ -1847,9 +1975,8 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
                 write_ycsb(run_dir, "pgbench.txt", client_logs, None)
         elif not config.DRY_RUN:
             write_ycsb(run_dir, "pgbench.txt", client_logs, merged)
-            parsed = knee.parse_ycsb(merged)
-            reasons = (knee.ycsb_invalid_reasons(parsed, spec["slo_ms"], target)
-                       + knee.pgbench_reasons(parsed["READ"], spec["min_samples"]))
+            reasons = knee.pgbench_fixed_reasons(knee.parse_ycsb(merged), spec["slo_ms"], target,
+                                                 spec["min_samples"], spec["pg_max_lag_p99_ms"])
             if reasons:
                 run_meta.setdefault("invalid", []).extend(reasons)
         return

@@ -2,6 +2,8 @@
 # Runs on the loader, never on a SUT.
 #
 #   __NAME__   unique Job name per invocation (pgbench-init-<date>)
+#   __CELL__   the cell that ran it: labels the Job so the cell's end-of-cell
+#              `delete jobs -l aad/cell=<cell>` takes it too
 #   __SCALE__  config.WORKLOADS["postgres"]["scale"]: 100,000 pgbench_accounts
 #              rows per unit. The run never needs it again: pgbench reads the
 #              scale back from pgbench_branches.
@@ -21,6 +23,8 @@ kind: Job
 metadata:
   name: __NAME__
   namespace: aad
+  labels:
+    aad/cell: __CELL__
 spec:
   backoffLimit: 0
   template:

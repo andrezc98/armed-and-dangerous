@@ -254,7 +254,9 @@ def ycsb_invalid_reasons(parsed, slo_ms=None, target_ops=None):
     inside the SLO, and TOTAL OPS at least FIXED_MIN_DELIVERED of the --target
     the run was throttled to (TOTAL, because --target throttles every operation)."""
     reasons = []
-    p99 = parsed["READ"]["99th(us)"] / 1000.0
+    # No p99 at all is a pgbench report with no sampled transaction; its own
+    # reason (pgbench_reasons, no_latency_samples) says so. go-ycsb always has one.
+    p99 = parsed["READ"].get("99th(us)", 0) / 1000.0
     if slo_ms and slo_ms > 0 and p99 > slo_ms:
         reasons.append(f"fixed_over_slo: READ p99 {p99:.2f} ms > SLO {slo_ms} ms")
     ops = parsed["TOTAL"]["OPS"]
@@ -337,14 +339,23 @@ def merge_ycsb(texts):
 # --- pgbench (PostgreSQL 18.6) -------------------------------------------------
 # pgbench's summary has no percentiles (printResults in pgbench.c, REL_18_6), so
 # the run Job (manifests/workloads/postgres/base/pgbench-run-job.yaml) logs a
-# sample of its transactions (-l --sampling-rate), and after pgbench exits
-# prints this marker and a histogram of the sampled latencies: `uniq -c` lines,
-# "<count> <microseconds>". The log's `time` field is "transaction's elapsed
-# time, in microseconds" (https://www.postgresql.org/docs/18/pgbench.html); in
-# the source it is now - txn_scheduled, so under -R it includes the schedule
-# lag, the same scheduled-start latency the summary reports. Failed transactions
-# log "failed" there, which the Job's awk drops (they are counted separately).
+# sample of its transactions (-l --sampling-rate) and, after pgbench exits,
+# prints:
+#   PGBENCH_MARKER
+#   rc=<pgbench exit code>
+#   samples=<logged transactions that did not fail>
+#   "<count> <us>" lines: histogram of the SERVICE latency
+#   PGBENCH_LAG_MARKER
+#   "<count> <us>" lines: histogram of the schedule lag (only with -R)
+# The log's `time` is "transaction's elapsed time, in microseconds"
+# (https://www.postgresql.org/docs/18/pgbench.html); in the source it is
+# now - txn_scheduled, so under -R it includes the schedule lag, "the
+# difference between the transaction's scheduled start time and the time it
+# actually started" (field 7, present only with --rate). The Job logs time -
+# lag as the service latency, and the lag on its own: the SLO judges the
+# server, the lag budget judges the generator.
 PGBENCH_MARKER = "---AAD-PGBENCH-LATENCY-US---"
+PGBENCH_LAG_MARKER = "---AAD-PGBENCH-LAG-US---"
 
 # The summary lines pgbench 18.6 prints (printResults), e.g.
 #   duration: 60 s
@@ -357,30 +368,57 @@ _PGBENCH_FIELDS = {
     "failed": re.compile(r"^number of failed transactions: (\d+)", re.M),
     "tps": re.compile(r"^tps = ([0-9.]+) ", re.M),
 }
+_PGBENCH_RC = re.compile(r"^rc=(\d+)$", re.M)
+_PGBENCH_SAMPLES = re.compile(r"^samples=(\d+)$", re.M)
+# pgbench 18.6 prints this when a client aborted (a lost connection, an error
+# outside --max-tries), and still prints a tps line after it: a plausible
+# number over a run that stopped part way (tests/fixtures/pgbench-aborted.txt).
+PGBENCH_ABORTED = "Run was aborted"
 _PERCENTILES = (("50th(us)", 0.50), ("90th(us)", 0.90), ("95th(us)", 0.95),
                 ("99th(us)", 0.99), ("99.9th(us)", 0.999))
 
 
-def parse_pgbench(text):
-    """One pgbench Job's stdout as {"seconds", "count", "failed", "tps", "hist"},
-    hist = {latency_us: sampled transactions}. None when there is no report: no
-    marker (the Job never got past pgbench) or no tps line (pgbench died; the
-    marker is printed either way)."""
-    if PGBENCH_MARKER not in text:
-        return None
-    summary, tail = text.split(PGBENCH_MARKER, 1)
-    found = {k: rx.search(summary) for k, rx in _PGBENCH_FIELDS.items()}
-    if not (found["tps"] and found["count"]):
-        return None
+def _uniq_c(text):
+    """`uniq -c` lines, "<count> <value>", as {value: count}; other lines skipped
+    (stderr can land between them in `kubectl logs`)."""
     hist = {}
-    for line in tail.splitlines():
+    for line in text.splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
             hist[int(parts[1])] = hist.get(int(parts[1]), 0) + int(parts[0])
+    return hist
+
+
+def parse_pgbench(text):
+    """One pgbench Job's stdout as {"seconds", "count", "failed", "tps",
+    "samples", "hist", "lag"}; hist and lag are {us: sampled transactions}.
+
+    None when there is no report:
+    - no marker: the Job never got past pgbench;
+    - no tps or count line: pgbench died before its summary;
+    - rc missing or not 0, or "Run was aborted": pgbench says itself that the
+      summary it printed is incomplete (I1, review of 5b1896e);
+    - samples missing or not the histogram's own total: lines were lost on
+      the way (a cut `kubectl logs`, a killed sort) and the p99 would be
+      computed over part of the sample (M4).
+    """
+    if not text or PGBENCH_MARKER not in text:
+        return None
+    summary, tail = text.split(PGBENCH_MARKER, 1)
+    found = {k: rx.search(summary) for k, rx in _PGBENCH_FIELDS.items()}
+    rc, samples = _PGBENCH_RC.search(tail), _PGBENCH_SAMPLES.search(tail)
+    if (not (found["tps"] and found["count"]) or PGBENCH_ABORTED in text
+            or rc is None or rc.group(1) != "0" or samples is None):
+        return None
+    service, _, lag = tail.partition(PGBENCH_LAG_MARKER)
+    hist = _uniq_c(service)
+    if sum(hist.values()) != int(samples.group(1)):
+        return None
     return {"seconds": int(found["seconds"].group(1)) if found["seconds"] else 0,
             "count": int(found["count"].group(1)),
             "failed": int(found["failed"].group(1)) if found["failed"] else 0,
-            "tps": float(found["tps"].group(1)), "hist": hist}
+            "tps": float(found["tps"].group(1)), "samples": int(samples.group(1)),
+            "hist": hist, "lag": _uniq_c(lag)}
 
 
 def _hist_percentile(hist, q, total):
@@ -393,38 +431,52 @@ def _hist_percentile(hist, q, total):
     return None
 
 
+def _add(hists):
+    out = {}
+    for hist in hists:
+        for us, n in hist.items():
+            out[us] = out.get(us, 0) + n
+    return out
+
+
 def merge_pgbench(texts):
     """N pgbench processes that ran one step together, each with 1/N of the
     clients and of -R, as ONE report in go-ycsb's line format, so parse_ycsb,
     series_from_ycsb, ycsb_invalid_reasons and analysis.stats read it unchanged.
 
     Unlike merge_ycsb, the percentiles here are exact for the union of the
-    samples: the histograms add up. Count, failed and tps are summed (every
-    process ran the same -T). READ and TOTAL are the same line: select-only is
-    one read per transaction. "" when any process has no report or nothing was
-    sampled: a step with half its load unaccounted for has no report.
+    samples: the histograms add up. The latency fields are the SERVICE latency;
+    LagP99(us) and LagMax(us), when the run was throttled, are the schedule
+    lag's. Count, failed and tps are summed (every process ran the same -T).
+    Samples is the total, MinProcSamples the smallest process's, Procs N. READ
+    and TOTAL are the same line: select-only is one read per transaction.
+
+    "" when any process has no report (parse_pgbench): a step with part of its
+    load unaccounted for has no report. Zero samples over processes that all
+    reported is a report without latency fields (knee.pgbench_reasons says
+    no_latency_samples), not an empty one.
     """
     parsed = [parse_pgbench(text) for text in texts]
     if not parsed or None in parsed:
         return ""
-    hist = {}
-    for p in parsed:
-        for us, n in p["hist"].items():
-            hist[us] = hist.get(us, 0) + n
-    samples = sum(hist.values())
-    if not samples:
-        return ""
+    hist, lag = _add(p["hist"] for p in parsed), _add(p["lag"] for p in parsed)
+    samples, lags = sum(hist.values()), sum(lag.values())
     fields = {
         "Takes(s)": max(p["seconds"] for p in parsed),
         "Count": sum(p["count"] for p in parsed),
         "OPS": round(sum(p["tps"] for p in parsed), 1),
-        "Avg(us)": round(sum(us * n for us, n in hist.items()) / samples, 1),
-        "Min(us)": min(hist),
-        "Max(us)": max(hist),
-        **{name: _hist_percentile(hist, q, samples) for name, q in _PERCENTILES},
-        "Samples": samples,
-        "Failed": sum(p["failed"] for p in parsed),
     }
+    if samples:
+        fields.update({
+            "Avg(us)": round(sum(us * n for us, n in hist.items()) / samples, 1),
+            "Min(us)": min(hist),
+            "Max(us)": max(hist),
+            **{name: _hist_percentile(hist, q, samples) for name, q in _PERCENTILES},
+        })
+    fields.update({"Samples": samples, "MinProcSamples": min(p["samples"] for p in parsed),
+                   "Procs": len(parsed), "Failed": sum(p["failed"] for p in parsed)})
+    if lags:
+        fields.update({"LagP99(us)": _hist_percentile(lag, 0.99, lags), "LagMax(us)": max(lag)})
     body = ", ".join(f"{field}: {_ycsb_number(v)}" for field, v in fields.items())
     return (f"# merged from {len(texts)} pgbench clients (runner/knee.py merge_pgbench)\n"
             f"READ   - {body}\nTOTAL  - {body}\n")
@@ -432,14 +484,38 @@ def merge_pgbench(texts):
 
 def pgbench_reasons(line, min_samples):
     """Why a merged pgbench line (a knee step or a fixed run) does not count:
-    too few sampled transactions to put a p99 on, or any failed transaction."""
+    no sampled transaction at all, too few to put a p99 on (in total, or in any
+    one process: its share of the load would be judged on too little, M3), or
+    any failed transaction."""
     why = []
-    if line.get("Samples", 0) < min_samples:
-        why.append(f"{line.get('Samples', 0):.0f} sampled transactions < {min_samples}: "
-                   "p99 not resolved")
+    samples, procs = line.get("Samples", 0), line.get("Procs", 1)
+    if not samples:
+        why.append("no_latency_samples: no transaction was logged in any process")
+    else:
+        if samples < min_samples:
+            why.append(f"{samples:.0f} sampled transactions < {min_samples}: p99 not resolved")
+        low = line.get("MinProcSamples", samples)
+        if procs > 1 and low < min_samples / procs:
+            why.append(f"a pgbench process logged {low:.0f} sampled transactions < "
+                       f"{min_samples}/{procs:.0f}: p99 not resolved")
     if line.get("Failed", 0):
         why.append(f"{line['Failed']:.0f} failed transactions")
     return why
+
+
+def pgbench_fixed_reasons(parsed, slo_ms, target_ops, min_samples, max_lag_p99_ms):
+    """The fixed-run rule for a merged pgbench report: ycsb_invalid_reasons on
+    the service latency and the delivered tps, pgbench_reasons, and the lag
+    budget. The lag is the generator's, not the server's: a run whose p99 lag
+    is over max_lag_p99_ms did not offer the load it claims on the schedule it
+    claims, whatever the service latency says (C1)."""
+    reasons = ycsb_invalid_reasons(parsed, slo_ms, target_ops) + pgbench_reasons(
+        parsed["READ"], min_samples)
+    lag_ms = parsed["READ"].get("LagP99(us)", 0) / 1000.0
+    if max_lag_p99_ms is not None and lag_ms > max_lag_p99_ms:
+        reasons.append(f"fixed_generator_lagging: schedule lag p99 {lag_ms:.2f} ms > "
+                       f"{max_lag_p99_ms} ms")
+    return reasons
 
 
 def series_from_ycsb(runs):

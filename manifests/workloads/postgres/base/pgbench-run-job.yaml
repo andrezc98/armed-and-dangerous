@@ -16,12 +16,24 @@
 # (https://www.postgresql.org/docs/18/pgbench.html, read 2026-09-25, as every
 # flag here). pgbench prints no percentiles, so -l logs a sample of the
 # transactions ("only the specified fraction of transactions are logged") into
-# pgbench_log.<pid>[.<thread>] in the working directory, and once pgbench is
-# done the script prints the marker (runner/knee.py PGBENCH_MARKER) and a
-# histogram of the logged latencies (field 3, microseconds; "failed" rows
-# dropped). That histogram, not the raw log, is what reaches `kubectl logs`: a
-# few thousand lines instead of hundreds of thousands. awk, sort and uniq are in
-# the image (checked with docker run postgres:18.6, 2026-09-25).
+# pgbench_log.<pid>[.<thread>] in the working directory. Once pgbench is done
+# the script prints, after the marker (runner/knee.py PGBENCH_MARKER):
+#   rc=<pgbench's exit code>      non-zero = no report (runner/knee.py)
+#   samples=<N>                   logged transactions that did not fail
+#   <count> <us> ...              histogram of the SERVICE latency: field 3
+#                                 ("time") minus field 7 ("schedule_lag", present
+#                                 only with --rate) = time from the actual start;
+#                                 without -R field 3 already is that
+#   ---AAD-PGBENCH-LAG-US---      then the histogram of field 7 alone (empty
+#                                 without -R): how far behind schedule the
+#                                 generator started, judged on its own
+# Under -R pgbench counts "time" from the scheduled start, so it carries the
+# generator's own lag (docs, -R); the SLO is about the server, the lag is
+# about the generator, and the fixed run judges each on its own. "failed"
+# rows are dropped (counted in the summary). Histograms, not the raw log,
+# reach `kubectl logs`: a few thousand lines instead of hundreds of
+# thousands. awk, sort and uniq are in the image (docker run postgres:18.6,
+# 2026-09-25). No $(...) anywhere: Kubernetes expands $(NAME) in args.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -48,8 +60,13 @@ spec:
             - >-
               pgbench -S -c __CLIENTS__ -j __THREADS__ -T __SECONDS__ __RATE_ARGS__
               -l --sampling-rate=__SAMPLING_RATE__; rc=$?;
-              echo ---AAD-PGBENCH-LATENCY-US---;
-              cat pgbench_log.* | awk '$3 ~ /^[0-9]+$/ {print $3}' | sort -n | uniq -c;
+              echo ---AAD-PGBENCH-LATENCY-US---; echo rc=$rc;
+              cat pgbench_log.* > all.log;
+              awk '$3 ~ /^[0-9]+$/ {print (NF >= 7 ? $3 - $7 : $3)}' all.log > service.txt;
+              awk 'END {print "samples=" NR}' service.txt;
+              sort -n service.txt | uniq -c;
+              echo ---AAD-PGBENCH-LAG-US---;
+              awk '$3 ~ /^[0-9]+$/ && NF >= 7 {print $7}' all.log | sort -n | uniq -c;
               exit $rc
           env:
             - name: PGHOST

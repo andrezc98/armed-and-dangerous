@@ -1,0 +1,152 @@
+# pgbench 18.6 through the runner's pgbench-run-job.yaml script, captured 2026-09-25 on a laptop (docker, scale 5, --sampling-rate=0.05). Real format, laptop numbers: calibration replaces it. Aborted: -S -c 8 -j 8 -T 20, every backend terminated (pg_terminate_backend) at ~5 s; pgbench still prints a tps line, exits 2.
+pgbench (18.6 (Debian 18.6-1.pgdg13+2))
+starting vacuum...end.
+pgbench: error: client 2 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: pgbench:client 3 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+ error: client 6 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: client 7 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: client 4 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: client 1 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: client 5 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: client 0 script 0 aborted in command 1 query 0: FATAL:  terminating connection due to administrator command
+pgbench: error: Run was aborted; the above results are incomplete.
+transaction type: <builtin: select only>
+scaling factor: 5
+query mode: simple
+number of clients: 8
+number of threads: 8
+maximum number of tries: 1
+duration: 20 s
+number of transactions actually processed: 2041364
+number of failed transactions: 0 (0.000%)
+latency average = 0.019 ms
+initial connection time = 3.049 ms
+tps = 419253.811993 (without initial connection time)
+---AAD-PGBENCH-LATENCY-US---
+rc=2
+samples=102298
+      4 15
+   2259 16
+  24563 17
+  40291 18
+  21651 19
+   6308 20
+   1665 21
+    535 22
+    369 23
+    474 24
+    611 25
+    575 26
+    440 27
+    308 28
+    241 29
+    210 30
+    169 31
+    180 32
+    124 33
+     95 34
+     82 35
+     85 36
+     86 37
+     67 38
+     48 39
+     54 40
+     71 41
+     54 42
+     52 43
+     36 44
+     34 45
+     34 46
+     16 47
+     21 48
+     29 49
+     27 50
+     18 51
+     22 52
+     19 53
+     23 54
+     24 55
+     21 56
+     20 57
+     15 58
+     17 59
+     18 60
+     22 61
+     15 62
+     13 63
+     21 64
+      7 65
+      7 66
+      5 67
+      3 68
+      3 69
+      5 70
+      7 71
+      5 72
+      5 73
+      5 74
+      1 75
+      5 76
+      2 77
+      4 78
+      4 79
+      2 80
+      2 81
+      3 84
+      3 85
+      3 86
+      3 87
+      2 88
+      3 89
+      1 90
+      3 92
+      2 93
+      5 94
+      3 96
+      1 97
+      1 98
+      2 99
+      2 101
+      2 102
+      3 105
+      2 106
+      3 107
+      2 109
+      2 110
+      1 111
+      1 112
+      1 114
+      2 115
+      2 118
+      1 121
+      1 124
+      1 131
+      1 132
+      1 135
+      1 138
+      1 139
+      2 141
+      1 147
+      1 148
+      1 152
+      1 158
+      1 162
+      1 163
+      1 170
+      1 173
+      1 176
+      1 183
+      1 185
+      1 191
+      1 216
+      1 236
+      1 237
+      1 242
+      1 252
+      1 253
+      1 262
+      1 290
+      1 323
+      1 368
+      1 647
+---AAD-PGBENCH-LAG-US---

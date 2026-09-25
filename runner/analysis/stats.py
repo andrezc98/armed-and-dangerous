@@ -99,6 +99,12 @@ def summarize(cell_dir, usd_per_hour=None):
                     {"run": run.name, "reasons": [f"{report.name} has no {'/'.join(missing)} line"]}
                 )
                 continue
+            # A pgbench report whose processes logged nothing has no latency
+            # fields at all (knee.merge_pgbench): a run with no p99, not a fast one.
+            if "99th(us)" not in parsed["READ"]:
+                out["excluded"].append(
+                    {"run": run.name, "reasons": [f"no_latency_samples: {report.name}"]})
+                continue
             reasons = knee.ycsb_invalid_reasons(parsed, slo_ms, meta.get("target_ops"))
             if reasons:
                 out["excluded"].append({"run": run.name, "reasons": reasons})

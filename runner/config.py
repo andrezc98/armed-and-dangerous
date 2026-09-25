@@ -281,7 +281,10 @@ WORKLOADS = {
         # -j per process, and the vCPUs its Job requests (the template ties
         # them). pgbench caps -j at -c itself (pgbench.c "if (nthreads >
         # nclients) nthreads = nclients"); so does the runner, for the request.
-        "pgbench_threads": 8,
+        # 16 x 2 processes = 32 of the loader's 64 vCPUs (review of 5b1896e);
+        # each pgbench pod is also guarded against its own 16
+        # (cell.pgbench_pod_guard).
+        "pgbench_threads": 16,
         # pgbench -i -s: 100,000 pgbench_accounts rows per unit (pgbench docs),
         # 86 MB at scale 5 on 18.6 (pg_database_size, laptop 2026-09-25), so
         # scale 1000 is ~17 GB: inside a 64 GiB node, like Mongo's 20 GB.
@@ -293,6 +296,14 @@ WORKLOADS = {
         "sampling_rate": 0.02,
         "min_samples": 10000,
         "fixed_seconds": 480,
+        # Fixed runs: -c = this x the knee's clients (capped under
+        # max_connections), because under -R -c only caps what is in flight.
+        "fixed_clients_factor": 2,
+        # Fixed runs judge the service latency (time - schedule_lag) against
+        # slo_ms, and the schedule lag on its own against this: 1.0 ms, 20 %
+        # of the 5 ms SLO. A calibration knob: the lab's generator lag is not
+        # measured yet (the laptop's was ~1.2 ms average at 2k tps).
+        "pg_max_lag_p99_ms": 1.0,
         "warmup_seconds": 60,  # -T of each warm-up pass
         # 8 KiB pages the pod read from its disks (cgroup io.stat rbytes / 8192)
         # per warm-up pass that count as flat, and the wall-clock bound; same
