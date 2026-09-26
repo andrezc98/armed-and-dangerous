@@ -739,3 +739,11 @@ def test_every_postgres_overlay_renders_on_its_node_group(cell_name):
     assert env["PG_SHARED_BUFFERS"] == ("16GB" if tuned else "128MB")
     assert env["PG_EFFECTIVE_CACHE_SIZE"] == ("48GB" if tuned else "4GB")
     assert "shared_buffers=$(PG_SHARED_BUFFERS)" in c["args"]
+
+
+def test_the_fixed_clients_factor_can_be_set_from_the_cli(plan):
+    """A/B of the fixed-run sessions (Task 7 day 2: 2x the knee's clients ran
+    arm-stock at 14.2-14.4/15 cores at 80 % of the knee)."""
+    out = plan("--workload", "postgres", "--cell", "arm-stock", "--runs", "1",
+               "--fixed-clients-factor", "1")
+    assert "pgbench-run-arm-stock-c16-r1-c1" in out  # dry-run knee = 16 clients, x1

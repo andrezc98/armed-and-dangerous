@@ -2390,7 +2390,8 @@ def teardown_day():
 # --- cli ---------------------------------------------------------------------
 
 def apply_overrides(spec, args):
-    for key in ("slo_ms", "fixed_seconds", "warmup_seconds", "warm_pages", "warm_max_min"):
+    for key in ("slo_ms", "fixed_seconds", "warmup_seconds", "warm_pages", "warm_max_min",
+                "fixed_clients_factor"):
         if getattr(args, key) is not None:
             spec[key] = getattr(args, key)
     if args.threads:
@@ -2430,6 +2431,8 @@ def parse_args(argv=None):
     p.add_argument("--stage-seconds", type=int, dest="stage_seconds")
     p.add_argument("--ramp-seconds", type=int, dest="ramp_seconds")
     p.add_argument("--threads", type=int, nargs="+", help="YCSB thread ladder")
+    p.add_argument("--fixed-clients-factor", type=int, dest="fixed_clients_factor",
+                   help="postgres: fixed-run sessions = this x the knee's clients (default 2)")
     p.add_argument("--clients", type=int, nargs="+", help="pgbench client ladder (postgres)")
     p.add_argument("--warm-pages", type=int, dest="warm_pages",
                    help="mongo: 'pages read into cache' delta per pass that counts as flat; "
