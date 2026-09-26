@@ -669,8 +669,17 @@ def test_a_db_cell_recreates_its_own_pod_from_the_new_template(plan, workload):
     assert out.index(own) < out.index(gone) < out.index(f"# apply overlay {workload}/amd-stock")
 
 
-def test_other_cells_leave_both_dbs_alone(plan):
-    assert "--replicas=0" not in plan("--workload", "java", "--cell", "arm-tuned", "--runs", "1")
+@pytest.mark.parametrize("workload", ["java", "go", "inference", "net"])
+def test_every_cell_parks_both_dbs_before_its_overlay(plan, workload):
+    """java x86-tuned 2026-09-26: postgres-0 kept replicas 1 and the x86-tuned
+    selector from the PG calibration, landed on the Java SUT node and took its
+    CPU; only DB cells used to park the other DB."""
+    cell = "arm-tuned" if workload != "go" else "arm-stock"
+    out = plan("--workload", workload, "--cell", cell, "--runs", "1")
+    for db in ("mongo", "postgres"):
+        line = f"$ kubectl -n aad scale statefulset/{db} --replicas=0"
+        assert line in out
+        assert out.index(line) < out.index(f"# apply overlay {workload}/{cell}")
 
 
 def test_teardown_drops_the_postgres_statefulset(plan):

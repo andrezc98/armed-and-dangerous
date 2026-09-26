@@ -1919,6 +1919,9 @@ def check_images(workload, cell):
     raise SystemExit(message)
 
 
+DATABASES = ("mongo", "postgres")  # StatefulSets that outlive their cells
+
+
 def run_cell(args):
     workload, cell = args.workload, args.cell
     spec = dict(config.WORKLOADS[workload])
@@ -1977,14 +1980,19 @@ def run_cell(args):
         if args.pg_shmem_thp:
             apply_pg_shmem_thp()  # before postgres-0 is recreated below
 
-        # The two databases' StatefulSets both tolerate the SUT taint and keep
-        # their last cell's nodeSelector; when that matches this cell, the
-        # other database would come up next to the one being measured. Scaled
-        # to 0 (its PVC and dataset stay); its own next cell's apply brings it
-        # back to 1. Missing is fine, hence check=False (I3).
-        other = {"mongo": "postgres", "postgres": "mongo"}.get(workload)
-        if other:
-            kn("scale", f"statefulset/{other}", "--replicas=0", check=False)
+        # The databases' StatefulSets tolerate the SUT taint and keep their
+        # last cell's nodeSelector and replicas: 1, so whenever this cell's node
+        # group matches it, a database pod lands on the SUT next to what is
+        # measured - in ANY workload (java x86-tuned, 2026-09-26: postgres-0
+        # from the PG calibration took 15 CPU / 56Gi and the Java pod never
+        # scheduled). Every database but this cell's own goes to 0 (its PVC and
+        # dataset stay); its own next cell's apply brings it back to 1. Missing
+        # is fine, hence check=False (I3).
+        for db in DATABASES:
+            if db != workload:
+                kn("scale", f"statefulset/{db}", "--replicas=0", check=False)
+                kn("wait", "--for=delete", f"pod/{db}-0", "--timeout=300s", check=False)
+        if workload in DATABASES:
             # Its own pod too: when the last cell's node scaled away, the
             # StatefulSet recreated <db>-0 from the OLD template (Pending), and
             # a RollingUpdate never replaces a pod that is not Ready ("forced
