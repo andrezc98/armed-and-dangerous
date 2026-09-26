@@ -407,7 +407,7 @@ que el gate (plan Task 6.5) se contesta leyendo los resultados y no la memoria:
   altos invalidaban la escalera por el loader; por eso el loader pasó a
   `c8i.16xlarge` (64 vCPU) el 2026-09-25.
 - **corridas inválidas**: `http_req_failed.rate > 0.01`, una tasa de
-  `dropped_iterations` > 0.1 %, p99 por encima del SLO (`fixed_over_slo`; en
+  `dropped_iterations` > 0.25 % (0.1 % hasta el 2026-09-26: las 27 corridas fijas de Java del día 1 cayeron entre 0.048 y 0.124 %, crecían con los rps y no con la latencia; decisión del speaker), p99 por encima del SLO (`fixed_over_slo`; en
   Mongo, el p99 de READ), throughput por debajo de 0.95 x lo pedido
   (`fixed_underdelivered`; `http_reqs` contra `RATE` en k6, TOTAL OPS contra el
   `--target` en Mongo) o un Job que no imprimió resumen (`no_summary`) marcan la

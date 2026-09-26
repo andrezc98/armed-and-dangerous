@@ -31,8 +31,13 @@ STEP_MAX_FAILED = 0.01
 
 # A fixed run of 8 min at ~30k rps dropped 0.05 % of its iterations at the smoke
 # gate, with 2000 VUs preallocated and 664 in use at peak: stragglers, not a
-# generator that fell behind. Above this share the generator set the number.
-FIXED_MAX_DROPPED = 0.001
+# generator that fell behind. Task 7 day 1 (27 Java fixed runs, 24-88k rps):
+# 0.048-0.124 %, growing with the rate and not with latency - the highest share
+# (arm-tuned-vthreads, 86-88k rps) had the lowest p99 (3.3-3.7 ms vs a 10 ms
+# SLO) with the loader at 26 %. 0.1 % sat inside that noise floor. Speaker
+# ruling 2026-09-26 (R3): 0.25 %, above the floor and above the one-k6 0.22 %
+# of the calibration. Above this share the generator set the number.
+FIXED_MAX_DROPPED = 0.0025
 
 # A fixed run is held at 80 % of the knee, so it has to deliver that rate and
 # stay inside the SLO, or the number on the slide is not the one it claims to

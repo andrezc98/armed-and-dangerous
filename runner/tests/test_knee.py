@@ -71,7 +71,7 @@ def test_invalid_reasons_flags_failures_and_dropped_iterations():
     }
     assert knee.invalid_reasons(bad) == [
         "http_req_failed rate 0.050 > 0.01",
-        "dropped_iterations 12 = 0.0120 of the offered iterations > 0.001",
+        "dropped_iterations 12 = 0.0120 of the offered iterations > 0.0025",
     ]
 
 
@@ -418,3 +418,13 @@ def test_the_closed_loop_knee_is_the_best_step_not_the_last():
 def test_without_ops_the_walk_is_unchanged():
     series, _ = _split(PG_AMD)
     assert knee.walk(series, 5) == (512, None)
+
+
+def test_a_fixed_run_at_the_day_1_noise_floor_is_valid():
+    """arm-tuned-vthreads run-3, Task 7 day 1: 51,508 dropped of ~41.4M offered
+    (0.124 %), p99 3.3 ms against a 10 ms SLO. Speaker ruling R3: <= 0.25 %."""
+    m = {"http_req_failed": {"values": {"rate": 0}},
+         "dropped_iterations": {"values": {"count": 51508}},
+         "iterations": {"values": {"count": 41_400_000}},
+         "http_req_duration": {"values": {"p(99)": 3.3}}}
+    assert not any("dropped_iterations" in r for r in knee.invalid_reasons({"metrics": m}, 10))
