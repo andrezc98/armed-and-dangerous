@@ -296,10 +296,21 @@ def test_the_knee_records_each_steps_jobs_and_threads_for_the_pod_guard(monkeypa
     assert result["threads"] == {16: 8, 64: 16}
 
 
-def test_a_ladder_that_never_crosses_is_not_a_knee(monkeypatch, tmp_path):
-    _ladder(monkeypatch, {16: _step(900), 32: _step(900)})
+def test_a_peak_inside_the_ladder_is_a_knee_even_without_an_end(monkeypatch, tmp_path):
+    """arm-tuned with THP for shmem, 2026-09-26: 337.2k tps at 256 clients, 321.4k
+    at 512 (95.3 %: no drop) with p99 3.2 ms (no crossing). The peak is inside the
+    ladder, so the silicon set it, not the ladder's top."""
+    _ladder(monkeypatch, {16: _step(900, tps=80000.0), 32: _step(900, tps=160000.0),
+                          64: _step(900, tps=153000.0)})
+    result = cell.pgbench_knee(dict(SPEC, clients=[16, 32, 64]), "arm-stock", tmp_path)
+    assert result["knee"] == 32 and result["ended_by"] is None
+    assert result["invalid"] == []
+
+
+def test_a_ladder_still_rising_at_its_top_is_not_a_knee(monkeypatch, tmp_path):
+    _ladder(monkeypatch, {16: _step(900, tps=80000.0), 32: _step(900, tps=160000.0)})
     result = cell.pgbench_knee(dict(SPEC, clients=[16, 32]), "arm-stock", tmp_path)
-    assert "ladder_never_crossed" in result["invalid"][0]
+    assert result["invalid"][0].startswith("ladder_never_crossed: the top step (32 clients)")
 
 
 # --- fixed run --------------------------------------------------------------------

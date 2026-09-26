@@ -1142,7 +1142,7 @@ def ycsb_knee(spec, cell, cell_dir):
     return {"unit": "threads", "knee": found, "ops": ops, "slo_ms": spec["slo_ms"],
             "series": series, "ended_by": ended_by, "windows": windows,
             "ignored_after_end": ignored,
-            "invalid": [] if ended_by else uncrossed(found, found, "threads")}
+            "invalid": [] if ended_by else uncrossed(found, spec["threads"][-1], "threads")}
 
 
 def mongo_eval(js):
@@ -1357,7 +1357,7 @@ def pgbench_knee(spec, cell, cell_dir):
     found, ended_by = knee.walk(series, spec["slo_ms"], steps, ops=ycsb_ops(runs))
     # TOTAL tps at the knee: what the fixed runs are throttled to 80 % of.
     ops = ycsb_ops(runs).get(found, 0)
-    invalid = [] if ended_by else uncrossed(found, found, "clients")
+    invalid = [] if ended_by else uncrossed(found, spec["clients"][-1], "clients")
     if ended_by and ended_by["kind"] == "unresolved":
         invalid.append(f"capacity_unresolved: step {ended_by['step']} clients "
                        f"{ended_by['reason']}")
