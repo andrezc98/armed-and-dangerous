@@ -305,8 +305,14 @@ WORKLOADS = {
         "min_samples": 10000,
         "fixed_seconds": 480,
         # Fixed runs: -c = this x the knee's clients (capped under
-        # max_connections), because under -R -c only caps what is in flight.
-        "fixed_clients_factor": 2,
+        # max_connections); under -R, -c only caps what is in flight. 1, not 2
+        # (review C1's first pick): A/B on arm-stock at 230k tps, Task 7 day 2
+        # (results/2026-09-26-ab-pg-clients vs -task7-d2): 2x = 512 sessions ran
+        # the SUT at 14.2-14.4/15 cores median with 5.8-9.2 backends waiting on
+        # LWLock:BufferMapping; 1x = 256 at 12.8-13.2 cores and 1.6-1.7 waiters,
+        # lag p99 0.11 ms when the server did not stall. The extra backends were
+        # load the knee never carried. Speaker asked to validate; ruling 1x.
+        "fixed_clients_factor": 1,
         # Fixed runs judge the service latency (time - schedule_lag) against
         # slo_ms. The schedule lag is recorded (run meta lag_p99_ms/lag_max_ms)
         # but no longer judged: Task 7 day 2 arm-stock hit its 230k target with

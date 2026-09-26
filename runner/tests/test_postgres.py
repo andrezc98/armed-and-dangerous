@@ -336,7 +336,8 @@ def test_a_fixed_run_doubles_the_knee_clients_and_judges_service_latency_and_lag
     lag, the generator's own, is judged against pg_max_lag_p99_ms."""
     texts = [_fx("pgbench-fixed-c1.txt"), _fx("pgbench-fixed-c2.txt")]
     seen, run_dir, meta = _fixed(monkeypatch, tmp_path, texts, {"knee": 16, "ops": 5001.0},
-                                 {"fixed_seconds": 10, "min_samples": 500})
+                                 {"fixed_seconds": 10, "min_samples": 500,
+                                  "fixed_clients_factor": 2})
     assert meta["target_ops"] == 4000 and meta["clients"] == 32 and meta["knee_clients"] == 16
     assert all("pgbench -S -c 16 -j 16 -T 10 -R 2000 " in _script(text) for _, text in seen)
     assert meta["pgbench_jobs"] == [name for name, _ in seen] and meta["pgbench_threads"] == 16
@@ -365,11 +366,12 @@ def test_a_fixed_run_doubles_the_knee_clients_and_judges_service_latency_and_lag
 
 
 def test_the_fixed_clients_are_capped_by_max_connections(monkeypatch, tmp_path):
-    seen, _, meta = _fixed(monkeypatch, tmp_path, [_step(900)] * 2, {"knee": 512, "ops": 9e4})
+    seen, _, meta = _fixed(monkeypatch, tmp_path, [_step(900)] * 2, {"knee": 512, "ops": 9e4},
+                           {"fixed_clients_factor": 2})
     assert meta["clients"] == 590  # min(1024, 600 - 10), even
     assert all("-c 295 " in _script(text) for _, text in seen)
     _, _, meta = _fixed(monkeypatch, tmp_path, [_step(900)] * 2, {"knee": 512, "ops": 9e4},
-                        app_env={"PG_MAX_CONNECTIONS": "700"})
+                        {"fixed_clients_factor": 2}, app_env={"PG_MAX_CONNECTIONS": "700"})
     assert meta["clients"] == 690
 
 
@@ -389,7 +391,7 @@ def test_a_fixed_run_with_no_samples_is_invalid(monkeypatch, tmp_path):
 def test_an_aborted_fixed_run_is_no_summary(monkeypatch, tmp_path):
     _, _, meta = _fixed(monkeypatch, tmp_path, [_fx("pgbench-aborted.txt"), _step(900)],
                         {"knee": 16, "ops": 1.0})
-    assert meta["invalid"] == ["no_summary: job/pgbench-run-arm-stock-c32-r1-c1"]
+    assert meta["invalid"] == ["no_summary: job/pgbench-run-arm-stock-c16-r1-c1"]
 
 
 # --- the loader guard per pgbench pod (I2) ---------------------------------------------
@@ -656,7 +658,7 @@ def test_a_postgres_cell_plans_end_to_end(plan, monkeypatch):
     assert jobs[0] == "job/pgbench-init-" + re.search(r"=== (\S+)", out).group(1)
     assert "job/pgbench-run-arm-tuned-warm0-c1" in jobs
     assert "job/pgbench-run-arm-tuned-c16-knee-c2" in jobs
-    assert jobs[-2:] == ["job/pgbench-run-arm-tuned-c32-r1-c1", "job/pgbench-run-arm-tuned-c32-r1-c2"]
+    assert jobs[-2:] == ["job/pgbench-run-arm-tuned-c16-r1-c1", "job/pgbench-run-arm-tuned-c16-r1-c2"]
     assert "pg_prewarm" in out and "/sys/fs/cgroup/io.stat" in out
     assert "postgres overlay kept" in out  # the dataset survives the cell
     assert "--scaling-config desiredSize=0" in out
@@ -747,3 +749,11 @@ def test_the_fixed_clients_factor_can_be_set_from_the_cli(plan):
     out = plan("--workload", "postgres", "--cell", "arm-stock", "--runs", "1",
                "--fixed-clients-factor", "1")
     assert "pgbench-run-arm-stock-c16-r1-c1" in out  # dry-run knee = 16 clients, x1
+
+
+def test_the_fixed_run_uses_the_knee_clients_by_default(monkeypatch, tmp_path):
+    """A/B arm-stock, Task 7 day 2: 2x the knee's sessions was load the knee
+    never carried (14.2-14.4 vs 12.8-13.2 cores at the same 230k tps)."""
+    assert SPEC["fixed_clients_factor"] == 1
+    _, _, meta = _fixed(monkeypatch, tmp_path, [_step(900)] * 2, {"knee": 256, "ops": 9e4})
+    assert meta["clients"] == meta["knee_clients"] == 256

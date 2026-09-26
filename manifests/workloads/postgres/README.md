@@ -157,7 +157,7 @@ PG_SHARED_BUFFERS=24GB` pisa cualquiera sin editar nada.
      muestra. A diferencia de Mongo, la escalera **se detiene** en el
    escalón que cierra el recorrido: los de arriba nadie los mira.
 5. **Corridas fijas** al 80 % de los tps del knee, `-R` repartido entre los dos
-   procesos, 480 s, con **el doble de clientes que el knee** (tope
+   procesos, 480 s, con **los clientes del knee** (desde el 2026-09-26; antes el doble: en arm-stock el doble puso el SUT en 14,2-14,4 de 15 núcleos y 6-9 backends esperando `LWLock:BufferMapping`, contra 12,8-13,2 y 1,7 con los del knee, a los mismos 230k tps; tope
    `max_connections - 10`): bajo `-R`, `-c` solo limita cuántas transacciones
    hay en vuelo, y con los clientes del knee al 80 % de sus tps cada sesión
    está ocupada el 80 % del tiempo y el calendario de Poisson hace cola detrás
