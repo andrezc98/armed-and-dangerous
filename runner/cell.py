@@ -2439,10 +2439,19 @@ def parse_args(argv=None):
     p.add_argument("--app-env", action="append", default=[], metavar="K=V", dest="app_env",
                    help="env for the SUT container, patched through the overlay render "
                         "(repeatable; recorded in the cell's meta)")
-    p.add_argument("--pg-shmem-thp", action="store_true", dest="pg_shmem_thp",
+    p.add_argument("--pg-shmem-thp", action=argparse.BooleanOptionalAction, default=None,
+                   dest="pg_shmem_thp",
                    help="postgres tuned cells: THP for shared memory (shmem_enabled=always) "
-                        "through manifests/base/pg-shmem-thp-daemonset.yaml; off by default")
+                        "through manifests/base/pg-shmem-thp-daemonset.yaml; ON by default on "
+                        "postgres tuned cells (speaker ruling 2026-09-26), "
+                        "--no-pg-shmem-thp for the A/B")
     args = p.parse_args(argv)
+    if args.pg_shmem_thp is None:
+        # Part of "tuned" for PostgreSQL: +11.3/+12.3/+11.5 % (arm/amd/x86) at the
+        # knee with 93.6 % of the 16 GB pool on 2 MiB pages
+        # (results/2026-09-26-cal-pg-thp vs results/2026-09-25-cal-pg-*).
+        args.pg_shmem_thp = (args.workload == "postgres" and args.cell is not None
+                             and config.node_cell(args.cell) in pg_shmem_thp_cells())
     args.env = dict(kv.split("=", 1) for kv in args.env)
     args.app_env = dict(kv.split("=", 1) for kv in args.app_env)
     if not args.teardown_day and not (args.workload and args.cell):

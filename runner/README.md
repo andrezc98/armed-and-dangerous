@@ -165,7 +165,7 @@ barrer pools (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`,
 `SERVER_TOMCAT_THREADS_MAX`) y flags de la JVM (`JAVA_TOOL_OPTIONS`); queda
 registrada en `meta.json` y `cell.json`. `--env` llega a las tres cargas de k6 de la celda —
 calentamiento, escalera del knee y corridas fijas — no solo a las dos últimas.
-`--pg-shmem-thp` (solo celdas tuned de PostgreSQL, apagado por defecto) aplica
+`--pg-shmem-thp` (solo celdas tuned de PostgreSQL; **encendido por defecto** en ellas desde el 2026-09-26, decisión del speaker: +11,3 % Graviton, +12,3 % AMD, +11,5 % Xeon en el knee, 93,6 % del pool de 16 GB en páginas de 2 MiB; `--no-pg-shmem-thp` para el A/B) aplica
 `manifests/base/pg-shmem-thp-daemonset.yaml`: THP para la memoria compartida
 (`shmem_enabled=always`) mientras dura la celda, para comparar tuned con y sin
 THP en el mismo chip; el detalle está más abajo en "Detalles que no son obvios".

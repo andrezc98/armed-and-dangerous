@@ -329,7 +329,9 @@ def test_every_other_cell_drops_a_leftover_knob_before_the_node_scales_up(plan, 
                                                                          cell_name):
     """I1: a cell that did not ask for the knob must not start next to one a
     crashed runner left behind."""
-    out = plan("--workload", workload, "--cell", cell_name, "--runs", "1")
+    # postgres tuned cells turn the knob on by default: opt out for the A/B side.
+    extra = ["--no-pg-shmem-thp"] if (workload, cell_name) == ("postgres", "arm-tuned") else []
+    out = plan("--workload", workload, "--cell", cell_name, "--runs", "1", *extra)
     leftover = f"$ kubectl delete -f {DAEMONSET} --ignore-not-found --wait"
     assert out.index(leftover) < out.index("--scaling-config desiredSize=1")
     assert f"$ kubectl apply -f {DAEMONSET}" not in out
@@ -386,3 +388,12 @@ def test_the_option_is_refused_where_it_means_nothing(plan, argv):
 
 def test_teardown_drops_the_knob(plan):
     assert f"delete -f {DAEMONSET} --ignore-not-found" in plan("--teardown-day")
+
+
+@pytest.mark.parametrize("cell_name, on", [("arm-tuned", True), ("amd-tuned", True),
+                                           ("x86-tuned", True), ("arm-stock", False)])
+def test_postgres_tuned_cells_get_the_knob_by_default(plan, cell_name, on):
+    """Speaker ruling 2026-09-26: tuned PostgreSQL = shared_buffers 16GB + THP for
+    shmem (+11.3/+12.3/+11.5 % arm/amd/x86, results/2026-09-26-cal-pg-thp)."""
+    out = plan("--workload", "postgres", "--cell", cell_name, "--runs", "1")
+    assert (f"$ kubectl apply -f {DAEMONSET}" in out) is on

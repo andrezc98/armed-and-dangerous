@@ -78,7 +78,7 @@ local con `docker run postgres:18.6`, escala 5. Esas salidas son los fixtures de
   `hugepages-2Mi` en el pod: un cambio de infra que no se hizo. Como `try`
   falla en silencio, el runner guarda `huge_pages_status` en `cell.json`: si
   algún día dice `on`, algo cambió en el nodo.
-- **THP para la memoria compartida, opcional (`--pg-shmem-thp`, 2026-09-25).**
+- **THP para la memoria compartida (`--pg-shmem-thp`, 2026-09-25; parte de "tuned" desde el 2026-09-26: +11-12 % en los tres chips, `results/2026-09-26-cal-pg-thp`).**
   La calibración mostró que las celdas tuned pagan 23-28 % del CPU de
   PostgreSQL mapeando y desmapeando los 16 GB de `shared_buffers` en páginas
   de 4 KiB. El THP `always` de la node group tuned no alcanza esa memoria
