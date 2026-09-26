@@ -161,8 +161,7 @@ PG_SHARED_BUFFERS=24GB` pisa cualquiera sin editar nada.
    `max_connections - 10`): bajo `-R`, `-c` solo limita cuántas transacciones
    hay en vuelo, y con los clientes del knee al 80 % de sus tps cada sesión
    está ocupada el 80 % del tiempo y el calendario de Poisson hace cola detrás
-   de ellas. Inválida si: p99 **de servicio** > SLO, p99 del **schedule lag** >
-   `pg_max_lag_p99_ms` (1,0 ms; `fixed_generator_lagging`), entrega < 0,95 ×
+   de ellas. Inválida si: p99 **de servicio** > SLO, entrega < 0,95 ×
    objetivo, algún proceso sin reporte, pocas muestras, sin muestras o
    transacciones fallidas, o algún pod de pgbench saturado.
 
@@ -199,11 +198,15 @@ fusionados, y al lado la salida propia de cada proceso (`knee-c128-c1.txt`,
 - **SLO.** 5 ms como el READ de Mongo es un punto de partida. En la laptop el
   p99 de select-only a lazo cerrado fue 90 µs; hay que ver dónde cruza cada
   familia y si 5 ms deja la escalera sin cruzar (`ladder_never_crossed`).
-- **Presupuesto de lag.** `pg_max_lag_p99_ms` = 1,0 ms (20 % del SLO) es un
-  punto de partida. En la laptop, a ~4k tps con 16 clientes por proceso, el
-  p99 de servicio fue 1,59 ms y el del lag 3,37 ms: esa corrida sale
-  `fixed_generator_lagging`. Ver cuánto atrasa el generador en el loader y si
-  el doble de clientes alcanza.
+- **Schedule lag: se reporta, no invalida (decisión del speaker, 2026-09-26).**
+  En la Task 7, arm-stock entregó sus 230k tps objetivo con p99 de servicio de
+  3,7-4,2 ms y p99 de lag de 0,5-1,0 s, con los pods de pgbench en 2,7 de 16
+  núcleos. El lag venía de pausas del servidor (máx. 146 ms, esperas
+  `LWLock:BufferMapping`) que se vacían con el calendario fijo de `-R`: cola
+  real de un sistema abierto al 80 %, no el generador. Cada corrida guarda
+  `lag_p99_ms` y `lag_max_ms` en `meta.json`; el generador lo cuidan el chequeo
+  de CPU de los pods de pgbench y la entrega < 0,95. `pg_max_lag_p99_ms` con un
+  número vuelve a activar `fixed_generator_lagging`.
 - **Escala.** 1000 (~17 GB) cabe en los 64 GiB. Medir `database_bytes` en
   `cell.json` y el tiempo del init (`-I dtGvp` genera del lado del servidor, con
   un solo núcleo).

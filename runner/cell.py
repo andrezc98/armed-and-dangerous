@@ -2267,7 +2267,12 @@ def measure(spec, workload, cell, i, run_dir, run_meta, args):
                 write_ycsb(run_dir, "pgbench.txt", client_logs, None)
         elif not config.DRY_RUN:
             write_ycsb(run_dir, "pgbench.txt", client_logs, merged)
-            reasons = knee.pgbench_fixed_reasons(knee.parse_ycsb(merged), spec["slo_ms"], target,
+            parsed = knee.parse_ycsb(merged)
+            line = parsed["READ"]
+            if "LagP99(us)" in line:  # queueing under -R: reported next to the service p99
+                run_meta["lag_p99_ms"] = line["LagP99(us)"] / 1000.0
+                run_meta["lag_max_ms"] = line.get("LagMax(us)", 0) / 1000.0
+            reasons = knee.pgbench_fixed_reasons(parsed, spec["slo_ms"], target,
                                                  spec["min_samples"], spec["pg_max_lag_p99_ms"])
             if reasons:
                 run_meta.setdefault("invalid", []).extend(reasons)

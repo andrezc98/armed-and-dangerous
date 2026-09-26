@@ -134,7 +134,7 @@ def test_the_init_job_loads_the_configured_scale_server_side_and_is_the_cells():
 
 def test_sixteen_threads_per_process_and_a_lag_budget_by_default():
     assert SPEC["pgbench_threads"] == 16
-    assert SPEC["pg_max_lag_p99_ms"] == 1.0
+    assert SPEC["pg_max_lag_p99_ms"] is None  # lag reported, not judged
 
 
 # --- parse and merge ------------------------------------------------------------
@@ -352,13 +352,16 @@ def test_a_fixed_run_doubles_the_knee_clients_and_judges_service_latency_and_lag
     assert parsed["LagP99(us)"] == lag[math.ceil(0.99 * len(lag)) - 1]
     assert parsed["LagMax(us)"] == lag[-1]
     assert parsed["OPS"] == pytest.approx(sum(p["tps"] for p in parts), abs=0.1)
-    # The laptop's generator lagged (avg 1.2 ms per its own summary): the
-    # service p99 is inside the SLO, the lag is not inside its budget.
-    assert parsed["99th(us)"] < 5000 and parsed["LagP99(us)"] > 1000  # 1.59 / 3.37 ms
-    assert [r.split(":")[0] for r in meta["invalid"]] == ["fixed_generator_lagging"]
-    _, _, relaxed = _fixed(monkeypatch, tmp_path, texts, {"knee": 16, "ops": 5001.0},
-                           {"fixed_seconds": 10, "min_samples": 500, "pg_max_lag_p99_ms": 100})
-    assert "invalid" not in relaxed
+    # The service p99 is inside the SLO; the lag (1.59 / 3.37 ms) is recorded,
+    # not judged, by default (speaker ruling 2026-09-26)...
+    assert parsed["99th(us)"] < 5000 and parsed["LagP99(us)"] > 1000
+    assert "invalid" not in meta
+    assert meta["lag_p99_ms"] == parsed["LagP99(us)"] / 1000.0
+    assert meta["lag_max_ms"] == parsed["LagMax(us)"] / 1000.0
+    # ...and a budget re-enables the gate.
+    _, _, gated = _fixed(monkeypatch, tmp_path, texts, {"knee": 16, "ops": 5001.0},
+                         {"fixed_seconds": 10, "min_samples": 500, "pg_max_lag_p99_ms": 1.0})
+    assert [r.split(":")[0] for r in gated["invalid"]] == ["fixed_generator_lagging"]
 
 
 def test_the_fixed_clients_are_capped_by_max_connections(monkeypatch, tmp_path):

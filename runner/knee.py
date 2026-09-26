@@ -546,9 +546,9 @@ def pgbench_reasons(line, min_samples):
 def pgbench_fixed_reasons(parsed, slo_ms, target_ops, min_samples, max_lag_p99_ms):
     """The fixed-run rule for a merged pgbench report: ycsb_invalid_reasons on
     the service latency and the delivered tps, pgbench_reasons, and the lag
-    budget. The lag is the generator's, not the server's: a run whose p99 lag
-    is over max_lag_p99_ms did not offer the load it claims on the schedule it
-    claims, whatever the service latency says (C1)."""
+    budget when one is set (max_lag_p99_ms None = no gate: the lag is recorded,
+    and in the lab it was the server's stalls queueing on the schedule, not the
+    generator - see config pg_max_lag_p99_ms)."""
     reasons = ycsb_invalid_reasons(parsed, slo_ms, target_ops) + pgbench_reasons(
         parsed["READ"], min_samples)
     lag_ms = parsed["READ"].get("LagP99(us)", 0) / 1000.0

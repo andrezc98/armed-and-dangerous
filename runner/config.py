@@ -308,10 +308,15 @@ WORKLOADS = {
         # max_connections), because under -R -c only caps what is in flight.
         "fixed_clients_factor": 2,
         # Fixed runs judge the service latency (time - schedule_lag) against
-        # slo_ms, and the schedule lag on its own against this: 1.0 ms, 20 %
-        # of the 5 ms SLO. A calibration knob: the lab's generator lag is not
-        # measured yet (the laptop's was ~1.2 ms average at 2k tps).
-        "pg_max_lag_p99_ms": 1.0,
+        # slo_ms. The schedule lag is recorded (run meta lag_p99_ms/lag_max_ms)
+        # but no longer judged: Task 7 day 2 arm-stock hit its 230k target with
+        # service p99 3.7-4.2 ms and lag p99 0.5-1.0 s, pgbench pods at 2.7/16
+        # cores - the lag was the server's stalls (max 146 ms, BufferMapping
+        # waits) draining through an anchored schedule, i.e. real open-loop
+        # queueing, not the generator. The generator stays guarded by the
+        # pgbench pod CPU check and under-delivery. Speaker ruling 2026-09-26.
+        # A number here re-enables the gate (fixed_generator_lagging).
+        "pg_max_lag_p99_ms": None,
         "warmup_seconds": 60,  # -T of each warm-up pass
         # 8 KiB pages the pod read from its disks (cgroup io.stat rbytes / 8192)
         # per warm-up pass that count as flat, and the wall-clock bound; same
