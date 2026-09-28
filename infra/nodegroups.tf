@@ -34,10 +34,12 @@ locals {
     }
   }
 
-  # Support node groups are always on while the cluster is up.
+  # Support node groups: min 0 so the cluster can idle between lab days
+  # (speaker 2026-09-28). desired_size only counts on create; after that the
+  # AWS CLI owns it: desiredSize=0 to park, =1 before a lab day.
   support_common = {
     use_name_prefix = false
-    min_size        = 1
+    min_size        = 0
     max_size        = 1
     desired_size    = 1
   }
