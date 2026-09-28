@@ -53,11 +53,16 @@ def _cells(day, rate):
 
     Each cell writes a cell.json with the minutes its node group actually spent
     above desired=0; that is the only thing being billed per cell.
+
+    usd is None for an instance type cost.md has no row for (the arc families,
+    plan Task 8): the ledger says TODO and names it, rather than inventing a
+    price or refusing a whole day over one orientative cell.
     """
     out = []
     for cellfile in sorted(Path(day).glob("*/*/cell.json")):
         c = json.loads(cellfile.read_text())
-        out.append((c, c["minutes"] * rate[c["instance_type"]] / 60 * c["nodes"]))
+        usd_h = rate.get(c["instance_type"])
+        out.append((c, None if usd_h is None else c["minutes"] * usd_h / 60 * c["nodes"]))
     return out
 
 
@@ -69,7 +74,8 @@ def day_total(results_dir, cost_md=COST_MD):
     another cell is measured.
     """
     book = read(cost_md)
-    total = sum(usd for _, usd in _cells(results_dir, book["rates"]))
+    # ponytail: a cell without a rate counts 0 here; the ledger names it as TODO.
+    total = sum(usd or 0 for _, usd in _cells(results_dir, book["rates"]))
     total += book["fixed_hours_per_day"] * sum(book["rates"][i] for i in FIXED_PER_DAY)
     return total, book["estimate_per_day_usd"]
 
@@ -87,11 +93,14 @@ def ledger(results_dir, cost_md=COST_MD):
         "|---|---|---|---|---|---|",
     ]
     total = 0.0
+    unpriced = []
     for c, usd in _cells(day, rate):
-        total += usd
+        if usd is None:
+            unpriced.append(c["instance_type"])
+        total += usd or 0
         lines.append(
             f"| {c['workload']} | {c['cell']} | {c['instance_type']} | "
-            f"{c['nodes']} | {c['minutes']:.1f} | {usd:.2f} |"
+            f"{c['nodes']} | {c['minutes']:.1f} | {'TODO' if usd is None else f'{usd:.2f}'} |"
         )
 
     hours = book["fixed_hours_per_day"]
@@ -105,4 +114,7 @@ def ledger(results_dir, cost_md=COST_MD):
         f"estimate_per_day_usd: {book['estimate_per_day_usd']:.2f} - "
         + ("**OVER_ESTIMATE**" if total > book["estimate_per_day_usd"] else "OK"),
     ]
+    if unpriced:
+        lines.append(f"TODO: no rate in {COST_MD.name} for {', '.join(sorted(set(unpriced)))}; "
+                     "the total leaves those cells out")
     return "\n".join(lines) + "\n"

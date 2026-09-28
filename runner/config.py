@@ -346,13 +346,33 @@ WORKLOADS = {
 }
 
 
+# --- generational arc (plan Task 8, SPEC section 6) ---------------------------
+# Family -> kubernetes.io/arch. Each arch has its own Karpenter NodePool
+# (infra/karpenter/nodepool.yaml, aad-arc-<arch>) and the arc cell borrows that
+# arch's stock Java overlay. Always the .4xlarge (16 vCPU) of the family.
+# m8a (AMD, x86_64) joined 2026-09-28: the x86 path for stacks certified on
+# x86_64 only; it runs the x86-stock overlay like the Intel families.
+ARC_FAMILIES = {"m5": "amd64", "m6i": "amd64", "m7i": "amd64", "m8i": "amd64", "m8a": "amd64",
+                "m6g": "arm64", "m7g": "arm64", "m8g": "arm64", "m9g": "arm64"}
+ARC_STOCK = {"amd64": "x86-stock", "arm64": "arm-stock"}
+ARC_FIXED_SECONDS = 300  # the plan's "corrida fija corta (5 min)"; --fixed-seconds wins
+
+
+def arc_family(cell):
+    """'m7g' for the arc cell 'arc-m7g', None for a Task 7 cell."""
+    return cell.removeprefix("arc-") if cell.startswith("arc-") else None
+
+
 def node_cell(cell):
-    """The aad/cell label value of the node group a cell runs on."""
-    return CELL_MNG[cell]
+    """The aad/cell label value of the node group a cell runs on. An arc cell has
+    no node group: "arc" (the aad/role of its Karpenter nodes), which is in none
+    of the knob lists and takes DEFAULT_EXCLUSIVE_CPUS."""
+    return "arc" if arc_family(cell) else CELL_MNG[cell]
 
 
 def instance_type(cell):
-    return INSTANCE[node_cell(cell)]
+    family = arc_family(cell)
+    return f"{family}.4xlarge" if family else INSTANCE[node_cell(cell)]
 
 
 def exclusive_cpus(cell):

@@ -338,6 +338,52 @@ def scale_to_zero(info, mng, label):
               f"{config.REGION}` by hand")
 
 
+ARC_NODEPOOLS = config.REPO / "infra" / "karpenter" / "nodepool.yaml"
+ARC_LABEL = "aad/role=arc"
+
+
+def arc_nodepool_patch(family):
+    """(NodePool name, merge patch) that narrows the arch's arc pool to one family.
+
+    Read from infra/karpenter/nodepool.yaml so the other requirements stay
+    exactly what was applied; only instance-family's values change. A JSON merge
+    patch replaces a list whole (RFC 7386), which is why every requirement goes
+    in the body - the same shape as the example in that file's header.
+    """
+    name = f"aad-arc-{config.ARC_FAMILIES[family]}"
+    pool = next(d for d in yaml.safe_load_all(ARC_NODEPOOLS.read_text())
+                if d["metadata"]["name"] == name)
+    requirements = pool["spec"]["template"]["spec"]["requirements"]
+    for req in requirements:
+        if req["key"] == "karpenter.k8s.aws/instance-family":
+            req["values"] = [family]
+    return name, {"spec": {"template": {"spec": {"requirements": requirements}}}}
+
+
+def arc_provision(family):
+    """The arc's scale(): no node group, just the pool narrowed to one family.
+    Karpenter launches the node when the overlay's pod goes Pending."""
+    name, body = arc_nodepool_patch(family)
+    kubectl("patch", "nodepool", name, "--type", "merge", "-p", json.dumps(body))
+
+
+def arc_teardown(workload, cell):
+    """The arc's scale_to_zero(): delete the workload, then let the pool's
+    WhenEmpty consolidation (consolidateAfter 1m) take the node away, and wait
+    for that, because the cell is billed until it is gone. Never raises."""
+    try:
+        kubectl("delete", "-k", overlay(workload, cell), "--ignore-not-found")
+    except RuntimeError as exc:
+        print(f"# WARNING: arc workload not deleted ({exc}); the node stays until it is")
+    try:
+        wait_until(lambda: not labelled_nodes(ARC_LABEL), NODE_GONE_TIMEOUT,
+                   f"no node with {ARC_LABEL}")
+    except RuntimeError as exc:
+        print(f"# WARNING: {exc}; an arc node is still up. Check it by hand:\n"
+              f"#   kubectl get nodeclaims; kubectl get nodes -l {ARC_LABEL}\n"
+              "# (expireAfter: 8h in nodepool.yaml is the last safety net)")
+
+
 def labelled_nodes(label):
     out = kubectl("get", "nodes", "-l", label, "--no-headers", capture=True, quiet=True, check=False)
     return [line.split() for line in out.splitlines() if line.split()]
@@ -359,7 +405,30 @@ def wait_nodes(label, count, placeholder):
 # --- workload ----------------------------------------------------------------
 
 def overlay(workload, cell):
+    """The overlay directory; an arc cell borrows the stock one of its arch."""
+    family = config.arc_family(cell)
+    if family:
+        cell = config.ARC_STOCK[config.ARC_FAMILIES[family]]
     return str(config.MANIFESTS / "workloads" / workload / "overlays" / cell)
+
+
+def arc_placement_patch(workload, cell):
+    """The `patches:` entry that moves a stock overlay onto the arc node.
+
+    JSON6902 and not a strategic merge: a merge would add to the overlay's
+    nodeSelector and keep aad/cell (a Task 7 node group); `replace` swaps the
+    whole map, and the aad/sut toleration goes because arc nodes carry no taint.
+    Inline JSON6902 needs a target (kustomize docs, Kustomization File/patches).
+    """
+    short, name = config.WORKLOADS[workload]["resource"].split("/", 1)
+    ops = [
+        {"op": "replace", "path": "/spec/template/spec/nodeSelector",
+         "value": {"aad/role": "arc",
+                   "node.kubernetes.io/instance-type": config.instance_type(cell)}},
+        {"op": "remove", "path": "/spec/template/spec/tolerations"},
+    ]
+    return {"target": {"kind": KINDS[short], "name": name},
+            "patch": yaml.safe_dump(ops, sort_keys=False)}
 
 
 # kind of the `kind/name` in config.WORKLOADS[...]["resource"], for --app-env.
@@ -416,12 +485,17 @@ def kustomize_overlay(workload, cell, app_env=None):
         new_name, new_tag = image_ref(name).rsplit(":", 1)
         entries.append(f"  - name: {name}\n    newName: {new_name}\n    newTag: {new_tag}")
     images = "\n".join(entries)
+    # One `patches:` key for both: a second one in the same file would be a
+    # duplicate YAML key.
+    patches = yaml.safe_load(app_env_patch(workload, app_env))["patches"] if app_env else []
+    if config.arc_family(cell):
+        patches.append(arc_placement_patch(workload, cell))
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()  # /var -> /private/var on macOS; relpath is lexical
         rel = os.path.relpath(Path(overlay(workload, cell)).resolve(), root)
         (root / "kustomization.yaml").write_text(
             OVERLAY_KUSTOMIZATION.format(overlay=rel, images=images)
-            + (app_env_patch(workload, app_env) if app_env else "")
+            + (yaml.safe_dump({"patches": patches}, sort_keys=False) if patches else "")
         )
         print(f"# kustomize overlay {workload}/{cell} with the own images of the day")
         return kubectl("kustomize", str(root), capture=True, quiet=True)
@@ -1927,9 +2001,12 @@ DATABASES = ("mongo", "postgres")  # StatefulSets that outlive their cells
 
 def run_cell(args):
     workload, cell = args.workload, args.cell
+    family = config.arc_family(cell)  # None unless --arc (plan Task 8)
     spec = dict(config.WORKLOADS[workload])
     apply_overrides(spec, args)
-    if cell not in spec["cells"]:
+    if family and args.fixed_seconds is None:
+        spec["fixed_seconds"] = config.ARC_FIXED_SECONDS
+    if not family and cell not in spec["cells"]:
         raise SystemExit(f"{workload} has no cell {cell}; cells are {spec['cells']}")
 
     # The LOCAL date, not UTC: a lab day that runs into the evening in Lima or
@@ -1942,13 +2019,16 @@ def run_cell(args):
         cell_dir.mkdir(parents=True, exist_ok=True)
 
     mng = config.node_cell(cell)
-    info = cluster_info(day_dir, mng)
+    info = cluster_info(day_dir, None if family else mng)
     load_images(day_dir, args.image_tag)
     nodes_wanted = spec.get("nodes", 1)
-    label = f"aad/cell={mng}"
+    label = (f"{ARC_LABEL},node.kubernetes.io/instance-type={config.instance_type(cell)}"
+             if family else f"aad/cell={mng}")
     invalid = []
 
-    print(f"\n=== {date}  {workload}/{cell} on node group {info['nodegroup_names'][mng]} "
+    where = (f"NodePool {arc_nodepool_patch(family)[0]}" if family
+             else f"node group {info['nodegroup_names'][mng]}")
+    print(f"\n=== {date}  {workload}/{cell} on {where} "
           f"({config.instance_type(cell)} x{nodes_wanted}) ===\n")
     budget_gate(day_dir, args.override_budget)
     check_images(workload, cell)
@@ -1969,9 +2049,12 @@ def run_cell(args):
     started = now()
     meta = {}  # before the try: the finally below reads it even when the scale-up failed
     try:
-        scale(info, mng, nodes_wanted)
-        sut_nodes = wait_nodes(label, nodes_wanted, f"{mng}-node")
-        sut = sut_nodes[0]
+        if family:
+            arc_provision(family)
+        else:
+            scale(info, mng, nodes_wanted)
+            sut_nodes = wait_nodes(label, nodes_wanted, f"{mng}-node")
+            sut = sut_nodes[0]
         loader = wait_nodes("aad/role=loader", 1, "loader-node")[0]
 
         if workload == "net":
@@ -2009,6 +2092,11 @@ def run_cell(args):
         # Not `apply -k`: the overlay only becomes appliable once the images
         # transformer has run over it (kustomize_overlay).
         apply_stdin(kustomize_overlay(workload, cell, args.app_env), f"overlay {workload}/{cell}")
+        if family:
+            # Karpenter only launches for a Pending pod, so the arc node is
+            # waited for after the apply, not before.
+            sut_nodes = wait_nodes(label, 1, f"{family}-node")
+            sut = sut_nodes[0]
         kn("rollout", "status", spec["resource"], "--timeout=900s")
 
         if workload == "net":
@@ -2021,7 +2109,16 @@ def run_cell(args):
             meta["app_env"] = args.app_env
         if workload == "inference":
             meta["llama_system_info"] = llama_system_info(spec)
-        invalid += check_cpuset(spec, cell, meta)
+        cpuset = check_cpuset(spec, cell, meta)
+        if family:
+            # Karpenter nodes boot without infra/userdata/base.toml: no static
+            # CPU manager, so the pod shares the node's vCPUs and this check
+            # always fails there. Recorded (meta cpuset/cpuset_count), not
+            # enforced: the arc is orientative, not a Task 7 cell.
+            meta["arc"] = {"family": family, "nodepool": arc_nodepool_patch(family)[0],
+                           "node": sut, "cpuset_not_exclusive": cpuset}
+        else:
+            invalid += cpuset
         invalid += check_cstates(cell, sut, meta)
         if invalid:
             raise RuntimeError(f"cell not comparable: {invalid}")
@@ -2131,7 +2228,10 @@ def run_cell(args):
     finally:
         if args.pg_shmem_thp:
             delete_pg_shmem_thp()
-        scale_to_zero(info, mng, label)
+        if family:
+            arc_teardown(workload, cell)
+        else:
+            scale_to_zero(info, mng, label)
         # The Jobs this cell created. They are Complete or Failed by now and
         # their logs are already on disk; what they still do is keep their pods
         # in `kubectl get pods` and their names taken for the next cell.
@@ -2139,7 +2239,9 @@ def run_cell(args):
         if workload == "net":
             kubectl("delete", "-f", str(config.MANIFESTS / "base" / "net-tuned-daemonset.yaml"),
                     "--ignore-not-found")
-        if workload not in ("mongo", "postgres"):
+        if family:
+            pass  # arc_teardown already deleted it, before waiting for the node
+        elif workload not in ("mongo", "postgres"):
             kubectl("delete", "-k", overlay(workload, cell), "--ignore-not-found")
         else:
             # The Mongo (and PostgreSQL) overlay stays up. Its StatefulSet has
@@ -2162,6 +2264,7 @@ def run_cell(args):
                 # pg_database_size, the server knobs as SHOW reads them
                 # (huge_pages_status included) and the warm-up's EBS reads.
                 "postgres": meta.get("postgres"),
+                "arc": meta.get("arc"),
             }, indent=1))
         print(f"\n# {workload}/{cell}: {minutes:.1f} min")
         write_ledger(day_dir)
@@ -2414,7 +2517,10 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(prog="cell", description=__doc__.splitlines()[0])
     p.add_argument("--workload", choices=sorted(config.WORKLOADS))
     p.add_argument("--cell", choices=sorted(config.CELL_MNG))
-    p.add_argument("--runs", type=int, default=3)
+    p.add_argument("--runs", type=int, help="measured runs (default 3; 1 with --arc)")
+    p.add_argument("--arc", choices=list(config.ARC_FAMILIES),
+                   help="generational arc (plan Task 8): java stock on a Karpenter "
+                        "<family>.4xlarge instead of --cell; one short run")
     p.add_argument("--date", help="results/<date>/ to write into (default: today, local time)")
     p.add_argument("--dry-run", action="store_true", help="print the command plan and touch nothing")
     p.add_argument("--teardown-day", action="store_true",
@@ -2463,6 +2569,14 @@ def parse_args(argv=None):
         # (results/2026-09-26-cal-pg-thp vs results/2026-09-25-cal-pg-*).
         args.pg_shmem_thp = (args.workload == "postgres" and args.cell is not None
                              and config.node_cell(args.cell) in pg_shmem_thp_cells())
+    if args.arc:
+        if args.cell:
+            p.error("--arc replaces --cell; pass one or the other")
+        if args.workload != "java":
+            p.error("--arc only supports --workload java (SPEC section 6: one workload)")
+        args.cell = f"arc-{args.arc}"
+    if args.runs is None:
+        args.runs = 1 if args.arc else 3
     args.env = dict(kv.split("=", 1) for kv in args.env)
     args.app_env = dict(kv.split("=", 1) for kv in args.app_env)
     if not args.teardown_day and not (args.workload and args.cell):

@@ -198,6 +198,59 @@ día) y por la misma razón. Como los dos StatefulSets toleran el taint del SUT,
 una celda de una de las dos bases escala la otra a 0 réplicas antes de aplicar
 su overlay (el PVC queda).
 
+## Arco generacional (Task 8)
+
+Java stock, una corrida corta por generación, en un `<familia>.4xlarge` que
+lanza Karpenter: m5 → m6i → m7i → m8i en la NodePool `aad-arc-amd64` y
+m6g → m7g → m8g → m9g en `aad-arc-arm64` (SPEC §6).
+
+Requisitos, una vez por día de arco y con el clúster ya aplicado: el chart de
+Karpenter instalado según `manifests/base/README.md` (sección Karpenter) y
+`kubectl apply -f infra/karpenter/` (las dos EC2NodeClass y las dos NodePool).
+El mismo `cluster.json`, `ecr.json` y `results/cost.md` que una celda normal.
+
+```bash
+# El plan, sin tocar nada:
+uv run cell --workload java --arc m7g --date <fecha> --dry-run
+
+# GATED, una familia a la vez (cada NodePool tiene limits.cpu 16 = un nodo):
+for f in m5 m6i m7i m8i m6g m7g m8g m9g; do
+  uv run --no-sync python cell.py --workload java --arc $f --date <fecha> --runs 1 || break
+done
+```
+
+Qué cambia frente a una celda de Task 7:
+
+- **Nodo**: en vez de escalar una node group, el runner parchea el requirement
+  `karpenter.k8s.aws/instance-family` de la NodePool de esa arquitectura a
+  `[<familia>]` (los otros tres requirements, tal cual están en
+  `nodepool.yaml`), aplica el overlay y espera un nodo `Ready` con
+  `aad/role=arc` y `node.kubernetes.io/instance-type=<familia>.4xlarge`. Al
+  final (también ante un error o Ctrl-C) borra la workload, la consolidación
+  `WhenEmpty` de Karpenter se lleva el nodo, y el runner espera hasta que no
+  quede ningún nodo `aad/role=arc` (10 min como máximo; si no, avisa con los
+  comandos para revisarlo a mano).
+- **Pod**: el overlay `x86-stock` o `arm-stock` según la arquitectura, con el
+  `nodeSelector` reemplazado por esas dos etiquetas y sin la toleration de
+  `aad/sut`.
+- **Medición**: la misma (escalera gruesa, escalera fina, corrida fija) y los
+  mismos guards del loader, pero una sola corrida (`--runs 1` por defecto con
+  `--arc`) de 300 s (`--fixed-seconds` lo cambia).
+- **Resultados**: `results/<fecha>/java/arc-<familia>/`, con la misma forma
+  que cualquier celda (`cell.json`, `knee.json`, `run-1/...`). `cell.json`
+  agrega `arc` (familia, NodePool, nodo, y el chequeo de cpuset que falló).
+- **Costo**: `results/cost.md` hoy solo tiene `m8i.4xlarge` y `m9g.4xlarge`.
+  Sin fila para `m5`, `m6i`, `m7i`, `m6g`, `m7g` y `m8g` `.4xlarge`, el ledger
+  muestra `TODO` en esas celdas y no las suma; se agrega la tarifa del día como
+  las demás.
+
+Caveat, el mismo que va en la slide: corrida única y orientativa. Los nodos de
+Karpenter no llevan el user data de `infra/userdata/base.toml`, así que no hay
+CPU manager estático: el pod comparte las 16 vCPU del nodo y el chequeo de
+cpuset, que en Task 7 aborta la celda, aquí solo queda registrado en
+`run-1/meta.json`. Tampoco aplican las perillas (C-states, THP). Es el arco, no
+el número.
+
 ## Qué escribe
 
 ```
