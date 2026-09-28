@@ -318,7 +318,7 @@ def test_a_dry_run_says_which_fixtures_it_read(plan):
     the first lines of it have to say so."""
     out = plan("--workload", "mongo", "--cell", "x86-stock")
     assert "--dry-run reads the fixture" in out
-    assert "# own images: 123456789012.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-19" in out
+    assert "# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-19" in out
 
 
 # --- registry and tag ---------------------------------------------------------

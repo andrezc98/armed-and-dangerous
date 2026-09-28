@@ -272,11 +272,14 @@ def load_images(day_dir, override_tag=None):
         tags = {name: images[name]["tag"] for name in OWN_IMAGES}
 
     IMAGES.update(registry=registry, tags=tags)
+    # Logs end up in results/, which is committed: the registry host carries the
+    # account id, so it is printed redacted (demo/sanitize-check.sh).
+    shown = re.sub(r"^\d{12}", "<account>", registry)
     if len(set(tags.values())) == 1:
-        print(f"# own images: {registry}/<name>:{next(iter(tags.values()))}")
+        print(f"# own images: {shown}/<name>:{next(iter(tags.values()))}")
     else:
         detail = ", ".join(f"{name}={tag}" for name, tag in sorted(tags.items()))
-        print(f"# own images: {registry}/<name>:<tag> ({detail})")
+        print(f"# own images: {shown}/<name>:<tag> ({detail})")
     return IMAGES
 
 
