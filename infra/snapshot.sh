@@ -96,7 +96,14 @@ echo "# sanitized copy -> $OUT"
 account=$(command aws sts get-caller-identity --query Account --output text)
 (cd "$RAW" && find . -type f) | while read -r f; do
   mkdir -p "$OUT/$(dirname "$f")"
-  sed "s/$account/<account>/g" "$RAW/$f" > "$OUT/$f"
+  # Also the admin /32 (publicAccessCidrs), the EKS API hostname and any other
+  # quoted 12-digit id (e.g. RequesterId): demo/sanitize-check.sh flags them all.
+  sed -E -e "s/$account/<account>/g" \
+    -e 's#"([0-9]{1,3}\.){3}[0-9]{1,3}/32"#"<admin-cidr>/32"#g' \
+    -e 's#https://[0-9A-F]{32}\.[a-z0-9]+\.[a-z0-9-]+\.eks\.amazonaws\.com#https://<cluster-endpoint>#g' \
+    -e 's#"[0-9]{12}"#"<aws-account>"#g' \
+    -e 's#/id/[0-9A-F]{32}#/id/<oidc-id>#g' \
+    "$RAW/$f" > "$OUT/$f"
 done
 if grep -rq "$account" "$OUT"; then echo "account id still present in $OUT" >&2; exit 1; fi
 echo "done: $(find "$OUT" -type f | wc -l | tr -d ' ') files"
