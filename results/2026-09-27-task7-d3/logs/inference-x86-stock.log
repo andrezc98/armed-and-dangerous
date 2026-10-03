@@ -1,0 +1,150 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-27-task7-d3  inference/x86-stock on node group aws-aad-mng-x86-stock (m8i.4xlarge x1) ===
+
+# budget: USD 31.10 committed today, estimate 80.00
+# kustomize overlay inference/x86-stock with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-stock --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "7d49f955-db3d-3fdf-b8e1-429b3c8f9f5b",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-27T14:50:21.507000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=x86-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay inference/x86-stock with the own images of the day
+# apply overlay inference/x86-stock
+$ <stdin> | kubectl apply -f -
+service/llama created
+deployment.apps/llama created
+$ kubectl -n aad rollout status deploy/llama --timeout=900s
+Waiting for deployment "llama" rollout to finish: 0 of 1 updated replicas are available...
+deployment "llama" successfully rolled out
+$ kubectl -n aad --request-timeout=45s exec deploy/llama -c llama -- timeout 30 /app/llama-server -m /nonexistent.gguf --port 18080 -lv 4
+# llama.cpp system_info: ['system_info: n_threads = 8 (n_threads_batch = 8) / 16 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | AMX_INT8 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |']
+$ kubectl -n aad exec deploy/llama -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-inference-x86-stock-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-stock-warmup --timeout=60s
+# apply job/k6-inference-x86-stock-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-stock-warmup created
+# wait for job/k6-inference-x86-stock-warmup (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-stock-warmup
+# job/k6-inference-x86-stock-warmup -> Complete=True
+
+--- run 1/3 ---
+$ kubectl aperf --node=ip-10-42-12-44.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/inference/x86-stock/run-1/aperf
+$ kubectl -n aad delete job k6-inference-x86-stock-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-stock-r1 --timeout=60s
+# apply job/k6-inference-x86-stock-r1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-stock-r1 created
+# wait for job/k6-inference-x86-stock-r1 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-stock-r1
+# job/k6-inference-x86-stock-r1 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 2/3 ---
+$ kubectl aperf --node=ip-10-42-12-44.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/inference/x86-stock/run-2/aperf
+$ kubectl -n aad delete job k6-inference-x86-stock-r2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-stock-r2 --timeout=60s
+# apply job/k6-inference-x86-stock-r2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-stock-r2 created
+# wait for job/k6-inference-x86-stock-r2 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-stock-r2
+# job/k6-inference-x86-stock-r2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 3/3 ---
+$ kubectl aperf --node=ip-10-42-12-44.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/inference/x86-stock/run-3/aperf
+$ kubectl -n aad delete job k6-inference-x86-stock-r3 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-stock-r3 --timeout=60s
+# apply job/k6-inference-x86-stock-r3
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-stock-r3 created
+# wait for job/k6-inference-x86-stock-r3 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-stock-r3
+# job/k6-inference-x86-stock-r3 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "6a987a9f-ee54-3427-ae81-bd91a1c471a9",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-27T15:14:47.475000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=x86-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=x86-stock --ignore-not-found
+job.batch "k6-inference-x86-stock-r1" deleted
+job.batch "k6-inference-x86-stock-r2" deleted
+job.batch "k6-inference-x86-stock-r3" deleted
+job.batch "k6-inference-x86-stock-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/inference/overlays/x86-stock --ignore-not-found
+service "llama" deleted
+deployment.apps "llama" deleted
+
+# inference/x86-stock: 27.7 min
+
+# Ledger 2026-09-27-task7-d3
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| go | amd-stock | m8a.4xlarge | 1 | 63.5 | 1.03 |
+| go | arm-stock | m9g.4xlarge | 1 | 63.0 | 0.82 |
+| go | x86-stock | m8i.4xlarge | 1 | 62.9 | 0.89 |
+| inference | amd-stock | m8a.4xlarge | 1 | 29.2 | 0.47 |
+| inference | amd-tuned | m8a.4xlarge | 1 | 28.2 | 0.46 |
+| inference | arm-stock | m9g.4xlarge | 1 | 27.6 | 0.36 |
+| inference | arm-tuned | m9g.4xlarge | 1 | 29.0 | 0.38 |
+| inference | x86-stock | m8i.4xlarge | 1 | 27.7 | 0.39 |
+| java | amd-stock | m8a.4xlarge | 1 | 58.1 | 0.94 |
+| java | amd-tuned | m8a.4xlarge | 1 | 58.7 | 0.95 |
+| java | amd-tuned-vthreads | m8a.4xlarge | 1 | 59.0 | 0.96 |
+| java | arm-stock | m9g.4xlarge | 1 | 57.6 | 0.75 |
+| java | arm-tuned | m9g.4xlarge | 1 | 58.1 | 0.76 |
+| java | arm-tuned-vthreads | m9g.4xlarge | 1 | 57.9 | 0.76 |
+| java | x86-stock | m8i.4xlarge | 1 | 58.6 | 0.83 |
+| java | x86-tuned | m8i.4xlarge | 1 | 58.9 | 0.83 |
+| java | x86-tuned-vthreads | m8i.4xlarge | 1 | 58.9 | 0.83 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **31.49** |
+
+estimate_per_day_usd: 80.00 - OK
+

@@ -1,0 +1,254 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-27-task7-d3  java/arm-stock on node group aws-aad-mng-arm-stock (m9g.4xlarge x1) ===
+
+# budget: USD 21.82 committed today, estimate 80.00
+# kustomize overlay java/arm-stock with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "f8da0169-a897-3b35-82b3-6eb802c3e72a",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-27T04:09:58.578000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay java/arm-stock with the own images of the day
+# apply overlay java/arm-stock
+$ <stdin> | kubectl apply -f -
+service/java created
+deployment.apps/java created
+$ kubectl -n aad rollout status deploy/java --timeout=900s
+Waiting for deployment "java" rollout to finish: 0 of 1 updated replicas are available...
+deployment "java" successfully rolled out
+$ kubectl -n aad exec deploy/java -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-warmup-g1, k6-java-arm-stock-warmup-g2
+$ kubectl -n aad delete job k6-java-arm-stock-warmup-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-warmup-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-warmup-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-warmup-g2 --timeout=60s
+# apply job/k6-java-arm-stock-warmup-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-warmup-g1 created
+# apply job/k6-java-arm-stock-warmup-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-warmup-g2 created
+# wait for job/k6-java-arm-stock-warmup-g1 (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-warmup-g1
+# job/k6-java-arm-stock-warmup-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-warmup-g2 (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-warmup-g2
+# job/k6-java-arm-stock-warmup-g2 -> Complete=True
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-knee-g1, k6-java-arm-stock-knee-g2
+$ kubectl -n aad delete job k6-java-arm-stock-knee-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-knee-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-knee-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-knee-g2 --timeout=60s
+# apply job/k6-java-arm-stock-knee-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-knee-g1 created
+# apply job/k6-java-arm-stock-knee-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-knee-g2 created
+# wait for job/k6-java-arm-stock-knee-g1 (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-knee-g1
+# job/k6-java-arm-stock-knee-g1 -> Failed=True
+# wait for job/k6-java-arm-stock-knee-g2 (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-knee-g2
+# job/k6-java-arm-stock-knee-g2 -> Failed=True
+
+--- run 1/3 ---
+# fine ladder 72000..80000 rps, step 2000
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-fine-r1-g1, k6-java-arm-stock-fine-r1-g2
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r1-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r1-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r1-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r1-g2 --timeout=60s
+# apply job/k6-java-arm-stock-fine-r1-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r1-g1 created
+# apply job/k6-java-arm-stock-fine-r1-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r1-g2 created
+# wait for job/k6-java-arm-stock-fine-r1-g1 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r1-g1
+# job/k6-java-arm-stock-fine-r1-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-fine-r1-g2 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r1-g2
+# job/k6-java-arm-stock-fine-r1-g2 -> Complete=True
+$ kubectl aperf --node=ip-10-42-6-150.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/java/arm-stock/run-1/aperf
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-r1-g1, k6-java-arm-stock-r1-g2
+$ kubectl -n aad delete job k6-java-arm-stock-r1-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r1-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-r1-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r1-g2 --timeout=60s
+# apply job/k6-java-arm-stock-r1-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r1-g1 created
+# apply job/k6-java-arm-stock-r1-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r1-g2 created
+# wait for job/k6-java-arm-stock-r1-g1 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r1-g1
+# job/k6-java-arm-stock-r1-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-r1-g2 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r1-g2
+# job/k6-java-arm-stock-r1-g2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 2/3 ---
+# fine ladder 72000..80000 rps, step 2000
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-fine-r2-g1, k6-java-arm-stock-fine-r2-g2
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r2-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r2-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r2-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r2-g2 --timeout=60s
+# apply job/k6-java-arm-stock-fine-r2-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r2-g1 created
+# apply job/k6-java-arm-stock-fine-r2-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r2-g2 created
+# wait for job/k6-java-arm-stock-fine-r2-g1 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r2-g1
+# job/k6-java-arm-stock-fine-r2-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-fine-r2-g2 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r2-g2
+# job/k6-java-arm-stock-fine-r2-g2 -> Complete=True
+$ kubectl aperf --node=ip-10-42-6-150.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/java/arm-stock/run-2/aperf
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-r2-g1, k6-java-arm-stock-r2-g2
+$ kubectl -n aad delete job k6-java-arm-stock-r2-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r2-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-r2-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r2-g2 --timeout=60s
+# apply job/k6-java-arm-stock-r2-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r2-g1 created
+# apply job/k6-java-arm-stock-r2-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r2-g2 created
+# wait for job/k6-java-arm-stock-r2-g1 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r2-g1
+# job/k6-java-arm-stock-r2-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-r2-g2 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r2-g2
+# job/k6-java-arm-stock-r2-g2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 3/3 ---
+# fine ladder 72000..80000 rps, step 2000
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-fine-r3-g1, k6-java-arm-stock-fine-r3-g2
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r3-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r3-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-fine-r3-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-fine-r3-g2 --timeout=60s
+# apply job/k6-java-arm-stock-fine-r3-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r3-g1 created
+# apply job/k6-java-arm-stock-fine-r3-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-fine-r3-g2 created
+# wait for job/k6-java-arm-stock-fine-r3-g1 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r3-g1
+# job/k6-java-arm-stock-fine-r3-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-fine-r3-g2 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-fine-r3-g2
+# job/k6-java-arm-stock-fine-r3-g2 -> Complete=True
+$ kubectl aperf --node=ip-10-42-6-150.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-27-task7-d3/java/arm-stock/run-3/aperf
+# 2 k6 generators, each at 1/2 of the load: k6-java-arm-stock-r3-g1, k6-java-arm-stock-r3-g2
+$ kubectl -n aad delete job k6-java-arm-stock-r3-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r3-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arm-stock-r3-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-stock-r3-g2 --timeout=60s
+# apply job/k6-java-arm-stock-r3-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r3-g1 created
+# apply job/k6-java-arm-stock-r3-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-stock-r3-g2 created
+# wait for job/k6-java-arm-stock-r3-g1 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r3-g1
+# job/k6-java-arm-stock-r3-g1 -> Complete=True
+# wait for job/k6-java-arm-stock-r3-g2 (timeout 780s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-stock-r3-g2
+# job/k6-java-arm-stock-r3-g2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "09bede8e-49b6-3b9d-a8e2-e2b7f6eb95e5",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-27T05:04:46.575000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-stock --ignore-not-found
+job.batch "k6-java-arm-stock-fine-r1-g1" deleted
+job.batch "k6-java-arm-stock-fine-r1-g2" deleted
+job.batch "k6-java-arm-stock-fine-r2-g1" deleted
+job.batch "k6-java-arm-stock-fine-r2-g2" deleted
+job.batch "k6-java-arm-stock-fine-r3-g1" deleted
+job.batch "k6-java-arm-stock-fine-r3-g2" deleted
+job.batch "k6-java-arm-stock-knee-g1" deleted
+job.batch "k6-java-arm-stock-knee-g2" deleted
+job.batch "k6-java-arm-stock-r1-g1" deleted
+job.batch "k6-java-arm-stock-r1-g2" deleted
+job.batch "k6-java-arm-stock-r2-g1" deleted
+job.batch "k6-java-arm-stock-r2-g2" deleted
+job.batch "k6-java-arm-stock-r3-g1" deleted
+job.batch "k6-java-arm-stock-r3-g2" deleted
+job.batch "k6-java-arm-stock-warmup-g1" deleted
+job.batch "k6-java-arm-stock-warmup-g2" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/java/overlays/arm-stock --ignore-not-found
+service "java" deleted
+deployment.apps "java" deleted
+
+# java/arm-stock: 57.6 min
+
+# Ledger 2026-09-27-task7-d3
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| go | amd-stock | m8a.4xlarge | 1 | 63.5 | 1.03 |
+| go | arm-stock | m9g.4xlarge | 1 | 63.0 | 0.82 |
+| go | x86-stock | m8i.4xlarge | 1 | 62.9 | 0.89 |
+| java | arm-stock | m9g.4xlarge | 1 | 57.6 | 0.75 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **22.57** |
+
+estimate_per_day_usd: 80.00 - OK
+

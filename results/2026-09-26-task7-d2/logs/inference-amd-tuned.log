@@ -1,0 +1,148 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-26-task7-d2  inference/amd-tuned on node group aws-aad-mng-amd-tuned (m8a.4xlarge x1) ===
+
+# budget: USD 24.62 committed today, estimate 80.00
+# kustomize overlay inference/amd-tuned with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "106f6fba-bd87-3513-b7f0-c12f9d530a60",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-26T12:53:43.049000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=amd-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay inference/amd-tuned with the own images of the day
+# apply overlay inference/amd-tuned
+$ <stdin> | kubectl apply -f -
+service/llama created
+deployment.apps/llama created
+$ kubectl -n aad rollout status deploy/llama --timeout=900s
+Waiting for deployment "llama" rollout to finish: 0 of 1 updated replicas are available...
+deployment "llama" successfully rolled out
+$ kubectl -n aad --request-timeout=45s exec deploy/llama -c llama -- timeout 30 /app/llama-server -m /nonexistent.gguf --port 18080 -lv 4
+# llama.cpp system_info: ['system_info: n_threads = 16 (n_threads_batch = 16) / 16 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |']
+$ kubectl -n aad exec deploy/llama -- cat /sys/fs/cgroup/cpuset.cpus.effective
+# wait for cstates knob Ready on ip-10-42-5-203.ec2.internal (timeout 300s, poll 10s)
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-inference-amd-tuned-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-amd-tuned-warmup --timeout=60s
+# apply job/k6-inference-amd-tuned-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-amd-tuned-warmup created
+# wait for job/k6-inference-amd-tuned-warmup (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-amd-tuned-warmup
+# job/k6-inference-amd-tuned-warmup -> Complete=True
+
+--- run 1/3 ---
+$ kubectl aperf --node=ip-10-42-5-203.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/inference/amd-tuned/run-1/aperf
+$ kubectl -n aad delete job k6-inference-amd-tuned-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-amd-tuned-r1 --timeout=60s
+# apply job/k6-inference-amd-tuned-r1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-amd-tuned-r1 created
+# wait for job/k6-inference-amd-tuned-r1 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-amd-tuned-r1
+# job/k6-inference-amd-tuned-r1 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 2/3 ---
+$ kubectl aperf --node=ip-10-42-5-203.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/inference/amd-tuned/run-2/aperf
+$ kubectl -n aad delete job k6-inference-amd-tuned-r2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-amd-tuned-r2 --timeout=60s
+# apply job/k6-inference-amd-tuned-r2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-amd-tuned-r2 created
+# wait for job/k6-inference-amd-tuned-r2 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-amd-tuned-r2
+# job/k6-inference-amd-tuned-r2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 3/3 ---
+$ kubectl aperf --node=ip-10-42-5-203.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/inference/amd-tuned/run-3/aperf
+$ kubectl -n aad delete job k6-inference-amd-tuned-r3 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-amd-tuned-r3 --timeout=60s
+# apply job/k6-inference-amd-tuned-r3
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-amd-tuned-r3 created
+# wait for job/k6-inference-amd-tuned-r3 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-amd-tuned-r3
+# job/k6-inference-amd-tuned-r3 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "8790077a-aba4-32ac-888c-5b15ec6ff03f",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-26T13:17:39.369000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=amd-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=amd-tuned --ignore-not-found
+job.batch "k6-inference-amd-tuned-r1" deleted
+job.batch "k6-inference-amd-tuned-r2" deleted
+job.batch "k6-inference-amd-tuned-r3" deleted
+job.batch "k6-inference-amd-tuned-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/inference/overlays/amd-tuned --ignore-not-found
+service "llama" deleted
+deployment.apps "llama" deleted
+
+# inference/amd-tuned: 27.5 min
+
+# Ledger 2026-09-26-task7-d2
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| inference | amd-stock | m8a.4xlarge | 1 | 28.1 | 0.46 |
+| inference | amd-tuned | m8a.4xlarge | 1 | 27.5 | 0.45 |
+| inference | arm-stock | m9g.4xlarge | 1 | 26.3 | 0.34 |
+| inference | arm-tuned | m9g.4xlarge | 1 | 28.3 | 0.37 |
+| mongo | arm-stock | m9g.4xlarge | 1 | 57.2 | 0.75 |
+| mongo | arm-tuned | m9g.4xlarge | 1 | 4.8 | 0.06 |
+| net | amd-stock | m8a.4xlarge | 2 | 14.0 | 0.45 |
+| net | amd-tuned | m8a.4xlarge | 2 | 15.1 | 0.49 |
+| net | arm-stock | m9g.4xlarge | 2 | 13.6 | 0.35 |
+| net | arm-tuned | m9g.4xlarge | 2 | 14.8 | 0.39 |
+| net | x86-stock | m8i.4xlarge | 2 | 14.1 | 0.40 |
+| net | x86-tuned | m8i.4xlarge | 2 | 15.0 | 0.42 |
+| postgres | arm-stock | m9g.4xlarge | 1 | 40.7 | 0.53 |
+| postgres | arm-tuned | m9g.4xlarge | 1 | 40.4 | 0.53 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **25.07** |
+
+estimate_per_day_usd: 80.00 - OK
+

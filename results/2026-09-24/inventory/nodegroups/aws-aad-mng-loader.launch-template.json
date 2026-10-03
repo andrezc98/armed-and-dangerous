@@ -1,0 +1,104 @@
+{
+    "LaunchTemplateVersions": [
+        {
+            "LaunchTemplateId": "lt-0f4e94a43a15d44d9",
+            "LaunchTemplateName": "loader-52b1eb9d14902d0a9378845ea0",
+            "VersionNumber": 1,
+            "VersionDescription": "Custom launch template for aws-aad-mng-loader EKS managed node group",
+            "CreateTime": "2026-09-24T23:01:00+00:00",
+            "CreatedBy": "arn:aws:sts::<account>:assumed-role/aws-aad-gha/aad-infra-36069357222",
+            "DefaultVersion": true,
+            "LaunchTemplateData": {
+                "UserData": "",
+                "TagSpecifications": [
+                    {
+                        "ResourceType": "instance",
+                        "Tags": [
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-loader"
+                            }
+                        ]
+                    },
+                    {
+                        "ResourceType": "network-interface",
+                        "Tags": [
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-loader"
+                            }
+                        ]
+                    },
+                    {
+                        "ResourceType": "volume",
+                        "Tags": [
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-loader"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            }
+                        ]
+                    }
+                ],
+                "SecurityGroupIds": [
+                    "sg-0bbf24b7301900b15"
+                ],
+                "MetadataOptions": {
+                    "HttpTokens": "required",
+                    "HttpPutResponseHopLimit": 1,
+                    "HttpEndpoint": "enabled"
+                }
+            },
+            "Operator": {
+                "Managed": false
+            }
+        }
+    ]
+}

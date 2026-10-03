@@ -1,0 +1,132 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-28-task8-arc  java/arc-m9g on NodePool aad-arc-arm64 (m9g.4xlarge x1) ===
+
+# budget: USD 19.08 committed today, estimate 80.00
+# kustomize overlay java/arc-m9g with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ kubectl patch nodepool aad-arc-arm64 --type merge -p '{"spec": {"template": {"spec": {"requirements": [{"key": "karpenter.k8s.aws/instance-family", "operator": "In", "values": ["m9g"]}, {"key": "karpenter.k8s.aws/instance-size", "operator": "In", "values": ["4xlarge"]}, {"key": "kubernetes.io/arch", "operator": "In", "values": ["arm64"]}, {"key": "karpenter.sh/capacity-type", "operator": "In", "values": ["on-demand"]}]}}}}'
+nodepool.karpenter.sh/aad-arc-arm64 patched
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay java/arc-m9g with the own images of the day
+# apply overlay java/arc-m9g
+$ <stdin> | kubectl apply -f -
+service/java created
+deployment.apps/java created
+# wait for 1 Ready node(s) with aad/role=arc,node.kubernetes.io/instance-type=m9g.4xlarge (timeout 900s, poll 10s)
+$ kubectl -n aad rollout status deploy/java --timeout=900s
+Waiting for deployment "java" rollout to finish: 0 of 1 updated replicas are available...
+deployment "java" successfully rolled out
+$ kubectl -n aad exec deploy/java -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+# 2 k6 generators, each at 1/2 of the load: k6-java-arc-m9g-warmup-g1, k6-java-arc-m9g-warmup-g2
+$ kubectl -n aad delete job k6-java-arc-m9g-warmup-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-warmup-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arc-m9g-warmup-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-warmup-g2 --timeout=60s
+# apply job/k6-java-arc-m9g-warmup-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-warmup-g1 created
+# apply job/k6-java-arc-m9g-warmup-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-warmup-g2 created
+# wait for job/k6-java-arc-m9g-warmup-g1 (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-warmup-g1
+# job/k6-java-arc-m9g-warmup-g1 -> Complete=True
+# wait for job/k6-java-arc-m9g-warmup-g2 (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-warmup-g2
+# job/k6-java-arc-m9g-warmup-g2 -> Complete=True
+# 2 k6 generators, each at 1/2 of the load: k6-java-arc-m9g-knee-g1, k6-java-arc-m9g-knee-g2
+$ kubectl -n aad delete job k6-java-arc-m9g-knee-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-knee-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arc-m9g-knee-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-knee-g2 --timeout=60s
+# apply job/k6-java-arc-m9g-knee-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-knee-g1 created
+# apply job/k6-java-arc-m9g-knee-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-knee-g2 created
+# wait for job/k6-java-arc-m9g-knee-g1 (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-knee-g1
+# job/k6-java-arc-m9g-knee-g1 -> Failed=True
+# wait for job/k6-java-arc-m9g-knee-g2 (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-knee-g2
+# job/k6-java-arc-m9g-knee-g2 -> Failed=True
+
+--- run 1/1 ---
+# fine ladder 82000..90000 rps, step 2000
+# 2 k6 generators, each at 1/2 of the load: k6-java-arc-m9g-fine-r1-g1, k6-java-arc-m9g-fine-r1-g2
+$ kubectl -n aad delete job k6-java-arc-m9g-fine-r1-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-fine-r1-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arc-m9g-fine-r1-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-fine-r1-g2 --timeout=60s
+# apply job/k6-java-arc-m9g-fine-r1-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-fine-r1-g1 created
+# apply job/k6-java-arc-m9g-fine-r1-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-fine-r1-g2 created
+# wait for job/k6-java-arc-m9g-fine-r1-g1 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-fine-r1-g1
+# job/k6-java-arc-m9g-fine-r1-g1 -> Failed=True
+# wait for job/k6-java-arc-m9g-fine-r1-g2 (timeout 525s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-fine-r1-g2
+# job/k6-java-arc-m9g-fine-r1-g2 -> Failed=True
+$ kubectl aperf --node=ip-10-42-9-8.ec2.internal '--aperf_options=-i 1 -p 300' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-28-task8-arc/java/arc-m9g/run-1/aperf
+# 2 k6 generators, each at 1/2 of the load: k6-java-arc-m9g-r1-g1, k6-java-arc-m9g-r1-g2
+$ kubectl -n aad delete job k6-java-arc-m9g-r1-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-r1-g1 --timeout=60s
+$ kubectl -n aad delete job k6-java-arc-m9g-r1-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arc-m9g-r1-g2 --timeout=60s
+# apply job/k6-java-arc-m9g-r1-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-r1-g1 created
+# apply job/k6-java-arc-m9g-r1-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arc-m9g-r1-g2 created
+# wait for job/k6-java-arc-m9g-r1-g1 (timeout 600s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-r1-g1
+# job/k6-java-arc-m9g-r1-g1 -> Complete=True
+# wait for job/k6-java-arc-m9g-r1-g2 (timeout 600s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arc-m9g-r1-g2
+# job/k6-java-arc-m9g-r1-g2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Forwarding from 127.0.0.1:4040 -> 4040
+Forwarding from [::1]:4040 -> 4040
+Handling connection for 4040
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/java/overlays/arm-stock --ignore-not-found
+service "java" deleted
+deployment.apps "java" deleted
+# wait for no node with aad/role=arc (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arc-m9g --ignore-not-found
+job.batch "k6-java-arc-m9g-fine-r1-g1" deleted
+job.batch "k6-java-arc-m9g-fine-r1-g2" deleted
+job.batch "k6-java-arc-m9g-knee-g1" deleted
+job.batch "k6-java-arc-m9g-knee-g2" deleted
+job.batch "k6-java-arc-m9g-r1-g1" deleted
+job.batch "k6-java-arc-m9g-r1-g2" deleted
+job.batch "k6-java-arc-m9g-warmup-g1" deleted
+job.batch "k6-java-arc-m9g-warmup-g2" deleted
+
+# java/arc-m9g: 28.4 min
+
+# Ledger 2026-09-28-task8-arc
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| java | arc-m9g | m9g.4xlarge | 1 | 28.4 | 0.37 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **19.45** |
+
+estimate_per_day_usd: 80.00 - OK
+

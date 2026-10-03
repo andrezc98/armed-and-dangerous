@@ -1,0 +1,34 @@
+{
+ "cpuset": "0-15",
+ "cpuset_count": 16,
+ "arc": {
+  "family": "m6g",
+  "nodepool": "aad-arc-arm64",
+  "node": "ip-10-42-2-122.ec2.internal",
+  "cpuset_not_exclusive": [
+   "deploy/java cpuset.cpus.effective is 16 vCPUs, expected 15 exclusive"
+  ]
+ },
+ "run_knee": 22000,
+ "rate": 17600,
+ "loader_peak_percent": 7,
+ "actuator": {
+  "hikaricp.connections.pending": {
+   "max": 0.0,
+   "median": 0.0,
+   "samples": 24
+  },
+  "hikaricp.connections.active": {
+   "max": 7.0,
+   "median": 2.0,
+   "samples": 24
+  },
+  "tomcat.threads.busy": {
+   "max": 17.0,
+   "median": 11.5,
+   "samples": 24
+  }
+ },
+ "aperf": "ok",
+ "flamegraph": "ok"
+}

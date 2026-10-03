@@ -1,0 +1,390 @@
+{
+    "SecurityGroups": [
+        {
+            "GroupId": "sg-06dbcb0ac1973a9c8",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Allows EFA traffic, which is not matched by CIDR rules.",
+                            "UserId": "<account>",
+                            "GroupId": "sg-06dbcb0ac1973a9c8"
+                        }
+                    ],
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "kubernetes.io/cluster/aws-aad-eks-lab",
+                    "Value": "owned"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "aws:eks:cluster-name",
+                    "Value": "aws-aad-eks-lab"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "eks-cluster-sg-aws-aad-eks-lab-1291084020"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "SecurityGroupArn": "arn:aws:ec2:us-east-1:<account>:security-group/sg-06dbcb0ac1973a9c8",
+            "OwnerId": "<account>",
+            "GroupName": "eks-cluster-sg-aws-aad-eks-lab-1291084020",
+            "Description": "EKS created security group applied to ENI that is attached to EKS Control Plane master nodes, as well as any managed workloads.",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "-1",
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Allows EFA traffic, which is not matched by CIDR rules.",
+                            "UserId": "<account>",
+                            "GroupId": "sg-06dbcb0ac1973a9c8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-0eec0d0a30f6c3551",
+            "IpPermissionsEgress": [],
+            "Tags": [
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-vpc-default"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "SecurityGroupArn": "arn:aws:ec2:us-east-1:<account>:security-group/sg-0eec0d0a30f6c3551",
+            "OwnerId": "<account>",
+            "GroupName": "default",
+            "Description": "default VPC security group",
+            "IpPermissions": []
+        },
+        {
+            "GroupId": "sg-0bbf24b7301900b15",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "UserIdGroupPairs": [],
+                    "IpRanges": [
+                        {
+                            "Description": "Allow all egress",
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-eks-lab-node"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "kubernetes.io/cluster/aws-aad-eks-lab",
+                    "Value": "owned"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "karpenter.sh/discovery",
+                    "Value": "aws-aad-eks-lab"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "SecurityGroupArn": "arn:aws:ec2:us-east-1:<account>:security-group/sg-0bbf24b7301900b15",
+            "OwnerId": "<account>",
+            "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e",
+            "Description": "EKS node shared security group",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 9966,
+                    "ToPort": 9966,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "API server service proxy to the Java SUT actuator (runner pool gauges)",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 8080,
+                    "ToPort": 8080,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "API server service proxy to the Go SUT (runner cpuset control)",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 6443,
+                    "ToPort": 6443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node 6443/tcp webhook",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 9443,
+                    "ToPort": 9443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node 9443/tcp webhook",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 10251,
+                    "ToPort": 10251,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node 10251/tcp webhook",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 1025,
+                    "ToPort": 65535,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Node to node ingress on ephemeral ports",
+                            "UserId": "<account>",
+                            "GroupId": "sg-0bbf24b7301900b15"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 8443,
+                    "ToPort": 8443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node 8443/tcp webhook",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 10250,
+                    "ToPort": 10250,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node kubelets",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 53,
+                    "ToPort": 53,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Node to node CoreDNS",
+                            "UserId": "<account>",
+                            "GroupId": "sg-0bbf24b7301900b15"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "udp",
+                    "FromPort": 53,
+                    "ToPort": 53,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Node to node CoreDNS UDP",
+                            "UserId": "<account>",
+                            "GroupId": "sg-0bbf24b7301900b15"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 4443,
+                    "ToPort": 4443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node 4443/tcp webhook",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Cluster API to node groups",
+                            "UserId": "<account>",
+                            "GroupId": "sg-065382a64ba5cc5d8"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-065382a64ba5cc5d8",
+            "IpPermissionsEgress": [],
+            "Tags": [
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-eks-lab-cluster"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "SecurityGroupArn": "arn:aws:ec2:us-east-1:<account>:security-group/sg-065382a64ba5cc5d8",
+            "OwnerId": "<account>",
+            "GroupName": "aws-aad-eks-lab-cluster-88e8df7d8d340d81eb78355571",
+            "Description": "EKS cluster security group",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "Node groups to cluster API",
+                            "UserId": "<account>",
+                            "GroupId": "sg-0bbf24b7301900b15"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ]
+        }
+    ]
+}

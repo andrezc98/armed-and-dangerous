@@ -1,0 +1,53 @@
+[17:57:34Z] $ kubectl get nodes -L kubernetes.io/arch,node.kubernetes.io/instance-type
+NAME                          STATUS   ROLES    AGE   VERSION               ARCH    INSTANCE-TYPE
+ip-10-42-8-182.ec2.internal   Ready    <none>   98s   v1.36.2-eks-bca9cf6   arm64   m7g.large
+
+[17:57:35Z] $ kubectl get nodepool
+NAME            NODECLASS                NODES   READY   AGE
+aad-arc-amd64   aad-bottlerocket-amd64   0       True    36s
+aad-arc-arm64   aad-bottlerocket-arm64   0       True    35s
+
+[17:57:36Z] $ cat results/2026-09-28-task9/clip-deployment.yaml
+# Task 9 clip: a pod with no nodeSelector and no affinity. The only thing that
+# constrains the node is the NodePools' closed instance-family lists.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clip, namespace: aad}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: clip}}
+  template:
+    metadata: {labels: {app: clip}}
+    spec:
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.10
+          resources: {requests: {cpu: "8", memory: 8Gi}}
+
+[17:57:36Z] $ kubectl apply -f results/2026-09-28-task9/clip-deployment.yaml
+deployment.apps/clip created
+
+[17:58:07Z] # arc node Ready after 30 s
+[17:58:07Z] # pod Ready after 30 s
+[17:58:07Z] $ kubectl get nodeclaims -o wide
+NAME                  TYPE          CAPACITY    ZONE         NODE                          READY   AGE   IMAGEID                 ID                                      NODEPOOL        NODECLASS                DRIFTED
+aad-arc-arm64-p7h2w   m6g.4xlarge   on-demand   us-east-1a   ip-10-42-6-243.ec2.internal   True    30s   ami-0544ec61ea6c856ad   aws:///us-east-1a/i-0f70bb48f7b658448   aad-arc-arm64   aad-bottlerocket-arm64   
+
+[17:58:08Z] $ kubectl get nodes -L kubernetes.io/arch,node.kubernetes.io/instance-type,karpenter.sh/capacity-type,karpenter.sh/nodepool
+NAME                          STATUS   ROLES    AGE     VERSION               ARCH    INSTANCE-TYPE   CAPACITY-TYPE   NODEPOOL
+ip-10-42-6-243.ec2.internal   Ready    <none>   17s     v1.36.2-eks-bca9cf6   arm64   m6g.4xlarge     on-demand       aad-arc-arm64
+ip-10-42-8-182.ec2.internal   Ready    <none>   2m12s   v1.36.2-eks-bca9cf6   arm64   m7g.large                       
+
+[17:58:09Z] $ kubectl get pod -n aad -l app=clip -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP            NODE                          NOMINATED NODE   READINESS GATES
+clip-654994d465-lf87h   1/1     Running   0          32s   10.42.11.40   ip-10-42-6-243.ec2.internal   <none>           <none>
+
+[17:58:09Z] $ kubectl logs -n kube-system deploy/karpenter --since=10m | grep -E 'found provisionable|computed new nodeclaim|created nodeclaim|launched nodeclaim|registered nodeclaim|initialized nodeclaim' | cut -c1-600
+{"level":"INFO","time":"2026-09-28T17:57:38.284Z","logger":"controller","message":"found provisionable pod(s)","commit":"bde0065","controller":"provisioner","namespace":"","name":"","reconcileID":"a2199ec4-606c-4be5-8e93-95836ee7c77d","Pods":"aad/mongo-0, aad/clip-654994d465-lf87h","duration":"214.287477ms"}
+{"level":"INFO","time":"2026-09-28T17:57:38.284Z","logger":"controller","message":"computed new nodeclaim(s) to fit pod(s)","commit":"bde0065","controller":"provisioner","namespace":"","name":"","reconcileID":"a2199ec4-606c-4be5-8e93-95836ee7c77d","nodeclaims":1,"pods":1}
+{"level":"INFO","time":"2026-09-28T17:57:38.293Z","logger":"controller","message":"created nodeclaim","commit":"bde0065","controller":"provisioner","namespace":"","name":"","reconcileID":"a2199ec4-606c-4be5-8e93-95836ee7c77d","NodePool":{"name":"aad-arc-arm64"},"NodeClaim":{"name":"aad-arc-arm64-p7h2w"},"requests":{"cpu":"8380m","memory":"8552Mi","pods":"6"},"instance-types":"m6g.4xlarge, m7g.4xlarge, m8g.4xlarge, m9g.4xlarge"}
+{"level":"INFO","time":"2026-09-28T17:57:41.109Z","logger":"controller","message":"launched nodeclaim","commit":"bde0065","controller":"nodeclaim.lifecycle","controllerGroup":"karpenter.sh","controllerKind":"NodeClaim","NodeClaim":{"name":"aad-arc-arm64-p7h2w"},"namespace":"","name":"aad-arc-arm64-p7h2w","reconcileID":"042e7050-aeea-4c75-aff4-1ea932cc23a5","provider-id":"aws:///us-east-1a/i-0f70bb48f7b658448","instance-type":"m6g.4xlarge","zone":"us-east-1a","capacity-type":"on-demand","allocatable":{"cpu":"15890m","ephemeral-storage":"17Gi","memory":"57632Mi","pods":"234","vpc.amazonaws.com/p
+{"level":"INFO","time":"2026-09-28T17:57:52.134Z","logger":"controller","message":"registered nodeclaim","commit":"bde0065","controller":"nodeclaim.lifecycle","controllerGroup":"karpenter.sh","controllerKind":"NodeClaim","NodeClaim":{"name":"aad-arc-arm64-p7h2w"},"namespace":"","name":"aad-arc-arm64-p7h2w","reconcileID":"7912d7dc-3c6c-4b01-b050-d541a92af3e1","provider-id":"aws:///us-east-1a/i-0f70bb48f7b658448","Node":{"name":"ip-10-42-6-243.ec2.internal"}}
+{"level":"INFO","time":"2026-09-28T17:58:04.961Z","logger":"controller","message":"initialized nodeclaim","commit":"bde0065","controller":"nodeclaim.lifecycle","controllerGroup":"karpenter.sh","controllerKind":"NodeClaim","NodeClaim":{"name":"aad-arc-arm64-p7h2w"},"namespace":"","name":"aad-arc-arm64-p7h2w","reconcileID":"85e99fe5-d1fa-466e-b76c-13fc49c1c69b","provider-id":"aws:///us-east-1a/i-0f70bb48f7b658448","Node":{"name":"ip-10-42-6-243.ec2.internal"},"allocatable":{"cpu":"15890m","ephemeral-storage":"18191325562","hugepages-1Gi":"0","hugepages-2Mi":"0","hugepages-32Mi":"0","hugepages-64
+
+[18:02:45Z] # scene deleted; Karpenter WhenEmpty consolidation removed both arc nodes after 127 s

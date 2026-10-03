@@ -1,0 +1,1594 @@
+{
+    "Reservations": [
+        {
+            "ReservationId": "r-0352a53d9bdb8151b",
+            "OwnerId": "<account>",
+            "RequesterId": "<aws-account>",
+            "Groups": [],
+            "Instances": [
+                {
+                    "Architecture": "arm64",
+                    "BlockDeviceMappings": [
+                        {
+                            "DeviceName": "/dev/xvda",
+                            "Ebs": {
+                                "AttachTime": "2026-09-24T23:01:30+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-062063434198a71da",
+                                "EbsCardIndex": 0
+                            }
+                        },
+                        {
+                            "DeviceName": "/dev/xvdaa",
+                            "Ebs": {
+                                "AttachTime": "2026-09-24T23:04:05.424000+00:00",
+                                "DeleteOnTermination": false,
+                                "Status": "attached",
+                                "VolumeId": "vol-01afd429b8b359a36",
+                                "EbsCardIndex": 0
+                            }
+                        },
+                        {
+                            "DeviceName": "/dev/xvdb",
+                            "Ebs": {
+                                "AttachTime": "2026-09-24T23:01:29.304000+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-0b3d082a4e7489b21",
+                                "EbsCardIndex": 0
+                            }
+                        }
+                    ],
+                    "ClientToken": "fleet-d3263024-7bb5-69b6-8cb0-ae0091cca0c2-0",
+                    "EbsOptimized": false,
+                    "EnaSupport": true,
+                    "Hypervisor": "xen",
+                    "IamInstanceProfile": {
+                        "Arn": "arn:aws:iam::<account>:instance-profile/eks-d8d06ad3-57d1-8827-cb6f-6eedfa79ad42",
+                        "Id": "AIPAQ64QT4YKUJRXXOBL6"
+                    },
+                    "NetworkInterfaces": [
+                        {
+                            "Association": {
+                                "IpOwnerId": "amazon",
+                                "PublicDnsName": "ec2-100-56-253-107.compute-1.amazonaws.com",
+                                "PublicIp": "100.56.253.107"
+                            },
+                            "Attachment": {
+                                "AttachTime": "2026-09-24T23:01:29+00:00",
+                                "AttachmentId": "eni-attach-0f07312417d50f6f2",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 0,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:c3:a4:2d:bf",
+                            "NetworkInterfaceId": "eni-0c8cfbf0f1abea334",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-1-74.ec2.internal",
+                            "PrivateIpAddress": "10.42.1.74",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Association": {
+                                        "IpOwnerId": "amazon",
+                                        "PublicDnsName": "ec2-100-56-253-107.compute-1.amazonaws.com",
+                                        "PublicIp": "100.56.253.107"
+                                    },
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-1-74.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.74"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-107.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.107"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-123.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.123"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-152.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.152"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-136.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.136"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-18.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.18"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-144.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.144"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-23.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.23"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-245.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.245"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-229.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.229"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        },
+                        {
+                            "Attachment": {
+                                "AttachTime": "2026-09-24T23:02:29+00:00",
+                                "AttachmentId": "eni-attach-0b22ef1de896691df",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 1,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "aws-K8S-i-0d9267889416fd359",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:da:ab:06:3d",
+                            "NetworkInterfaceId": "eni-0636bb5a1025e1ef0",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-6-202.ec2.internal",
+                            "PrivateIpAddress": "10.42.6.202",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-6-202.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.202"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-155.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.155"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-75.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.75"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-27.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.27"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-8.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.8"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-120.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.120"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-82.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.82"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-97.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.97"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-20.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.20"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-149.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.149"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        }
+                    ],
+                    "RootDeviceName": "/dev/xvda",
+                    "RootDeviceType": "ebs",
+                    "SecurityGroups": [
+                        {
+                            "GroupId": "sg-0bbf24b7301900b15",
+                            "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                        }
+                    ],
+                    "SourceDestCheck": true,
+                    "Tags": [
+                        {
+                            "Key": "Environment",
+                            "Value": "lab"
+                        },
+                        {
+                            "Key": "aws:eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "Owner",
+                            "Value": "andres-zeballos"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/enabled",
+                            "Value": "true"
+                        },
+                        {
+                            "Key": "aws:ec2:fleet-id",
+                            "Value": "fleet-d3263024-7bb5-69b6-8cb0-ae0091cca0c2"
+                        },
+                        {
+                            "Key": "ManagedBy",
+                            "Value": "terraform"
+                        },
+                        {
+                            "Key": "aws:ec2launchtemplate:id",
+                            "Value": "lt-0aa8ac570785f5814"
+                        },
+                        {
+                            "Key": "Name",
+                            "Value": "aws-aad-mng-tools"
+                        },
+                        {
+                            "Key": "kubernetes.io/cluster/aws-aad-eks-lab",
+                            "Value": "owned"
+                        },
+                        {
+                            "Key": "aws:autoscaling:groupName",
+                            "Value": "eks-aws-aad-mng-tools-d8d06ad3-57d1-8827-cb6f-6eedfa79ad42"
+                        },
+                        {
+                            "Key": "eks:nodegroup-name",
+                            "Value": "aws-aad-mng-tools"
+                        },
+                        {
+                            "Key": "Project",
+                            "Value": "armed-and-dangerous"
+                        },
+                        {
+                            "Key": "aws:ec2launchtemplate:version",
+                            "Value": "1"
+                        },
+                        {
+                            "Key": "eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/aws-aad-eks-lab",
+                            "Value": "owned"
+                        }
+                    ],
+                    "VirtualizationType": "hvm",
+                    "CpuOptions": {
+                        "CoreCount": 2,
+                        "ThreadsPerCore": 1
+                    },
+                    "CapacityReservationSpecification": {
+                        "CapacityReservationPreference": "open"
+                    },
+                    "HibernationOptions": {
+                        "Configured": false
+                    },
+                    "MetadataOptions": {
+                        "State": "applied",
+                        "HttpTokens": "required",
+                        "HttpPutResponseHopLimit": 1,
+                        "HttpEndpoint": "enabled",
+                        "HttpProtocolIpv6": "disabled",
+                        "InstanceMetadataTags": "disabled"
+                    },
+                    "EnclaveOptions": {
+                        "Enabled": false
+                    },
+                    "BootMode": "uefi-preferred",
+                    "PlatformDetails": "Linux/UNIX",
+                    "UsageOperation": "RunInstances",
+                    "UsageOperationUpdateTime": "2026-09-24T23:01:29+00:00",
+                    "PrivateDnsNameOptions": {
+                        "HostnameType": "ip-name",
+                        "EnableResourceNameDnsARecord": false,
+                        "EnableResourceNameDnsAAAARecord": false
+                    },
+                    "MaintenanceOptions": {
+                        "AutoRecovery": "default",
+                        "RebootMigration": "default"
+                    },
+                    "CurrentInstanceBootMode": "uefi",
+                    "NetworkPerformanceOptions": {
+                        "BandwidthWeighting": "default"
+                    },
+                    "Operator": {
+                        "Managed": false,
+                        "HiddenByDefault": false
+                    },
+                    "SecondaryInterfaces": [],
+                    "InstanceId": "i-0d9267889416fd359",
+                    "ImageId": "ami-0544ec61ea6c856ad",
+                    "State": {
+                        "Code": 16,
+                        "Name": "running"
+                    },
+                    "PrivateDnsName": "ip-10-42-1-74.ec2.internal",
+                    "PublicDnsName": "ec2-100-56-253-107.compute-1.amazonaws.com",
+                    "StateTransitionReason": "",
+                    "AmiLaunchIndex": 0,
+                    "ProductCodes": [],
+                    "InstanceType": "m7g.large",
+                    "LaunchTime": "2026-09-24T23:01:29+00:00",
+                    "Placement": {
+                        "AvailabilityZoneId": "use1-az1",
+                        "GroupName": "",
+                        "Tenancy": "default",
+                        "AvailabilityZone": "us-east-1a"
+                    },
+                    "Monitoring": {
+                        "State": "disabled"
+                    },
+                    "SubnetId": "subnet-0e9204d632602e6be",
+                    "VpcId": "vpc-0910ced8b2da97c0f",
+                    "PrivateIpAddress": "10.42.1.74",
+                    "PublicIpAddress": "100.56.253.107"
+                }
+            ]
+        },
+        {
+            "ReservationId": "r-0bcc4527470653a25",
+            "OwnerId": "<account>",
+            "RequesterId": "<aws-account>",
+            "Groups": [],
+            "Instances": [
+                {
+                    "Architecture": "x86_64",
+                    "BlockDeviceMappings": [
+                        {
+                            "DeviceName": "/dev/xvda",
+                            "Ebs": {
+                                "AttachTime": "2026-09-25T04:19:59+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-055cbabadb2f5c125",
+                                "EbsCardIndex": 0
+                            }
+                        },
+                        {
+                            "DeviceName": "/dev/xvdb",
+                            "Ebs": {
+                                "AttachTime": "2026-09-25T04:19:58.184000+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-04c03cc8f77b0eb27",
+                                "EbsCardIndex": 0
+                            }
+                        }
+                    ],
+                    "ClientToken": "fleet-ed35ad95-9e04-6405-2e1a-a988204da6e7-0",
+                    "EbsOptimized": false,
+                    "EnaSupport": true,
+                    "Hypervisor": "xen",
+                    "IamInstanceProfile": {
+                        "Arn": "arn:aws:iam::<account>:instance-profile/eks-d6d06b64-b13a-37db-ea97-fcdf19ca830a",
+                        "Id": "AIPAQ64QT4YKU27GRXE4C"
+                    },
+                    "NetworkInterfaces": [
+                        {
+                            "Association": {
+                                "IpOwnerId": "amazon",
+                                "PublicDnsName": "ec2-100-52-187-194.compute-1.amazonaws.com",
+                                "PublicIp": "100.52.187.194"
+                            },
+                            "Attachment": {
+                                "AttachTime": "2026-09-25T04:19:58+00:00",
+                                "AttachmentId": "eni-attach-0f1aa6e991f87a40b",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 0,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:e6:36:67:a7",
+                            "NetworkInterfaceId": "eni-01708f655e9be16d5",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-1-156.ec2.internal",
+                            "PrivateIpAddress": "10.42.1.156",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Association": {
+                                        "IpOwnerId": "amazon",
+                                        "PublicDnsName": "ec2-100-52-187-194.compute-1.amazonaws.com",
+                                        "PublicIp": "100.52.187.194"
+                                    },
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-1-156.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.156"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-104.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.104"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-40.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.40"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-169.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.169"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-46.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.46"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-46.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.46"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-239.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.239"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-108.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.108"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-108.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.108"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-173.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.173"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-96.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.96"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-58.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.58"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-123.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.123"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-187.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.187"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-184.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.184"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-121.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.121"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-249.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.249"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-252.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.252"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-178.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.178"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-240.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.240"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-246.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.246"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-117.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.117"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-10.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.10"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-72.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.72"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-206.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.206"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-140.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.140"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-135.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.135"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-132.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.132"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-68.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.68"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-197.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.197"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-8-154.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.154"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-91.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.91"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-88.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.88"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-30.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.30"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-28.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.28"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-209.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.209"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-151.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.151"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-87.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.87"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-8-215.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.215"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-84.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.84"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        },
+                        {
+                            "Attachment": {
+                                "AttachTime": "2026-09-25T04:21:08+00:00",
+                                "AttachmentId": "eni-attach-09b9caaf4badc7c11",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 1,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "aws-K8S-i-0f6ce588d301ece03",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:f6:19:5f:0f",
+                            "NetworkInterfaceId": "eni-0a781735c1df08169",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-8-42.ec2.internal",
+                            "PrivateIpAddress": "10.42.8.42",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-8-42.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.42"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-232.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.232"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-110.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.110"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-110.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.110"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-98.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.98"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-8-32.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.32"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-166.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.166"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-186.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.186"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-56.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.56"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-190.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.190"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-254.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.254"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-179.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.179"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-241.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.241"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-246.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.246"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-246.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.246"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-182.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.182"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-180.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.180"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-203.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.203"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-11.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.11"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-136.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.136"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-137.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.137"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-14.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.14"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-142.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.142"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-204.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.204"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-13.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.13"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-195.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.195"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-64.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.64"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-70.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.70"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-135.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.135"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-135.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.135"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-199.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.199"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-26.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.26"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-155.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.155"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-91.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.91"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-25.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.25"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-153.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.153"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-159.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.159"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-92.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.92"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-19.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.19"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-215.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.215"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        }
+                    ],
+                    "RootDeviceName": "/dev/xvda",
+                    "RootDeviceType": "ebs",
+                    "SecurityGroups": [
+                        {
+                            "GroupId": "sg-0bbf24b7301900b15",
+                            "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                        }
+                    ],
+                    "SourceDestCheck": true,
+                    "Tags": [
+                        {
+                            "Key": "aws:ec2launchtemplate:id",
+                            "Value": "lt-08f24d54a2e0596e3"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/enabled",
+                            "Value": "true"
+                        },
+                        {
+                            "Key": "aws:ec2:fleet-id",
+                            "Value": "fleet-ed35ad95-9e04-6405-2e1a-a988204da6e7"
+                        },
+                        {
+                            "Key": "eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "eks:nodegroup-name",
+                            "Value": "aws-aad-mng-amd-tuned"
+                        },
+                        {
+                            "Key": "Owner",
+                            "Value": "andres-zeballos"
+                        },
+                        {
+                            "Key": "aws:ec2launchtemplate:version",
+                            "Value": "1"
+                        },
+                        {
+                            "Key": "aws:eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "Environment",
+                            "Value": "lab"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/aws-aad-eks-lab",
+                            "Value": "owned"
+                        },
+                        {
+                            "Key": "Name",
+                            "Value": "aws-aad-mng-amd-tuned"
+                        },
+                        {
+                            "Key": "Project",
+                            "Value": "armed-and-dangerous"
+                        },
+                        {
+                            "Key": "aws:autoscaling:groupName",
+                            "Value": "eks-aws-aad-mng-amd-tuned-d6d06b64-b13a-37db-ea97-fcdf19ca830a"
+                        },
+                        {
+                            "Key": "ManagedBy",
+                            "Value": "terraform"
+                        },
+                        {
+                            "Key": "kubernetes.io/cluster/aws-aad-eks-lab",
+                            "Value": "owned"
+                        }
+                    ],
+                    "VirtualizationType": "hvm",
+                    "CpuOptions": {
+                        "CoreCount": 16,
+                        "ThreadsPerCore": 1
+                    },
+                    "CapacityReservationSpecification": {
+                        "CapacityReservationPreference": "open"
+                    },
+                    "HibernationOptions": {
+                        "Configured": false
+                    },
+                    "MetadataOptions": {
+                        "State": "applied",
+                        "HttpTokens": "required",
+                        "HttpPutResponseHopLimit": 1,
+                        "HttpEndpoint": "enabled",
+                        "HttpProtocolIpv6": "disabled",
+                        "InstanceMetadataTags": "disabled"
+                    },
+                    "EnclaveOptions": {
+                        "Enabled": false
+                    },
+                    "BootMode": "uefi-preferred",
+                    "PlatformDetails": "Linux/UNIX",
+                    "UsageOperation": "RunInstances",
+                    "UsageOperationUpdateTime": "2026-09-25T04:19:58+00:00",
+                    "PrivateDnsNameOptions": {
+                        "HostnameType": "ip-name",
+                        "EnableResourceNameDnsARecord": false,
+                        "EnableResourceNameDnsAAAARecord": false
+                    },
+                    "MaintenanceOptions": {
+                        "AutoRecovery": "default",
+                        "RebootMigration": "default"
+                    },
+                    "CurrentInstanceBootMode": "uefi",
+                    "NetworkPerformanceOptions": {
+                        "BandwidthWeighting": "default"
+                    },
+                    "Operator": {
+                        "Managed": false,
+                        "HiddenByDefault": false
+                    },
+                    "SecondaryInterfaces": [],
+                    "InstanceId": "i-0f6ce588d301ece03",
+                    "ImageId": "ami-04a25f2596ecd9129",
+                    "State": {
+                        "Code": 16,
+                        "Name": "running"
+                    },
+                    "PrivateDnsName": "ip-10-42-1-156.ec2.internal",
+                    "PublicDnsName": "ec2-100-52-187-194.compute-1.amazonaws.com",
+                    "StateTransitionReason": "",
+                    "AmiLaunchIndex": 0,
+                    "ProductCodes": [],
+                    "InstanceType": "m8a.4xlarge",
+                    "LaunchTime": "2026-09-25T04:19:58+00:00",
+                    "Placement": {
+                        "AvailabilityZoneId": "use1-az1",
+                        "GroupName": "",
+                        "Tenancy": "default",
+                        "AvailabilityZone": "us-east-1a"
+                    },
+                    "Monitoring": {
+                        "State": "disabled"
+                    },
+                    "SubnetId": "subnet-0e9204d632602e6be",
+                    "VpcId": "vpc-0910ced8b2da97c0f",
+                    "PrivateIpAddress": "10.42.1.156",
+                    "PublicIpAddress": "100.52.187.194"
+                }
+            ]
+        },
+        {
+            "ReservationId": "r-0a0e3241cdcc6b66e",
+            "OwnerId": "<account>",
+            "RequesterId": "<aws-account>",
+            "Groups": [],
+            "Instances": [
+                {
+                    "Architecture": "x86_64",
+                    "BlockDeviceMappings": [
+                        {
+                            "DeviceName": "/dev/xvda",
+                            "Ebs": {
+                                "AttachTime": "2026-09-24T23:01:40+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-00ef497c49234b003",
+                                "EbsCardIndex": 0
+                            }
+                        },
+                        {
+                            "DeviceName": "/dev/xvdb",
+                            "Ebs": {
+                                "AttachTime": "2026-09-24T23:01:39.105000+00:00",
+                                "DeleteOnTermination": true,
+                                "Status": "attached",
+                                "VolumeId": "vol-018e436a60d31665b",
+                                "EbsCardIndex": 0
+                            }
+                        }
+                    ],
+                    "ClientToken": "fleet-67370d35-162c-4cad-2cb2-8982f5d5f068-0",
+                    "EbsOptimized": false,
+                    "EnaSupport": true,
+                    "Hypervisor": "xen",
+                    "IamInstanceProfile": {
+                        "Arn": "arn:aws:iam::<account>:instance-profile/eks-88d06ad3-57db-2422-4f3c-2348f2699b72",
+                        "Id": "AIPAQ64QT4YK63WGBELFN"
+                    },
+                    "NetworkInterfaces": [
+                        {
+                            "Association": {
+                                "IpOwnerId": "amazon",
+                                "PublicDnsName": "ec2-18-213-150-80.compute-1.amazonaws.com",
+                                "PublicIp": "18.213.150.80"
+                            },
+                            "Attachment": {
+                                "AttachTime": "2026-09-24T23:01:39+00:00",
+                                "AttachmentId": "eni-attach-0de3da4ce6a89617f",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 0,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:f8:51:aa:2f",
+                            "NetworkInterfaceId": "eni-02ec13a7fe61463c2",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-10-176.ec2.internal",
+                            "PrivateIpAddress": "10.42.10.176",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Association": {
+                                        "IpOwnerId": "amazon",
+                                        "PublicDnsName": "ec2-18-213-150-80.compute-1.amazonaws.com",
+                                        "PublicIp": "18.213.150.80"
+                                    },
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-10-176.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.176"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-171.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.171"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-44.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.44"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-227.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.227"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-99.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.99"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-224.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.224"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-33.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.33"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-165.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.165"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-251.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.251"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-56.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.56"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-249.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.249"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-63.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.63"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-191.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.191"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-114.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.114"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-176.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.176"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-112.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.112"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-52.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.52"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-200.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.200"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-207.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.207"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-76.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.76"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-135.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.135"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-135.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.135"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-217.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.217"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-222.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.222"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-14-159.ec2.internal",
+                                    "PrivateIpAddress": "10.42.14.159"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-92.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.92"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-7-221.ec2.internal",
+                                    "PrivateIpAddress": "10.42.7.221"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-8-146.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.146"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-210.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.210"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-3-145.ec2.internal",
+                                    "PrivateIpAddress": "10.42.3.145"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        },
+                        {
+                            "Attachment": {
+                                "AttachTime": "2026-09-24T23:02:26+00:00",
+                                "AttachmentId": "eni-attach-08d2d29f0498f8ea6",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 1,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "aws-K8S-i-0e912a3847096bacf",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-0bbf24b7301900b15",
+                                    "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:ff:de:26:bc:c9",
+                            "NetworkInterfaceId": "eni-0c7a0e867bf96731d",
+                            "OwnerId": "<account>",
+                            "PrivateDnsName": "ip-10-42-10-233.ec2.internal",
+                            "PrivateIpAddress": "10.42.10.233",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-42-10-233.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.233"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-110.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.110"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-172.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.172"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-224.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.224"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-165.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.165"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-8-165.ec2.internal",
+                                    "PrivateIpAddress": "10.42.8.165"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-59.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.59"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-248.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.248"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-255.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.255"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-125.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.125"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-253.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.253"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-115.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.115"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-115.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.115"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-13-246.ec2.internal",
+                                    "PrivateIpAddress": "10.42.13.246"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-10-119.ec2.internal",
+                                    "PrivateIpAddress": "10.42.10.119"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-142.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.142"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-143.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.143"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-67.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.67"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-70.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.70"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-11-134.ec2.internal",
+                                    "PrivateIpAddress": "10.42.11.134"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-132.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.132"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-9-69.ec2.internal",
+                                    "PrivateIpAddress": "10.42.9.69"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-6-91.ec2.internal",
+                                    "PrivateIpAddress": "10.42.6.91"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-2-94.ec2.internal",
+                                    "PrivateIpAddress": "10.42.2.94"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-12-159.ec2.internal",
+                                    "PrivateIpAddress": "10.42.12.159"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-4-223.ec2.internal",
+                                    "PrivateIpAddress": "10.42.4.223"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-0-18.ec2.internal",
+                                    "PrivateIpAddress": "10.42.0.18"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-15-19.ec2.internal",
+                                    "PrivateIpAddress": "10.42.15.19"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-5-17.ec2.internal",
+                                    "PrivateIpAddress": "10.42.5.17"
+                                },
+                                {
+                                    "Primary": false,
+                                    "PrivateDnsName": "ip-10-42-1-212.ec2.internal",
+                                    "PrivateIpAddress": "10.42.1.212"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-0e9204d632602e6be",
+                            "VpcId": "vpc-0910ced8b2da97c0f",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        }
+                    ],
+                    "RootDeviceName": "/dev/xvda",
+                    "RootDeviceType": "ebs",
+                    "SecurityGroups": [
+                        {
+                            "GroupId": "sg-0bbf24b7301900b15",
+                            "GroupName": "aws-aad-eks-lab-node-0c607ecce5df400d674264038e"
+                        }
+                    ],
+                    "SourceDestCheck": true,
+                    "Tags": [
+                        {
+                            "Key": "ManagedBy",
+                            "Value": "terraform"
+                        },
+                        {
+                            "Key": "eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "aws:ec2launchtemplate:version",
+                            "Value": "1"
+                        },
+                        {
+                            "Key": "Project",
+                            "Value": "armed-and-dangerous"
+                        },
+                        {
+                            "Key": "aws:ec2:fleet-id",
+                            "Value": "fleet-67370d35-162c-4cad-2cb2-8982f5d5f068"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/aws-aad-eks-lab",
+                            "Value": "owned"
+                        },
+                        {
+                            "Key": "Environment",
+                            "Value": "lab"
+                        },
+                        {
+                            "Key": "Owner",
+                            "Value": "andres-zeballos"
+                        },
+                        {
+                            "Key": "aws:eks:cluster-name",
+                            "Value": "aws-aad-eks-lab"
+                        },
+                        {
+                            "Key": "k8s.io/cluster-autoscaler/enabled",
+                            "Value": "true"
+                        },
+                        {
+                            "Key": "eks:nodegroup-name",
+                            "Value": "aws-aad-mng-loader"
+                        },
+                        {
+                            "Key": "Name",
+                            "Value": "aws-aad-mng-loader"
+                        },
+                        {
+                            "Key": "aws:autoscaling:groupName",
+                            "Value": "eks-aws-aad-mng-loader-88d06ad3-57db-2422-4f3c-2348f2699b72"
+                        },
+                        {
+                            "Key": "aws:ec2launchtemplate:id",
+                            "Value": "lt-0f354155a3732ea2e"
+                        },
+                        {
+                            "Key": "kubernetes.io/cluster/aws-aad-eks-lab",
+                            "Value": "owned"
+                        }
+                    ],
+                    "VirtualizationType": "hvm",
+                    "CpuOptions": {
+                        "CoreCount": 16,
+                        "ThreadsPerCore": 2
+                    },
+                    "CapacityReservationSpecification": {
+                        "CapacityReservationPreference": "open"
+                    },
+                    "HibernationOptions": {
+                        "Configured": false
+                    },
+                    "MetadataOptions": {
+                        "State": "applied",
+                        "HttpTokens": "required",
+                        "HttpPutResponseHopLimit": 1,
+                        "HttpEndpoint": "enabled",
+                        "HttpProtocolIpv6": "disabled",
+                        "InstanceMetadataTags": "disabled"
+                    },
+                    "EnclaveOptions": {
+                        "Enabled": false
+                    },
+                    "BootMode": "uefi-preferred",
+                    "PlatformDetails": "Linux/UNIX",
+                    "UsageOperation": "RunInstances",
+                    "UsageOperationUpdateTime": "2026-09-24T23:01:39+00:00",
+                    "PrivateDnsNameOptions": {
+                        "HostnameType": "ip-name",
+                        "EnableResourceNameDnsARecord": false,
+                        "EnableResourceNameDnsAAAARecord": false
+                    },
+                    "MaintenanceOptions": {
+                        "AutoRecovery": "default",
+                        "RebootMigration": "default"
+                    },
+                    "CurrentInstanceBootMode": "uefi",
+                    "NetworkPerformanceOptions": {
+                        "BandwidthWeighting": "default"
+                    },
+                    "Operator": {
+                        "Managed": false,
+                        "HiddenByDefault": false
+                    },
+                    "SecondaryInterfaces": [],
+                    "InstanceId": "i-0e912a3847096bacf",
+                    "ImageId": "ami-04a25f2596ecd9129",
+                    "State": {
+                        "Code": 16,
+                        "Name": "running"
+                    },
+                    "PrivateDnsName": "ip-10-42-10-176.ec2.internal",
+                    "PublicDnsName": "ec2-18-213-150-80.compute-1.amazonaws.com",
+                    "StateTransitionReason": "",
+                    "AmiLaunchIndex": 0,
+                    "ProductCodes": [],
+                    "InstanceType": "c7i.8xlarge",
+                    "LaunchTime": "2026-09-24T23:01:39+00:00",
+                    "Placement": {
+                        "AvailabilityZoneId": "use1-az1",
+                        "GroupName": "",
+                        "Tenancy": "default",
+                        "AvailabilityZone": "us-east-1a"
+                    },
+                    "Monitoring": {
+                        "State": "disabled"
+                    },
+                    "SubnetId": "subnet-0e9204d632602e6be",
+                    "VpcId": "vpc-0910ced8b2da97c0f",
+                    "PrivateIpAddress": "10.42.10.176",
+                    "PublicIpAddress": "18.213.150.80"
+                }
+            ]
+        }
+    ]
+}

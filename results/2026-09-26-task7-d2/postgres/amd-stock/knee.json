@@ -1,0 +1,243 @@
+{
+ "unit": "clients",
+ "knee": 256,
+ "ops": 496960.7,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.464
+  ],
+  [
+   32,
+   0.516
+  ],
+  [
+   64,
+   0.525
+  ],
+  [
+   128,
+   0.521
+  ],
+  [
+   256,
+   1.055
+  ],
+  [
+   512,
+   3.435
+  ]
+ ],
+ "ended_by": {
+  "step": 512,
+  "p99_ms": 3.435,
+  "kind": "throughput_drop",
+  "reason": "422469 ops/s < 95% of 496961 at step 256"
+ },
+ "windows": {
+  "16": [
+   1790459879.0,
+   1790459940.0
+  ],
+  "32": [
+   1790459952.0,
+   1790460014.0
+  ],
+  "64": [
+   1790460026.0,
+   1790460088.0
+  ],
+  "128": [
+   1790460100.0,
+   1790460161.0
+  ],
+  "256": [
+   1790460173.0,
+   1790460235.0
+  ],
+  "512": [
+   1790460247.0,
+   1790460309.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-amd-stock-c16-knee-c1",
+   "pgbench-run-amd-stock-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-amd-stock-c32-knee-c1",
+   "pgbench-run-amd-stock-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-amd-stock-c64-knee-c1",
+   "pgbench-run-amd-stock-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-amd-stock-c128-knee-c1",
+   "pgbench-run-amd-stock-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-amd-stock-c256-knee-c1",
+   "pgbench-run-amd-stock-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-amd-stock-c512-knee-c1",
+   "pgbench-run-amd-stock-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 283,
+    "IO:DataFileRead": 7,
+    "NoWait": 14
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 564,
+    "NoWait": 38,
+    "IO:DataFileRead": 6
+   }
+  },
+  "64": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1139,
+    "NoWait": 69,
+    "IO:DataFileRead": 8
+   }
+  },
+  "128": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 2130,
+    "NoWait": 136,
+    "IO:DataFileRead": 20,
+    "LWLock:BufferMapping": 15,
+    "Timeout:SpinDelay": 3
+   }
+  },
+  "256": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 4238,
+    "IO:DataFileRead": 30,
+    "LWLock:BufferMapping": 105,
+    "NoWait": 233,
+    "Timeout:SpinDelay": 2
+   }
+  },
+  "512": {
+   "samples": 15,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 7218,
+    "IO:DataFileRead": 28,
+    "LWLock:BufferMapping": 232,
+    "NoWait": 198,
+    "Timeout:SpinDelay": 1,
+    "IO:AioIoCompletion": 1,
+    "LWLock:ProcArray": 3
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 3,
+  "64": 6,
+  "128": 10,
+  "256": 13,
+  "512": 12
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 1.497,
+   "median": 1.45,
+   "samples": 6
+  },
+  "32": {
+   "max": 2.703,
+   "median": 2.587,
+   "samples": 6
+  },
+  "64": {
+   "max": 5.385,
+   "median": 5.16,
+   "samples": 7
+  },
+  "128": {
+   "max": 9.937,
+   "median": 9.8415,
+   "samples": 6
+  },
+  "256": {
+   "max": 15.015,
+   "median": 11.434,
+   "samples": 7
+  },
+  "512": {
+   "max": 15.041,
+   "median": 15.0405,
+   "samples": 4
+  }
+ },
+ "loader_guard_waived": {
+  "step": 512,
+  "sut_cores_max": 15.041,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 13,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-amd-stock-c16-knee-c1-2rj4g": 0.478,
+   "pgbench-run-amd-stock-c16-knee-c2-7shrt": 0.464
+  },
+  "32": {
+   "pgbench-run-amd-stock-c32-knee-c1-gf8qj": 0.833,
+   "pgbench-run-amd-stock-c32-knee-c2-tn7cv": 0.837
+  },
+  "64": {
+   "pgbench-run-amd-stock-c64-knee-c1-m9xs5": 1.433,
+   "pgbench-run-amd-stock-c64-knee-c2-dksch": 1.402
+  },
+  "128": {
+   "pgbench-run-amd-stock-c128-knee-c1-s8jmw": 2.541,
+   "pgbench-run-amd-stock-c128-knee-c2-slj4v": 2.552
+  },
+  "256": {
+   "pgbench-run-amd-stock-c256-knee-c1-27wv4": 3.614,
+   "pgbench-run-amd-stock-c256-knee-c2-j527d": 3.62
+  },
+  "512": {
+   "pgbench-run-amd-stock-c512-knee-c1-5jb67": 3.411,
+   "pgbench-run-amd-stock-c512-knee-c2-c9pz5": 3.316
+  }
+ }
+}

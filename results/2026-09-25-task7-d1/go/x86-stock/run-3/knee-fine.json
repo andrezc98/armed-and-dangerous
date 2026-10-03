@@ -1,0 +1,107 @@
+{
+ "unit": "rps",
+ "knee": null,
+ "slo_ms": 20,
+ "series": [
+  [
+   21000,
+   176.54558974999986
+  ],
+  [
+   22000,
+   832.8016650300001
+  ],
+  [
+   23000,
+   968.6605978999999
+  ],
+  [
+   24000,
+   969.2303784000002
+  ],
+  [
+   25000,
+   1000.7811748199997
+  ]
+ ],
+ "ended_by": {
+  "step": 21000,
+  "p99_ms": 176.54558974999986,
+  "kind": "crossing",
+  "reason": "p99 176.55 ms > SLO 20 ms"
+ },
+ "invalid_steps": {},
+ "windows": {
+  "21000": [
+   1790369295.0,
+   1790369345.0
+  ],
+  "22000": [
+   1790369340.0,
+   1790369390.0
+  ],
+  "23000": [
+   1790369385.0,
+   1790369435.0
+  ],
+  "24000": [
+   1790369430.0,
+   1790369480.0
+  ],
+  "25000": [
+   1790369475.0,
+   1790369525.0
+  ]
+ },
+ "invalid": [],
+ "coarse_knee": 20000,
+ "ladder": {
+  "RATE_START": 21000,
+  "RATE_STEP": 1000,
+  "RATE_MAX": 25000,
+  "STAGE_SECONDS": 45
+ },
+ "notes": [],
+ "loader_peak_by_step": {
+  "21000": 9,
+  "22000": 10,
+  "23000": 10,
+  "24000": 9,
+  "25000": 9
+ },
+ "sut_cpu_cores_by_step": {
+  "21000": {
+   "max": 14.899,
+   "median": 14.841,
+   "samples": 5
+  },
+  "22000": {
+   "max": 15.009,
+   "median": 14.946,
+   "samples": 7
+  },
+  "23000": {
+   "max": 15.009,
+   "median": 14.964,
+   "samples": 5
+  },
+  "24000": {
+   "max": 14.998,
+   "median": 14.98,
+   "samples": 7
+  },
+  "25000": {
+   "max": 14.985,
+   "median": 14.98,
+   "samples": 4
+  }
+ },
+ "loader_guard_waived": {
+  "step": 21000,
+  "sut_cores_max": 14.899,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": null,
+ "run_knee": 20000
+}

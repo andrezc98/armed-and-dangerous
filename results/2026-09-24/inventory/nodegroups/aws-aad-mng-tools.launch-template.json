@@ -1,0 +1,104 @@
+{
+    "LaunchTemplateVersions": [
+        {
+            "LaunchTemplateId": "lt-0d4e5248a0ff507bf",
+            "LaunchTemplateName": "tools-6b3d8cfdbefebc4ed6083c5368",
+            "VersionNumber": 1,
+            "VersionDescription": "Custom launch template for aws-aad-mng-tools EKS managed node group",
+            "CreateTime": "2026-09-24T23:01:00+00:00",
+            "CreatedBy": "arn:aws:sts::<account>:assumed-role/aws-aad-gha/aad-infra-36069357222",
+            "DefaultVersion": true,
+            "LaunchTemplateData": {
+                "UserData": "",
+                "TagSpecifications": [
+                    {
+                        "ResourceType": "instance",
+                        "Tags": [
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-tools"
+                            }
+                        ]
+                    },
+                    {
+                        "ResourceType": "network-interface",
+                        "Tags": [
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-tools"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            }
+                        ]
+                    },
+                    {
+                        "ResourceType": "volume",
+                        "Tags": [
+                            {
+                                "Key": "Environment",
+                                "Value": "lab"
+                            },
+                            {
+                                "Key": "Project",
+                                "Value": "armed-and-dangerous"
+                            },
+                            {
+                                "Key": "Owner",
+                                "Value": "andres-zeballos"
+                            },
+                            {
+                                "Key": "ManagedBy",
+                                "Value": "terraform"
+                            },
+                            {
+                                "Key": "Name",
+                                "Value": "aws-aad-mng-tools"
+                            }
+                        ]
+                    }
+                ],
+                "SecurityGroupIds": [
+                    "sg-0bbf24b7301900b15"
+                ],
+                "MetadataOptions": {
+                    "HttpTokens": "required",
+                    "HttpPutResponseHopLimit": 1,
+                    "HttpEndpoint": "enabled"
+                }
+            },
+            "Operator": {
+                "Managed": false
+            }
+        }
+    ]
+}

@@ -1,0 +1,56 @@
+[1mVerifying node exists...[0m Node 'ip-10-42-13-120.ec2.internal' found
+[1mChecking node taints...[0m [0;33mNode has taints, adding tolerations to pod spec[0m
+    Taint: aad/sut=true:NoSchedule
+[1mTageted node instance type... [0m  m9g.4xlarge
+[1mCheck namespace security policy... [0m  Namespace 'aad' has 'privileged' policy - privileged pods allowed.
+[1mResource usage for pods on ip-10-42-13-120.ec2.internal:[0m
+NAMESPACE     NAME                                  CPU(cores)   MEMORY(bytes)   
+aad           go-6cb98c576b-ppd87                   1948m        250Mi           
+aad           otel-ebpf-profiler-gxcs8              6m           166Mi           
+kube-system   aws-node-rr28z                        4m           40Mi            
+kube-system   ebs-csi-node-rf2tn                    1m           29Mi            
+kube-system   eks-pod-identity-agent-n6pcs          1m           10Mi            
+kube-system   kube-proxy-zdzzr                      1m           14Mi            
+[1mChecking node allocatable capacity...[0m
+  Allocatable: 15750m CPU, 61534Mi memory
+  Requested by existing pods: 15380m CPU, 8552Mi memory
+  Available: 370m CPU, 52982Mi memory
+  APerf requests: 10m CPU, 64Mi memory
+  [0;32mNode has sufficient allocatable capacity.[0m
+
+[1mCreated pod configuration for node:[0m ip-10-42-13-120.ec2.internal[0m
+[1mDeploying pod to Kubernetes...[0m  pod/aperf-pod-ip-10-42-13-120-ec2-internal created
+[1mWaiting for pod to start...[0m  pod/aperf-pod-ip-10-42-13-120-ec2-internal condition met
+[1mStarting program logs...[0m [0;33m
+Copy async-profiler files...
+Relaxing kernel perf settings for aperf record (orig perf_event_paranoid=2, kptr_restrict=1)...
+Starting Aperf recording execution...
+Run: /usr/bin/aperf record --tmp-dir=/tmp/aperf/profile  -r aperf_record -i 1 -p 480
+[2026-09-27T06:27:35Z INFO  aperf::record] Starting Data collection...
+[2026-09-27T06:27:35Z INFO  aperf::record] Preparing data collectors...
+[2026-09-27T06:27:35Z INFO  aperf::record] Collecting data...
+[2026-09-27T06:35:35Z INFO  aperf::record] Data collection complete.
+[2026-09-27T06:35:36Z INFO  aperf] Data collected in aperf_record/, archived in aperf_record.tar.gz
+APerf record completed
+Kernel perf settings restored.
+
+Starting Aperf report generation...
+Run: /usr/bin/aperf report -r aperf_record -n aperf_record_report
+[2026-09-27T06:35:36Z INFO  aperf::report] Creating archive "/tmp/aperf-tmp-K0DaQN/aperf_record.tar.gz"
+[2026-09-27T06:35:36Z INFO  aperf::report] Creating APerf report...
+[2026-09-27T06:35:36Z INFO  aperf::report] Processing collected data...
+[2026-09-27T06:35:38Z WARN  aperf::data::common::time_series_data_processor] ena_stat.conntrack_allowance_available.eth1: skipped 23 data points due to unexpected decrease of accumulative data.
+[2026-09-27T06:35:38Z WARN  aperf::data::common::time_series_data_processor] ena_stat.conntrack_allowance_available.eth0: skipped 23 data points due to unexpected decrease of accumulative data.
+[2026-09-27T06:35:38Z INFO  aperf] Running analytical rules
+[2026-09-27T06:35:38Z INFO  aperf::report] Writing processed data into report
+[2026-09-27T06:35:38Z INFO  aperf::report] Copying archive to "aperf_record_report/data/archive/aperf_record.tar.gz"
+[2026-09-27T06:35:38Z INFO  aperf::report] Creating report archive
+[2026-09-27T06:35:39Z INFO  aperf::report] Report archived at aperf_record_report.tar.gz
+APerf report generation completed
+
+Waiting for files to be copied...
+[0m[1mAperf completed. Copying files from pod aperf-pod-ip-10-42-13-120-ec2-internal...[0m
+[1mDeleting pod to clean up resources...[0m  pod "aperf-pod-ip-10-42-13-120-ec2-internal" deleted
+[1m[0;32mFiles copied to[0m [0;34maperf_record_20260927-012735.tar.gz[0m
+[1mExtracting report files...[0m
+  Extracted to [0;34maperf_record_20260927-012735/[0m[1m[0;32mDone![0m

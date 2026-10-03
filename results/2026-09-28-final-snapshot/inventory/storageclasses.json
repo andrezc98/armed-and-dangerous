@@ -1,0 +1,51 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "storage.k8s.io/v1",
+            "kind": "StorageClass",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"storage.k8s.io/v1\",\"kind\":\"StorageClass\",\"metadata\":{\"annotations\":{},\"name\":\"gp2\"},\"parameters\":{\"fsType\":\"ext4\",\"type\":\"gp2\"},\"provisioner\":\"kubernetes.io/aws-ebs\",\"volumeBindingMode\":\"WaitForFirstConsumer\"}\n",
+                    "storageclass.kubernetes.io/is-default-class": "false"
+                },
+                "creationTimestamp": "2026-09-24T22:56:33Z",
+                "name": "gp2",
+                "resourceVersion": "2009",
+                "uid": "f43f4df9-bf61-43a3-92da-daa619e3da0c"
+            },
+            "parameters": {
+                "fsType": "ext4",
+                "type": "gp2"
+            },
+            "provisioner": "kubernetes.io/aws-ebs",
+            "reclaimPolicy": "Delete",
+            "volumeBindingMode": "WaitForFirstConsumer"
+        },
+        {
+            "allowVolumeExpansion": true,
+            "apiVersion": "storage.k8s.io/v1",
+            "kind": "StorageClass",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"allowVolumeExpansion\":true,\"apiVersion\":\"storage.k8s.io/v1\",\"kind\":\"StorageClass\",\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"},\"name\":\"gp3\"},\"parameters\":{\"type\":\"gp3\"},\"provisioner\":\"ebs.csi.aws.com\",\"reclaimPolicy\":\"Delete\",\"volumeBindingMode\":\"WaitForFirstConsumer\"}\n",
+                    "storageclass.kubernetes.io/is-default-class": "true"
+                },
+                "creationTimestamp": "2026-09-24T23:03:54Z",
+                "name": "gp3",
+                "resourceVersion": "2023",
+                "uid": "a813a61e-b63c-41b7-9518-0b1dbe9b42ea"
+            },
+            "parameters": {
+                "type": "gp3"
+            },
+            "provisioner": "ebs.csi.aws.com",
+            "reclaimPolicy": "Delete",
+            "volumeBindingMode": "WaitForFirstConsumer"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

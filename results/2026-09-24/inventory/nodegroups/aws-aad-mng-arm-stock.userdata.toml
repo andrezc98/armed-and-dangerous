@@ -1,0 +1,81 @@
+# Bottlerocket user data shared by ALL FIVE SUT cells (stock and tuned alike).
+#
+# This is a CONTROL, not a knob: CPU pinning has to be identical in every cell,
+# otherwise the comparison is between two schedulers and not between two CPUs.
+# nodegroups.tf ships this file alone on the stock cells and concatenated with
+# thp.toml on the tuned ones (the two files declare disjoint TOML tables).
+#
+# Raw TOML for the same reason thp.toml is: with a BOTTLEROCKET_* ami_type and
+# no custom AMI the module ships bootstrap_extra_args as the whole user data and
+# EKS merges it into its own settings - "The configuration that you provide in
+# your user data overrides any settings that are configured by Amazon EKS. So,
+# if you set settings.kubernetes.max-pods or settings.kubernetes.cluster-dns-ip,
+# these values in your user data are applied to the nodes"
+# (https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html,
+# "Bottlerocket user data", read 2026-09-04). It is a TOML merge, not a
+# concatenation, so [settings.kubernetes] here does not clash with the same
+# table in the user data EKS generates. That page's own example is exactly a
+# [settings.kubernetes.system-reserved] block.
+#
+# Why this exists at all: requests = limits only buys Guaranteed QoS. With the
+# default CPU manager policy the kubelet enforces the limit with a CFS quota and
+# the pod's threads still float across every vCPU, sharing them with the
+# DaemonSets and the IRQs. Exclusive CPUs need the static policy:
+#
+#   "Only containers that are both part of a Guaranteed pod and have integer CPU
+#    requests are assigned exclusive CPUs."
+#   "This policy manages a shared pool of CPUs that initially contains all CPUs
+#    in the node. The amount of exclusively allocatable CPUs is equal to the
+#    total number of CPUs in the node minus any CPU reservations by the kubelet
+#    --kube-reserved or --system-reserved options."
+#   "The kubelet requires a CPU reservation greater than zero be made using
+#    either --kube-reserved and/or --system-reserved or --reserved-cpus when the
+#    static policy is enabled."
+#   (https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/,
+#    read 2026-09-04)
+#
+# Setting names and value shapes verified against
+# https://bottlerocket.dev/en/os/1.64.x/api/settings/kubernetes/ (read
+# 2026-09-04):
+#   settings.kubernetes.cpu-manager-policy - "Specifies the CPU manager policy.
+#     If you want to allow pods with certain resource characteristics to be
+#     granted increased CPU affinity and exclusivity on the node, you can set
+#     this setting to static. You should reboot if you change this setting after
+#     startup". Default none, accepted values static | none. No reboot here: this
+#     is first-boot user data, so the kubelet never starts with another policy
+#     and there is never a stale /var/lib/kubelet/cpu_manager_state to delete.
+#   settings.kubernetes.kube-reserved - "Resources reserved for node components.
+#     The following keys are valid: cpu: in millicores from the total number of
+#     vCPUs available on the instance". Written as a bracketed table with one
+#     key, the shape the AWS example above uses for its sibling system-reserved.
+
+[settings.kubernetes]
+cpu-manager-policy = "static"
+
+# cpu-manager-policy-options is deliberately NOT set. full-pcpus-only would
+# reject a 15-CPU request outright (15 is not a whole number of SMT pairs) and
+# the SUT pod is 15 of 16 vCPUs by design.
+
+# 250m, not 1000m, and the difference is the whole point of the number:
+#
+#   * cpuset layer. The kubelet takes the ceiling of the reservation - "Take the
+#     ceiling of the reservation, since fractional CPUs cannot be exclusively
+#     allocated. reservedCPUsFloat := float64(reservedCPUs.MilliValue()) / 1000;
+#     numReservedCPUs := int(math.Ceil(reservedCPUsFloat))"
+#     (kubernetes release-1.36, pkg/kubelet/cm/cpumanager/cpu_manager.go). Any
+#     value in (0, 1000m] therefore carves out exactly ONE whole vCPU as the
+#     shared pool: cpu0 keeps the DaemonSets, cpu1-15 are exclusively allocatable.
+#   * scheduler layer. Allocatable = Capacity - kube-reserved. At 1000m the node
+#     would advertise exactly 15000m, the SUT pod alone asks for 15000m, and
+#     kube-proxy + aws-node + ebs-csi-node + the profiler (about 450m together)
+#     would never fit: the measured pod would sit Pending forever. At 250m the
+#     node advertises 15750m and everything fits with room to spare. Same
+#     arithmetic on x86-smtoff: 8000m - 250m = 7750m against a 7000m pod.
+#
+# Bottlerocket's own default would also ceil to one vCPU (60m for the first core
+# + 10 + 5 + 5 + 2.5 per extra core = 110m at 16 vCPUs; bottlerocket-core-kit
+# sources/api/schnauzer/src/helpers/mod.rs, kube_cpu_helper). It is pinned
+# explicitly anyway so the reservation is a number in this repo and not a
+# formula that can change with an AMI.
+[settings.kubernetes.kube-reserved]
+cpu = "250m"

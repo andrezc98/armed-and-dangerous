@@ -1,0 +1,45 @@
+{
+ "date": "2026-09-26-task7-d2",
+ "workload": "postgres",
+ "cell": "arm-stock",
+ "instance_type": "m9g.4xlarge",
+ "nodes": 1,
+ "minutes": 40.0,
+ "runs": 3,
+ "invalid": [],
+ "app_env": {},
+ "llama_system_info": null,
+ "postgres": {
+  "prewarm_blocks": 1913539,
+  "shared_buffers": "128MB",
+  "effective_cache_size": "4GB",
+  "max_connections": "600",
+  "huge_pages": "try",
+  "huge_pages_status": "off",
+  "database_bytes": 15688201919,
+  "warmup_read_pages": [
+   69
+  ],
+  "io_stat_first": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:2 rbytes=15678722048 wbytes=401408 rios=119868 wios=12 dbytes=0 dios=0",
+  "io_stat_last": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:2 rbytes=15679283200 wbytes=499712 rios=119910 wios=22 dbytes=0 dios=0",
+  "shmem_thp": false,
+  "after_warmup": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 166716,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            166716 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  },
+  "after_ladder": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 172544,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            172544 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  }
+ }
+}

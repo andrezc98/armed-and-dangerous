@@ -1,0 +1,69 @@
+{
+ "cpuset": "1-15",
+ "cpuset_count": 15,
+ "postgres": {
+  "prewarm_blocks": 1913539,
+  "shared_buffers": "128MB",
+  "effective_cache_size": "4GB",
+  "max_connections": "600",
+  "huge_pages": "try",
+  "huge_pages_status": "off",
+  "database_bytes": 15688193727,
+  "warmup_read_pages": [
+   69
+  ],
+  "io_stat_first": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:9 rbytes=15678763008 wbytes=401408 rios=119878 wios=12 dbytes=0 dios=0",
+  "io_stat_last": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:9 rbytes=15679324160 wbytes=491520 rios=119920 wios=22 dbytes=0 dios=0",
+  "shmem_thp": false,
+  "after_warmup": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 166720,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            166720 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  },
+  "after_ladder": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 172540,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            172540 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  }
+ },
+ "clients": 512,
+ "knee_clients": 256,
+ "target_ops": 230074,
+ "pgbench_jobs": [
+  "pgbench-run-arm-stock-c512-r3-c1",
+  "pgbench-run-arm-stock-c512-r3-c2"
+ ],
+ "pgbench_threads": 16,
+ "wait_events_by_step": {
+  "run": {
+   "samples": 139,
+   "dropped": 7,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 67788,
+    "IO:DataFileRead": 205,
+    "NoWait": 1888,
+    "LWLock:BufferMapping": 1279,
+    "Timeout:SpinDelay": 8
+   }
+  }
+ },
+ "invalid": [
+  "fixed_generator_lagging: schedule lag p99 968.21 ms > 1.0 ms"
+ ],
+ "loader_peak_percent": 8,
+ "pgbench_pod_cores": {
+  "pgbench-run-arm-stock-c512-r3-c1-cfffc": 2.708,
+  "pgbench-run-arm-stock-c512-r3-c2-gzn2g": 2.724
+ },
+ "aperf": "ok",
+ "flamegraph": "ok"
+}

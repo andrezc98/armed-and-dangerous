@@ -1,0 +1,225 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-26-cal-pg-thp  postgres/x86-tuned on node group aws-aad-mng-x86-tuned (m8i.4xlarge x1) ===
+
+# budget: USD 19.52 committed today, estimate 80.00
+# kustomize overlay postgres/x86-tuned with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "d29e8916-cb23-3f8b-9c67-d8e7aab8da2c",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-26T03:00:09.780000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=x86-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl apply -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml
+daemonset.apps/pg-shmem-thp created
+$ kubectl -n aad rollout status daemonset/pg-shmem-thp --timeout=120s
+Waiting for daemon set "pg-shmem-thp" rollout to finish: 0 of 1 updated pods are available...
+daemon set "pg-shmem-thp" successfully rolled out
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay postgres/x86-tuned with the own images of the day
+# apply overlay postgres/x86-tuned
+$ <stdin> | kubectl apply -f -
+service/postgres unchanged
+statefulset.apps/postgres configured
+$ kubectl -n aad rollout status statefulset/postgres --timeout=900s
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/postgres -- cat /sys/fs/cgroup/cpuset.cpus.effective
+# wait for cstates knob Ready on ip-10-42-6-130.ec2.internal (timeout 300s, poll 10s)
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT to_regclass('"'"'pgbench_accounts_pkey'"'"') IS NOT NULL'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT count(*) FROM pgbench_branches'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'CREATE EXTENSION IF NOT EXISTS pg_prewarm'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_prewarm('"'"'pgbench_accounts'"'"', '"'"'read'"'"') + pg_prewarm('"'"'pgbench_accounts_pkey'"'"', '"'"'read'"'"')'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_database_size(current_database()), current_setting('"'"'shared_buffers'"'"'), current_setting('"'"'effective_cache_size'"'"'), current_setting('"'"'max_connections'"'"'), current_setting('"'"'huge_pages'"'"'), current_setting('"'"'huge_pages_status'"'"')'
+# postgres: {'prewarm_blocks': 1913539, 'shared_buffers': '16GB', 'effective_cache_size': '48GB', 'max_connections': '600', 'huge_pages': 'try', 'huge_pages_status': 'off', 'database_bytes': 15688177343}
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-warm0-c1, pgbench-run-x86-tuned-warm0-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-warm0-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-warm0-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-warm0-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-warm0-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-warm0-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-warm0-c1 created
+# apply job/pgbench-run-x86-tuned-warm0-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-warm0-c2 created
+# wait for job/pgbench-run-x86-tuned-warm0-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-warm0-c1
+# job/pgbench-run-x86-tuned-warm0-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-warm0-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-warm0-c2
+# job/pgbench-run-x86-tuned-warm0-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+$ kubectl -n aad logs daemonset/pg-shmem-thp
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'printf '"'"'shmem_enabled: '"'"'; cat /sys/kernel/mm/transparent_hugepage/shmem_enabled; f=/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/shmem_enabled; [ -e $f ] && printf '"'"'hugepages-2048kB: '"'"' && cat $f; grep -E '"'"'^(Shmem|ShmemHugePages|ShmemPmdMapped):'"'"' /proc/meminfo'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c16-knee-c1, pgbench-run-x86-tuned-c16-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c16-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c16-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c16-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c16-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c16-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c16-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c16-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c16-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c16-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c16-knee-c1
+# job/pgbench-run-x86-tuned-c16-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c16-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c16-knee-c2
+# job/pgbench-run-x86-tuned-c16-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c32-knee-c1, pgbench-run-x86-tuned-c32-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c32-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c32-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c32-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c32-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c32-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c32-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c32-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c32-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c32-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c32-knee-c1
+# job/pgbench-run-x86-tuned-c32-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c32-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c32-knee-c2
+# job/pgbench-run-x86-tuned-c32-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c64-knee-c1, pgbench-run-x86-tuned-c64-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c64-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c64-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c64-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c64-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c64-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c64-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c64-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c64-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c64-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c64-knee-c1
+# job/pgbench-run-x86-tuned-c64-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c64-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c64-knee-c2
+# job/pgbench-run-x86-tuned-c64-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c128-knee-c1, pgbench-run-x86-tuned-c128-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c128-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c128-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c128-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c128-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c128-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c128-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c128-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c128-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c128-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c128-knee-c1
+# job/pgbench-run-x86-tuned-c128-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c128-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c128-knee-c2
+# job/pgbench-run-x86-tuned-c128-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c256-knee-c1, pgbench-run-x86-tuned-c256-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c256-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c256-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c256-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c256-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c256-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c256-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c256-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c256-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c256-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c256-knee-c1
+# job/pgbench-run-x86-tuned-c256-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c256-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c256-knee-c2
+# job/pgbench-run-x86-tuned-c256-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-x86-tuned-c512-knee-c1, pgbench-run-x86-tuned-c512-knee-c2
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c512-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c512-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-x86-tuned-c512-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-x86-tuned-c512-knee-c2 --timeout=60s
+# apply job/pgbench-run-x86-tuned-c512-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c512-knee-c1 created
+# apply job/pgbench-run-x86-tuned-c512-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-x86-tuned-c512-knee-c2 created
+# wait for job/pgbench-run-x86-tuned-c512-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c512-knee-c1
+# job/pgbench-run-x86-tuned-c512-knee-c1 -> Complete=True
+# wait for job/pgbench-run-x86-tuned-c512-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-x86-tuned-c512-knee-c2
+# job/pgbench-run-x86-tuned-c512-knee-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'printf '"'"'shmem_enabled: '"'"'; cat /sys/kernel/mm/transparent_hugepage/shmem_enabled; f=/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/shmem_enabled; [ -e $f ] && printf '"'"'hugepages-2048kB: '"'"' && cat $f; grep -E '"'"'^(Shmem|ShmemHugePages|ShmemPmdMapped):'"'"' /proc/meminfo'
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found
+daemonset.apps "pg-shmem-thp" deleted
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "3a16f020-f526-31bb-a733-2c40568ddc91",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-26T03:12:22.235000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=x86-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=x86-tuned --ignore-not-found
+job.batch "pgbench-run-x86-tuned-c128-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c128-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-c16-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c16-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-c256-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c256-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-c32-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c32-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-c512-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c512-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-c64-knee-c1" deleted
+job.batch "pgbench-run-x86-tuned-c64-knee-c2" deleted
+job.batch "pgbench-run-x86-tuned-warm0-c1" deleted
+job.batch "pgbench-run-x86-tuned-warm0-c2" deleted
+# postgres overlay kept: --teardown-day is what drops the sts and its PVC
+
+# postgres/x86-tuned: 15.5 min
+
+# Ledger 2026-09-26-cal-pg-thp
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| postgres | amd-tuned | m8a.4xlarge | 1 | 15.4 | 0.25 |
+| postgres | arm-tuned | m9g.4xlarge | 1 | 14.8 | 0.19 |
+| postgres | x86-tuned | m8i.4xlarge | 1 | 15.5 | 0.22 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **19.74** |
+
+estimate_per_day_usd: 80.00 - OK
+

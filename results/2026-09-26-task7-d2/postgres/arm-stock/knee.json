@@ -1,0 +1,240 @@
+{
+ "unit": "clients",
+ "knee": 128,
+ "ops": 277328.5,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.509
+  ],
+  [
+   32,
+   0.531
+  ],
+  [
+   64,
+   0.553
+  ],
+  [
+   128,
+   0.891
+  ],
+  [
+   256,
+   2.41
+  ],
+  [
+   512,
+   7.695
+  ]
+ ],
+ "ended_by": {
+  "step": 512,
+  "p99_ms": 7.695,
+  "kind": "crossing",
+  "reason": "p99 7.70 ms > SLO 5 ms"
+ },
+ "windows": {
+  "16": [
+   1790455052.0,
+   1790455114.0
+  ],
+  "32": [
+   1790455126.0,
+   1790455187.0
+  ],
+  "64": [
+   1790455199.0,
+   1790455260.0
+  ],
+  "128": [
+   1790455272.0,
+   1790455334.0
+  ],
+  "256": [
+   1790455346.0,
+   1790455407.0
+  ],
+  "512": [
+   1790455420.0,
+   1790455482.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-arm-stock-c16-knee-c1",
+   "pgbench-run-arm-stock-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-arm-stock-c32-knee-c1",
+   "pgbench-run-arm-stock-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-arm-stock-c64-knee-c1",
+   "pgbench-run-arm-stock-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-arm-stock-c128-knee-c1",
+   "pgbench-run-arm-stock-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-arm-stock-c256-knee-c1",
+   "pgbench-run-arm-stock-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-arm-stock-c512-knee-c1",
+   "pgbench-run-arm-stock-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 272,
+    "NoWait": 25,
+    "IO:DataFileRead": 7
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 533,
+    "NoWait": 60,
+    "IO:DataFileRead": 15
+   }
+  },
+  "64": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1036,
+    "IO:DataFileRead": 15,
+    "NoWait": 165
+   }
+  },
+  "128": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1988,
+    "IO:DataFileRead": 25,
+    "NoWait": 253,
+    "LWLock:BufferMapping": 34,
+    "Timeout:SpinDelay": 4
+   }
+  },
+  "256": {
+   "samples": 17,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 3950,
+    "IO:DataFileRead": 17,
+    "LWLock:BufferMapping": 159,
+    "Timeout:SpinDelay": 7,
+    "NoWait": 219
+   }
+  },
+  "512": {
+   "samples": 15,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 6788,
+    "IO:DataFileRead": 27,
+    "LWLock:BufferMapping": 643,
+    "NoWait": 222
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 4,
+  "64": 5,
+  "128": 8,
+  "256": 8,
+  "512": 7
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 1.83,
+   "median": 1.305,
+   "samples": 7
+  },
+  "32": {
+   "max": 4.636,
+   "median": 4.203,
+   "samples": 8
+  },
+  "64": {
+   "max": 9.807,
+   "median": 9.6095,
+   "samples": 6
+  },
+  "128": {
+   "max": 14.838,
+   "median": 14.7355,
+   "samples": 6
+  },
+  "256": {
+   "max": 15.188,
+   "median": 15.076,
+   "samples": 8
+  },
+  "512": {
+   "max": 15.172,
+   "median": 15.115,
+   "samples": 5
+  }
+ },
+ "loader_guard_waived": {
+  "step": 512,
+  "sut_cores_max": 15.172,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 8,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-arm-stock-c16-knee-c1-pn54h": 0.51,
+   "pgbench-run-arm-stock-c16-knee-c2-jcj5b": 0.508
+  },
+  "32": {
+   "pgbench-run-arm-stock-c32-knee-c1-gdcc6": 0.918,
+   "pgbench-run-arm-stock-c32-knee-c2-92nfk": 0.899
+  },
+  "64": {
+   "pgbench-run-arm-stock-c64-knee-c1-v7kfn": 1.446,
+   "pgbench-run-arm-stock-c64-knee-c2-cgwg9": 1.411
+  },
+  "128": {
+   "pgbench-run-arm-stock-c128-knee-c1-2qnrs": 2.067,
+   "pgbench-run-arm-stock-c128-knee-c2-72nvb": 2.088
+  },
+  "256": {
+   "pgbench-run-arm-stock-c256-knee-c1-v59g8": 2.051,
+   "pgbench-run-arm-stock-c256-knee-c2-22bkr": 1.982
+  },
+  "512": {
+   "pgbench-run-arm-stock-c512-knee-c1-l9n22": 2.014,
+   "pgbench-run-arm-stock-c512-knee-c2-rh586": 1.823
+  }
+ }
+}

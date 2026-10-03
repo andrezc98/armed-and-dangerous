@@ -1,0 +1,109 @@
+[17:59:00Z] $ kubectl get nodes -L kubernetes.io/arch,node.kubernetes.io/instance-type
+NAME                           STATUS   ROLES    AGE    VERSION               ARCH    INSTANCE-TYPE
+ip-10-42-13-198.ec2.internal   Ready    <none>   14s    v1.36.2-eks-bca9cf6   amd64   m6i.4xlarge
+ip-10-42-6-243.ec2.internal    Ready    <none>   69s    v1.36.2-eks-bca9cf6   arm64   m6g.4xlarge
+ip-10-42-8-182.ec2.internal    Ready    <none>   3m4s   v1.36.2-eks-bca9cf6   arm64   m7g.large
+
+[17:59:01Z] $ cat results/2026-09-28-task9/legacy-agent-daemonset.yaml
+# Task 9 scene: a node agent shipped as an amd64-only image (a single-platform
+# manifest, what `docker build` + `docker push` without buildx produces).
+# Pinned here to busybox's linux/amd64 manifest digest to reproduce that exactly.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: legacy-agent, namespace: aad}
+spec:
+  selector: {matchLabels: {app: legacy-agent}}
+  template:
+    metadata: {labels: {app: legacy-agent}}
+    spec:
+      tolerations: [{operator: Exists}]
+      containers:
+        - name: agent
+          image: docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+          command: ["sh", "-c", "echo agent up on $(uname -m); sleep 3600"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+
+[17:59:01Z] $ kubectl apply -f results/2026-09-28-task9/legacy-agent-daemonset.yaml
+daemonset.apps/legacy-agent created
+
+[18:00:17Z] $ kubectl get pods -n aad -l app=legacy-agent -o wide
+NAME                 READY   STATUS    RESTARTS      AGE   IP            NODE                           NOMINATED NODE   READINESS GATES
+legacy-agent-6xcqj   0/1     Error     3 (62s ago)   76s   10.42.5.221   ip-10-42-6-243.ec2.internal    <none>           <none>
+legacy-agent-8tglw   1/1     Running   0             76s   10.42.2.4     ip-10-42-13-198.ec2.internal   <none>           <none>
+legacy-agent-d62ht   0/1     Error     3 (61s ago)   76s   10.42.11.57   ip-10-42-8-182.ec2.internal    <none>           <none>
+
+[18:00:20Z] $ kubectl logs -n aad pod/legacy-agent-6xcqj --tail=3   # node arch: arm64
+exec /bin/sh: exec format error
+
+[18:00:22Z] $ kubectl logs -n aad pod/legacy-agent-8tglw --tail=3   # node arch: amd64
+agent up on x86_64
+
+[18:00:24Z] $ kubectl logs -n aad pod/legacy-agent-d62ht --tail=3   # node arch: arm64
+exec /bin/sh: exec format error
+
+[18:00:25Z] $ kubectl describe pod -n aad legacy-agent-6xcqj | sed -n '/Containers:/,/Ready:/p;/Events:/,$p'
+Containers:
+  agent:
+    Container ID:  containerd://60291fe8121d2c9e8e483899e38b6d6117e38887547c54a93fa3a6794237d6d9
+    Image:         docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+    Image ID:      docker.io/library/busybox@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      sh
+      -c
+      echo agent up on $(uname -m); sleep 3600
+    State:          Terminated
+      Reason:       Error
+      Exit Code:    255
+      Started:      Mon, 28 Sep 2026 13:00:23 -0500
+      Finished:     Mon, 28 Sep 2026 13:00:23 -0500
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    255
+      Started:      Mon, 28 Sep 2026 12:59:41 -0500
+      Finished:     Mon, 28 Sep 2026 12:59:41 -0500
+    Ready:          False
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  84s               default-scheduler  Successfully assigned aad/legacy-agent-6xcqj to ip-10-42-6-243.ec2.internal
+  Normal   Pulling    84s               kubelet            Pulling image "docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4"
+  Normal   Pulled     83s               kubelet            Successfully pulled image "docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4" in 426ms (426ms including waiting). Image size: 2212583 bytes.
+  Normal   Created    3s (x5 over 83s)  kubelet            Container created
+  Normal   Started    3s (x5 over 83s)  kubelet            Container started
+  Normal   Pulled     3s (x4 over 83s)  kubelet            Container image "docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4" already present on machine and can be accessed by the pod
+  Warning  BackOff    3s (x4 over 82s)  kubelet            Back-off restarting failed container agent in pod legacy-agent-6xcqj_aad(45dc45a3-3abd-4ce7-b4fc-c02b1eff3fdd)
+
+[18:00:26Z] $ grep -n -B2 -A4 'nodeSelector' manifests/base/ebpf-profiler.yaml manifests/base/cstates-daemonset.yaml manifests/base/net-tuned-daemonset.yaml manifests/base/pg-shmem-thp-daemonset.yaml
+manifests/base/cstates-daemonset.yaml-53-# 2026-09-25).
+manifests/base/cstates-daemonset.yaml-54-#
+manifests/base/cstates-daemonset.yaml:55:# nodeAffinity In, not nodeSelector: "Kubernetes only schedules the Pod onto
+manifests/base/cstates-daemonset.yaml:56:# nodes that have each of the labels you specify" - nodeSelector is equality
+manifests/base/cstates-daemonset.yaml-57-# only, so a two-value match needs matchExpressions with operator In
+manifests/base/cstates-daemonset.yaml-58-# (https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+manifests/base/cstates-daemonset.yaml-59-# The aad/sut taint is custom, so the toleration is explicit: the DaemonSet
+manifests/base/cstates-daemonset.yaml-60-# controller only injects tolerations for the node.kubernetes.io/* taints
+--
+manifests/base/cstates-daemonset.yaml-81-        nodeAffinity:
+manifests/base/cstates-daemonset.yaml-82-          requiredDuringSchedulingIgnoredDuringExecution:
+manifests/base/cstates-daemonset.yaml:83:            nodeSelectorTerms:
+manifests/base/cstates-daemonset.yaml-84-              - matchExpressions:
+manifests/base/cstates-daemonset.yaml-85-                  - key: aad/cell
+manifests/base/cstates-daemonset.yaml-86-                    operator: In
+manifests/base/cstates-daemonset.yaml-87-                    values:
+manifests/base/net-tuned-daemonset.yaml-65-        nodeAffinity:
+manifests/base/net-tuned-daemonset.yaml-66-          requiredDuringSchedulingIgnoredDuringExecution:
+manifests/base/net-tuned-daemonset.yaml:67:            nodeSelectorTerms:
+manifests/base/net-tuned-daemonset.yaml-68-              - matchExpressions:
+manifests/base/net-tuned-daemonset.yaml-69-                  - key: aad/cell
+manifests/base/net-tuned-daemonset.yaml-70-                    operator: In
+manifests/base/net-tuned-daemonset.yaml-71-                    values:
+manifests/base/pg-shmem-thp-daemonset.yaml-85-        nodeAffinity:
+manifests/base/pg-shmem-thp-daemonset.yaml-86-          requiredDuringSchedulingIgnoredDuringExecution:
+manifests/base/pg-shmem-thp-daemonset.yaml:87:            nodeSelectorTerms:
+manifests/base/pg-shmem-thp-daemonset.yaml-88-              - matchExpressions:
+manifests/base/pg-shmem-thp-daemonset.yaml-89-                  - key: aad/cell
+manifests/base/pg-shmem-thp-daemonset.yaml-90-                    operator: In
+manifests/base/pg-shmem-thp-daemonset.yaml-91-                    values:
+

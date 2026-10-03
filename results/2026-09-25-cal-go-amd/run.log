@@ -1,0 +1,109 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-25-cal-go-amd  go/amd-stock on node group aws-aad-mng-amd-stock (m8a.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay go/amd-stock with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-stock --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "25288041-1a21-3e47-b512-a9f1f9354289",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-25T00:05:10.728000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=amd-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay go/amd-stock with the own images of the day
+# apply overlay go/amd-stock
+$ <stdin> | kubectl apply -f -
+service/go created
+deployment.apps/go created
+$ kubectl -n aad rollout status deploy/go --timeout=900s
+Waiting for deployment "go" rollout to finish: 0 of 1 updated replicas are available...
+deployment "go" successfully rolled out
+$ kubectl get --raw /api/v1/namespaces/aad/services/go:8080/proxy/healthz
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+# 2 k6 generators, each at 1/2 of the load: k6-go-amd-stock-warmup-g1, k6-go-amd-stock-warmup-g2
+$ kubectl -n aad delete job k6-go-amd-stock-warmup-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-go-amd-stock-warmup-g1 --timeout=60s
+$ kubectl -n aad delete job k6-go-amd-stock-warmup-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-go-amd-stock-warmup-g2 --timeout=60s
+# apply job/k6-go-amd-stock-warmup-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-go-amd-stock-warmup-g1 created
+# apply job/k6-go-amd-stock-warmup-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-go-amd-stock-warmup-g2 created
+# wait for job/k6-go-amd-stock-warmup-g1 (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-go-amd-stock-warmup-g1
+# job/k6-go-amd-stock-warmup-g1 -> Complete=True
+# wait for job/k6-go-amd-stock-warmup-g2 (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-go-amd-stock-warmup-g2
+# job/k6-go-amd-stock-warmup-g2 -> Complete=True
+# 2 k6 generators, each at 1/2 of the load: k6-go-amd-stock-knee-g1, k6-go-amd-stock-knee-g2
+$ kubectl -n aad delete job k6-go-amd-stock-knee-g1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-go-amd-stock-knee-g1 --timeout=60s
+$ kubectl -n aad delete job k6-go-amd-stock-knee-g2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-go-amd-stock-knee-g2 --timeout=60s
+# apply job/k6-go-amd-stock-knee-g1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-go-amd-stock-knee-g1 created
+# apply job/k6-go-amd-stock-knee-g2
+$ <stdin> | kubectl apply -f -
+job.batch/k6-go-amd-stock-knee-g2 created
+# wait for job/k6-go-amd-stock-knee-g1 (timeout 1500s, poll 10s)
+$ kubectl -n aad logs job/k6-go-amd-stock-knee-g1
+# job/k6-go-amd-stock-knee-g1 -> Failed=True
+# wait for job/k6-go-amd-stock-knee-g2 (timeout 1500s, poll 10s)
+$ kubectl -n aad logs job/k6-go-amd-stock-knee-g2
+# job/k6-go-amd-stock-knee-g2 -> Failed=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "200aca8e-6e4e-30a5-ae68-3bafb644afb4",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-25T00:27:48.428000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=amd-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=amd-stock --ignore-not-found
+job.batch "k6-go-amd-stock-knee-g1" deleted
+job.batch "k6-go-amd-stock-knee-g2" deleted
+job.batch "k6-go-amd-stock-warmup-g1" deleted
+job.batch "k6-go-amd-stock-warmup-g2" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/go/overlays/amd-stock --ignore-not-found
+service "go" deleted
+deployment.apps "go" deleted
+
+# go/amd-stock: 25.6 min
+
+# Ledger 2026-09-25-cal-go-amd
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| go | amd-stock | m8a.4xlarge | 1 | 25.6 | 0.42 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **10.07** |
+
+estimate_per_day_usd: 80.00 - OK
+

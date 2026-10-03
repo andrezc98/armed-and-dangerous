@@ -1,0 +1,67 @@
+{
+ "cpuset": "1-15",
+ "cpuset_count": 15,
+ "cstates_ready": true,
+ "postgres": {
+  "prewarm_blocks": 1913539,
+  "shared_buffers": "16GB",
+  "effective_cache_size": "48GB",
+  "max_connections": "600",
+  "huge_pages": "try",
+  "huge_pages_status": "off",
+  "database_bytes": 15688201919,
+  "warmup_read_pages": [
+   69
+  ],
+  "io_stat_first": "259:1 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15678722048 wbytes=401408 rios=119868 wios=12 dbytes=0 dios=0",
+  "io_stat_last": "259:1 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15679283200 wbytes=458752 rios=119910 wios=17 dbytes=0 dios=0",
+  "shmem_thp": true,
+  "shmem_enabled_before": "never",
+  "after_warmup": {
+   "shmem_enabled": "always",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 15714348,
+   "ShmemHugePages_kB": 15710208,
+   "ShmemPmdMapped_kB": 407552,
+   "raw": "shmem_enabled: [always] within_size advise never deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:          15714348 kB\nShmemHugePages: 15710208 kB\nShmemPmdMapped:   407552 kB\n",
+   "shmem_huge_share": 0.9364
+  },
+  "after_ladder": {
+   "shmem_enabled": "always",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 15730736,
+   "ShmemHugePages_kB": 15724544,
+   "ShmemPmdMapped_kB": 411648,
+   "raw": "shmem_enabled: [always] within_size advise never deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:          15730736 kB\nShmemHugePages: 15724544 kB\nShmemPmdMapped:   411648 kB\n",
+   "shmem_huge_share": 0.9373
+  }
+ },
+ "clients": 256,
+ "knee_clients": 256,
+ "target_ops": 483788,
+ "pgbench_jobs": [
+  "pgbench-run-amd-tuned-c256-r3-c1",
+  "pgbench-run-amd-tuned-c256-r3-c2"
+ ],
+ "pgbench_threads": 16,
+ "wait_events_by_step": {
+  "run": {
+   "samples": 150,
+   "dropped": 6,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 36720,
+    "NoWait": 1680
+   }
+  }
+ },
+ "lag_p99_ms": 0.321,
+ "lag_max_ms": 27.795,
+ "loader_peak_percent": 14,
+ "pgbench_pod_cores": {
+  "pgbench-run-amd-tuned-c256-r3-c1-vjtfb": 4.356,
+  "pgbench-run-amd-tuned-c256-r3-c2-pr6qr": 4.35
+ },
+ "aperf": "ok",
+ "flamegraph": "ok"
+}

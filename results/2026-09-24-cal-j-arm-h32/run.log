@@ -1,0 +1,89 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-24
+
+=== 2026-09-24-cal-j-arm-h32  java/arm-tuned on node group aws-aad-mng-arm-tuned (m9g.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay java/arm-tuned with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "545072ca-6821-3442-a817-f120ac4f0619",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-24T19:10:12.474000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay java/arm-tuned with the own images of the day
+# apply overlay java/arm-tuned
+$ <stdin> | kubectl apply -f -
+service/java created
+deployment.apps/java created
+$ kubectl -n aad rollout status deploy/java --timeout=900s
+Waiting for deployment "java" rollout to finish: 0 of 1 updated replicas are available...
+deployment "java" successfully rolled out
+$ kubectl -n aad exec deploy/java -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-java-arm-tuned-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-tuned-warmup --timeout=60s
+# apply job/k6-java-arm-tuned-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-tuned-warmup created
+# wait for job/k6-java-arm-tuned-warmup (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-tuned-warmup
+# job/k6-java-arm-tuned-warmup -> Failed=True
+$ kubectl -n aad delete job k6-java-arm-tuned-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-arm-tuned-knee --timeout=60s
+# apply job/k6-java-arm-tuned-knee
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-arm-tuned-knee created
+# wait for job/k6-java-arm-tuned-knee (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-arm-tuned-knee
+# job/k6-java-arm-tuned-knee -> Failed=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "6625d965-3cf2-3d64-a3a3-783beadd4541",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-24T19:27:33.254000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-tuned --ignore-not-found
+job.batch "k6-java-arm-tuned-knee" deleted
+job.batch "k6-java-arm-tuned-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/java/overlays/arm-tuned --ignore-not-found
+service "java" deleted
+deployment.apps "java" deleted
+
+# java/arm-tuned: 20.1 min
+
+# Ledger 2026-09-24-cal-j-arm-h32
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| java | arm-tuned | m9g.4xlarge | 1 | 20.1 | 0.26 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **9.92** |
+
+estimate_per_day_usd: 80.00 - OK
+

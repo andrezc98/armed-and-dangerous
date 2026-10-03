@@ -1,0 +1,61 @@
+{
+    "nodegroup": {
+        "nodegroupName": "aws-aad-mng-arm-tuned",
+        "nodegroupArn": "arn:aws:eks:us-east-1:<account>:nodegroup/aws-aad-eks-lab/aws-aad-mng-arm-tuned/a8d06ad3-57cd-90c1-86e9-d65190ccb04a",
+        "clusterName": "aws-aad-eks-lab",
+        "version": "1.36",
+        "releaseVersion": "1.66.0-1ad6b4a4",
+        "createdAt": "2026-09-24T18:01:08.038000-05:00",
+        "modifiedAt": "2026-09-24T23:18:58.075000-05:00",
+        "status": "ACTIVE",
+        "capacityType": "ON_DEMAND",
+        "scalingConfig": {
+            "minSize": 0,
+            "maxSize": 2,
+            "desiredSize": 0
+        },
+        "instanceTypes": [
+            "m9g.4xlarge"
+        ],
+        "subnets": [
+            "subnet-0e9204d632602e6be"
+        ],
+        "amiType": "BOTTLEROCKET_ARM_64",
+        "nodeRole": "arn:aws:iam::<account>:role/aws-aad-mng-arm-tuned-eks-node-group-1e6925d0b563c6daebb38fdefd",
+        "labels": {
+            "aad/cell": "arm-tuned"
+        },
+        "taints": [
+            {
+                "key": "aad/sut",
+                "value": "true",
+                "effect": "NO_SCHEDULE"
+            }
+        ],
+        "resources": {
+            "autoScalingGroups": [
+                {
+                    "name": "eks-aws-aad-mng-arm-tuned-a8d06ad3-57cd-90c1-86e9-d65190ccb04a"
+                }
+            ]
+        },
+        "health": {
+            "issues": []
+        },
+        "updateConfig": {
+            "maxUnavailablePercentage": 33
+        },
+        "launchTemplate": {
+            "name": "arm-tuned-70640576d9a5d2081617d1a8a1",
+            "version": "2",
+            "id": "lt-00a8c9f6f26e41f7d"
+        },
+        "tags": {
+            "Project": "armed-and-dangerous",
+            "Environment": "lab",
+            "Owner": "andres-zeballos",
+            "ManagedBy": "terraform",
+            "Name": "aws-aad-mng-arm-tuned"
+        }
+    }
+}

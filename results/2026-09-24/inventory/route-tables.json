@@ -1,0 +1,112 @@
+{
+    "RouteTables": [
+        {
+            "Associations": [
+                {
+                    "Main": false,
+                    "RouteTableAssociationId": "rtbassoc-054081201e6f84d9a",
+                    "RouteTableId": "rtb-02cfb29673ad1c06f",
+                    "SubnetId": "subnet-0e9204d632602e6be",
+                    "AssociationState": {
+                        "State": "associated"
+                    }
+                },
+                {
+                    "Main": false,
+                    "RouteTableAssociationId": "rtbassoc-086e6aeb6641c4e7b",
+                    "RouteTableId": "rtb-02cfb29673ad1c06f",
+                    "SubnetId": "subnet-0ec8c2b805673a45f",
+                    "AssociationState": {
+                        "State": "associated"
+                    }
+                }
+            ],
+            "PropagatingVgws": [],
+            "RouteTableId": "rtb-02cfb29673ad1c06f",
+            "Routes": [
+                {
+                    "DestinationCidrBlock": "10.42.0.0/16",
+                    "GatewayId": "local",
+                    "Origin": "CreateRouteTable",
+                    "State": "active"
+                },
+                {
+                    "DestinationCidrBlock": "0.0.0.0/0",
+                    "GatewayId": "igw-0949c7a961dc7c3bd",
+                    "Origin": "CreateRoute",
+                    "State": "active"
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-vpc-public"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "OwnerId": "<account>"
+        },
+        {
+            "Associations": [
+                {
+                    "Main": true,
+                    "RouteTableAssociationId": "rtbassoc-0f01ae06278517973",
+                    "RouteTableId": "rtb-0d9a445638fc97ca0",
+                    "AssociationState": {
+                        "State": "associated"
+                    }
+                }
+            ],
+            "PropagatingVgws": [],
+            "RouteTableId": "rtb-0d9a445638fc97ca0",
+            "Routes": [
+                {
+                    "DestinationCidrBlock": "10.42.0.0/16",
+                    "GatewayId": "local",
+                    "Origin": "CreateRouteTable",
+                    "State": "active"
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-vpc-default"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                }
+            ],
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "OwnerId": "<account>"
+        }
+    ]
+}

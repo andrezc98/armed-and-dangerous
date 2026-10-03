@@ -1,0 +1,194 @@
+{
+ "unit": "rps",
+ "knee": 56000,
+ "slo_ms": 10,
+ "series": [
+  [
+   52000,
+   5.855077270000002
+  ],
+  [
+   54000,
+   6.150893500000002
+  ],
+  [
+   56000,
+   6.762596370000001
+  ],
+  [
+   58000,
+   11.412364420000001
+  ],
+  [
+   60000,
+   421.35444540000003
+  ]
+ ],
+ "ended_by": {
+  "step": 58000,
+  "p99_ms": 11.412364420000001,
+  "kind": "crossing",
+  "reason": "p99 11.41 ms > SLO 10 ms"
+ },
+ "invalid_steps": {},
+ "windows": {
+  "52000": [
+   1790403279.0,
+   1790403329.0
+  ],
+  "54000": [
+   1790403324.0,
+   1790403374.0
+  ],
+  "56000": [
+   1790403369.0,
+   1790403419.0
+  ],
+  "58000": [
+   1790403414.0,
+   1790403464.0
+  ],
+  "60000": [
+   1790403459.0,
+   1790403509.0
+  ]
+ },
+ "invalid": [],
+ "coarse_knee": 50000,
+ "ladder": {
+  "RATE_START": 52000,
+  "RATE_STEP": 2000,
+  "RATE_MAX": 60000,
+  "STAGE_SECONDS": 45
+ },
+ "notes": [],
+ "loader_peak_by_step": {
+  "52000": 23,
+  "54000": 20,
+  "56000": 18,
+  "58000": 20,
+  "60000": 22
+ },
+ "actuator_by_step": {
+  "52000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 3
+   },
+   "hikaricp.connections.active": {
+    "max": 6.0,
+    "median": 5.0,
+    "samples": 3
+   },
+   "tomcat.threads.busy": {
+    "max": -1.0,
+    "median": -1.0,
+    "samples": 3
+   }
+  },
+  "54000": {
+   "hikaricp.connections.pending": {
+    "max": 2.0,
+    "median": 0.5,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 3.0,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": -1.0,
+    "median": -1.0,
+    "samples": 4
+   }
+  },
+  "56000": {
+   "hikaricp.connections.pending": {
+    "max": 1.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 10.0,
+    "median": 1.5,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": -1.0,
+    "median": -1.0,
+    "samples": 4
+   }
+  },
+  "58000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 6.0,
+    "median": 5.0,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": -1.0,
+    "median": -1.0,
+    "samples": 4
+   }
+  },
+  "60000": {
+   "hikaricp.connections.pending": {
+    "max": 1.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 8.0,
+    "median": 4.5,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": -1.0,
+    "median": -1.0,
+    "samples": 4
+   }
+  }
+ },
+ "sut_cpu_cores_by_step": {
+  "52000": {
+   "max": 14.12,
+   "median": 13.9195,
+   "samples": 4
+  },
+  "54000": {
+   "max": 14.611,
+   "median": 14.3345,
+   "samples": 6
+  },
+  "56000": {
+   "max": 14.703,
+   "median": 14.47,
+   "samples": 5
+  },
+  "58000": {
+   "max": 15.081,
+   "median": 14.838,
+   "samples": 5
+  },
+  "60000": {
+   "max": 15.09,
+   "median": 15.081,
+   "samples": 5
+  }
+ },
+ "loader_guard_waived": {
+  "step": 58000,
+  "sut_cores_max": 15.081,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 23,
+ "run_knee": 56000
+}

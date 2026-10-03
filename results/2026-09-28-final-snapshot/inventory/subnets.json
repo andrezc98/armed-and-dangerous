@@ -1,0 +1,104 @@
+{
+    "Subnets": [
+        {
+            "AvailabilityZoneId": "use1-az1",
+            "MapCustomerOwnedIpOnLaunch": false,
+            "OwnerId": "<account>",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-vpc-public-us-east-1a"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "karpenter.sh/discovery",
+                    "Value": "aws-aad-eks-lab"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:us-east-1:<account>:subnet/subnet-0e9204d632602e6be",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            },
+            "SubnetId": "subnet-0e9204d632602e6be",
+            "State": "available",
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "CidrBlock": "10.42.0.0/20",
+            "AvailableIpAddressCount": 4090,
+            "AvailabilityZone": "us-east-1a",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": true
+        },
+        {
+            "AvailabilityZoneId": "use1-az2",
+            "MapCustomerOwnedIpOnLaunch": false,
+            "OwnerId": "<account>",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Project",
+                    "Value": "armed-and-dangerous"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "lab"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "aws-aad-vpc-public-us-east-1b"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "andres-zeballos"
+                },
+                {
+                    "Key": "ManagedBy",
+                    "Value": "terraform"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:us-east-1:<account>:subnet/subnet-0ec8c2b805673a45f",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            },
+            "SubnetId": "subnet-0ec8c2b805673a45f",
+            "State": "available",
+            "VpcId": "vpc-0910ced8b2da97c0f",
+            "CidrBlock": "10.42.16.0/27",
+            "AvailableIpAddressCount": 26,
+            "AvailabilityZone": "us-east-1b",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": true
+        }
+    ]
+}

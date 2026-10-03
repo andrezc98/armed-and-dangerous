@@ -1,0 +1,17 @@
+# Task 9 scene: a node agent shipped as an amd64-only image (a single-platform
+# manifest, what `docker build` + `docker push` without buildx produces).
+# Pinned here to busybox's linux/amd64 manifest digest to reproduce that exactly.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: legacy-agent, namespace: aad}
+spec:
+  selector: {matchLabels: {app: legacy-agent}}
+  template:
+    metadata: {labels: {app: legacy-agent}}
+    spec:
+      tolerations: [{operator: Exists}]
+      containers:
+        - name: agent
+          image: docker.io/library/busybox:1.37@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+          command: ["sh", "-c", "echo agent up on $(uname -m); sleep 3600"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}

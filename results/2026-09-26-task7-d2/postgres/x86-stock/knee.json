@@ -1,0 +1,243 @@
+{
+ "unit": "clients",
+ "knee": 128,
+ "ops": 279950.7,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.297
+  ],
+  [
+   32,
+   0.369
+  ],
+  [
+   64,
+   0.482
+  ],
+  [
+   128,
+   1.118
+  ],
+  [
+   256,
+   2.512
+  ],
+  [
+   512,
+   6.161
+  ]
+ ],
+ "ended_by": {
+  "step": 512,
+  "p99_ms": 6.161,
+  "kind": "crossing",
+  "reason": "p99 6.16 ms > SLO 5 ms"
+ },
+ "windows": {
+  "16": [
+   1790464784.0,
+   1790464845.0
+  ],
+  "32": [
+   1790464857.0,
+   1790464919.0
+  ],
+  "64": [
+   1790464931.0,
+   1790464993.0
+  ],
+  "128": [
+   1790465005.0,
+   1790465066.0
+  ],
+  "256": [
+   1790465078.0,
+   1790465140.0
+  ],
+  "512": [
+   1790465152.0,
+   1790465214.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-x86-stock-c16-knee-c1",
+   "pgbench-run-x86-stock-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-x86-stock-c32-knee-c1",
+   "pgbench-run-x86-stock-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-x86-stock-c64-knee-c1",
+   "pgbench-run-x86-stock-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-x86-stock-c128-knee-c1",
+   "pgbench-run-x86-stock-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-x86-stock-c256-knee-c1",
+   "pgbench-run-x86-stock-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-x86-stock-c512-knee-c1",
+   "pgbench-run-x86-stock-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 249,
+    "NoWait": 51,
+    "IO:DataFileRead": 4
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 483,
+    "IO:DataFileRead": 16,
+    "NoWait": 109
+   }
+  },
+  "64": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 909,
+    "NoWait": 206,
+    "IO:DataFileRead": 19,
+    "LWLock:BufferMapping": 14,
+    "Timeout:SpinDelay": 4
+   }
+  },
+  "128": {
+   "samples": 18,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1974,
+    "IO:DataFileRead": 27,
+    "NoWait": 239,
+    "LWLock:BufferMapping": 60,
+    "Timeout:SpinDelay": 4
+   }
+  },
+  "256": {
+   "samples": 15,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 3319,
+    "IO:DataFileRead": 20,
+    "LWLock:BufferMapping": 305,
+    "NoWait": 195,
+    "Timeout:SpinDelay": 1
+   }
+  },
+  "512": {
+   "samples": 12,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 5467,
+    "IO:DataFileRead": 23,
+    "LWLock:BufferMapping": 469,
+    "NoWait": 182,
+    "Timeout:SpinDelay": 3
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 3,
+  "32": 5,
+  "64": 7,
+  "128": 8,
+  "256": 8,
+  "512": 8
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 3.933,
+   "median": 3.811,
+   "samples": 6
+  },
+  "32": {
+   "max": 8.051,
+   "median": 7.9525,
+   "samples": 6
+  },
+  "64": {
+   "max": 13.32,
+   "median": 13.231,
+   "samples": 7
+  },
+  "128": {
+   "max": 15.049,
+   "median": 15.031,
+   "samples": 6
+  },
+  "256": {
+   "max": 15.044,
+   "median": 10.581,
+   "samples": 7
+  },
+  "512": {
+   "max": 15.089,
+   "median": 15.0685,
+   "samples": 4
+  }
+ },
+ "loader_guard_waived": {
+  "step": 512,
+  "sut_cores_max": 15.089,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 8,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-x86-stock-c16-knee-c1-lmwdb": 0.673,
+   "pgbench-run-x86-stock-c16-knee-c2-t6t2g": 0.677
+  },
+  "32": {
+   "pgbench-run-x86-stock-c32-knee-c1-t8g46": 1.2,
+   "pgbench-run-x86-stock-c32-knee-c2-hs85h": 1.155
+  },
+  "64": {
+   "pgbench-run-x86-stock-c64-knee-c1-ljq6z": 1.821,
+   "pgbench-run-x86-stock-c64-knee-c2-zfhmv": 1.853
+  },
+  "128": {
+   "pgbench-run-x86-stock-c128-knee-c1-cxqtc": 2.17,
+   "pgbench-run-x86-stock-c128-knee-c2-2dbh4": 2.053
+  },
+  "256": {
+   "pgbench-run-x86-stock-c256-knee-c1-9dtj6": 2.156,
+   "pgbench-run-x86-stock-c256-knee-c2-8gv7s": 2.054
+  },
+  "512": {
+   "pgbench-run-x86-stock-c512-knee-c1-qvgqd": 2.288,
+   "pgbench-run-x86-stock-c512-knee-c2-g8tx8": 2.155
+  }
+ }
+}

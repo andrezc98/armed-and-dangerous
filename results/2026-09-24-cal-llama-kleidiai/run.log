@@ -1,0 +1,98 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-24-cal-llama-kleidiai  inference/arm-tuned-kleidiai on node group aws-aad-mng-arm-tuned (m9g.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay inference/arm-tuned-kleidiai with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "e6c95c6c-1a9f-3b64-b0e7-a8113fbca069",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-24T21:36:04.255000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay inference/arm-tuned-kleidiai with the own images of the day
+# apply overlay inference/arm-tuned-kleidiai
+$ <stdin> | kubectl apply -f -
+service/llama created
+deployment.apps/llama created
+$ kubectl -n aad rollout status deploy/llama --timeout=900s
+Waiting for deployment "llama" rollout to finish: 0 of 1 updated replicas are available...
+deployment "llama" successfully rolled out
+$ kubectl -n aad --request-timeout=45s exec deploy/llama -c llama -- timeout 30 /app/llama-server -m /nonexistent.gguf --port 18080 -lv 4
+# llama.cpp system_info: ['system_info: n_threads = 16 (n_threads_batch = 16) / 16 | CPU : NEON = 1 | ARM_FMA = 1 | FP16_VA = 1 | MATMUL_INT8 = 1 | SVE = 1 | DOTPROD = 1 | SVE_CNT = 16 | OPENMP = 1 | KLEIDIAI = 1 | REPACK = 1 |']
+$ kubectl -n aad exec deploy/llama -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-inference-arm-tuned-kleidiai-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-arm-tuned-kleidiai-warmup --timeout=60s
+# apply job/k6-inference-arm-tuned-kleidiai-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-arm-tuned-kleidiai-warmup created
+# wait for job/k6-inference-arm-tuned-kleidiai-warmup (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-arm-tuned-kleidiai-warmup
+# job/k6-inference-arm-tuned-kleidiai-warmup -> Complete=True
+
+--- run 1/1 ---
+$ kubectl aperf --node=ip-10-42-11-166.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-24-cal-llama-kleidiai/inference/arm-tuned-kleidiai/run-1/aperf
+$ kubectl -n aad delete job k6-inference-arm-tuned-kleidiai-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-arm-tuned-kleidiai-r1 --timeout=60s
+# apply job/k6-inference-arm-tuned-kleidiai-r1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-arm-tuned-kleidiai-r1 created
+# wait for job/k6-inference-arm-tuned-kleidiai-r1 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-arm-tuned-kleidiai-r1
+# job/k6-inference-arm-tuned-kleidiai-r1 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Forwarding from 127.0.0.1:4040 -> 4040
+Forwarding from [::1]:4040 -> 4040
+Handling connection for 4040
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "5360ac95-6c09-31f0-b393-cad63436e59e",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-24T21:51:04.040000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-tuned-kleidiai --ignore-not-found
+job.batch "k6-inference-arm-tuned-kleidiai-r1" deleted
+job.batch "k6-inference-arm-tuned-kleidiai-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/inference/overlays/arm-tuned-kleidiai --ignore-not-found
+service "llama" deleted
+deployment.apps "llama" deleted
+
+# inference/arm-tuned-kleidiai: 17.9 min
+
+# Ledger 2026-09-24-cal-llama-kleidiai
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| inference | arm-tuned-kleidiai | m9g.4xlarge | 1 | 17.9 | 0.23 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **9.89** |
+
+estimate_per_day_usd: 80.00 - OK
+

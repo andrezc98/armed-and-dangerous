@@ -1,0 +1,68 @@
+{
+ "cpuset": "1-15",
+ "cpuset_count": 15,
+ "postgres": {
+  "prewarm_blocks": 1913539,
+  "shared_buffers": "128MB",
+  "effective_cache_size": "4GB",
+  "max_connections": "600",
+  "huge_pages": "try",
+  "huge_pages_status": "off",
+  "database_bytes": 15688210111,
+  "warmup_read_pages": [
+   71
+  ],
+  "io_stat_first": "259:1 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15678763008 wbytes=401408 rios=119878 wios=12 dbytes=0 dios=0",
+  "io_stat_last": "259:1 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15679340544 wbytes=499712 rios=119921 wios=22 dbytes=0 dios=0",
+  "shmem_thp": false,
+  "after_warmup": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 166772,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            166772 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  },
+  "after_ladder": {
+   "shmem_enabled": "never",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 172612,
+   "ShmemHugePages_kB": 0,
+   "ShmemPmdMapped_kB": 0,
+   "raw": "shmem_enabled: always within_size advise [never] deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:            172612 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\n",
+   "shmem_huge_share": 0.0
+  }
+ },
+ "clients": 256,
+ "knee_clients": 256,
+ "target_ops": 401210,
+ "pgbench_jobs": [
+  "pgbench-run-amd-stock-c256-r3-c1",
+  "pgbench-run-amd-stock-c256-r3-c2"
+ ],
+ "pgbench_threads": 16,
+ "wait_events_by_step": {
+  "run": {
+   "samples": 151,
+   "dropped": 6,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 36315,
+    "IO:DataFileRead": 228,
+    "NoWait": 1768,
+    "LWLock:BufferMapping": 290,
+    "Timeout:SpinDelay": 56
+   }
+  }
+ },
+ "lag_p99_ms": 0.258,
+ "lag_max_ms": 56.426,
+ "loader_peak_percent": 12,
+ "pgbench_pod_cores": {
+  "pgbench-run-amd-stock-c256-r3-c1-k57l6": 3.943,
+  "pgbench-run-amd-stock-c256-r3-c2-pjrvz": 3.933
+ },
+ "aperf": "ok",
+ "flamegraph": "ok"
+}

@@ -1,0 +1,102 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-24
+
+=== 2026-09-24-cal-j-x86-tiered  java/x86-tuned on node group aws-aad-mng-x86-tuned (m8i.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay java/x86-tuned with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "bfe57dd4-d316-3f1c-9430-ef9530e916f6",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-24T20:22:38.760000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=x86-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay java/x86-tuned with the own images of the day
+# apply overlay java/x86-tuned
+$ <stdin> | kubectl apply -f -
+service/java created
+deployment.apps/java created
+$ kubectl -n aad rollout status deploy/java --timeout=900s
+Waiting for deployment "java" rollout to finish: 0 of 1 updated replicas are available...
+deployment "java" successfully rolled out
+$ kubectl -n aad exec deploy/java -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-java-x86-tuned-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-x86-tuned-warmup --timeout=60s
+# apply job/k6-java-x86-tuned-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-x86-tuned-warmup created
+# wait for job/k6-java-x86-tuned-warmup (timeout 480s, poll 10s)
+$ kubectl -n aad logs job/k6-java-x86-tuned-warmup
+# job/k6-java-x86-tuned-warmup -> Failed=True
+$ kubectl -n aad delete job k6-java-x86-tuned-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-java-x86-tuned-knee --timeout=60s
+# apply job/k6-java-x86-tuned-knee
+$ <stdin> | kubectl apply -f -
+job.batch/k6-java-x86-tuned-knee created
+# wait for job/k6-java-x86-tuned-knee (timeout 1020s, poll 10s)
+$ kubectl -n aad logs job/k6-java-x86-tuned-knee
+# job/k6-java-x86-tuned-knee -> Failed=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "8dca86a9-a5dd-3610-a0b6-1f8cde49bd19",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-24T20:39:36.372000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=x86-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=x86-tuned --ignore-not-found
+job.batch "k6-java-x86-tuned-knee" deleted
+job.batch "k6-java-x86-tuned-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/java/overlays/x86-tuned --ignore-not-found
+service "java" deleted
+deployment.apps "java" deleted
+Traceback (most recent call last):
+  File [35m"<string>"[0m, line [35m1[0m, in [35m<module>[0m
+    import sys; sys.path.insert(0,'.'); import cell; sys.exit([31mcell.main[0m[1;31m(['--workload','java','--cell','x86-tuned','--runs','0','--date','2026-09-24-cal-j-x86-tiered','--app-env','JAVA_TOOL_OPTIONS=-Xms24g -Xmx24g -XX:+UseTransparentHugePages'])[0m)
+                                                              [31m~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m1561[0m, in [35mmain[0m
+    [31mrun_cell[0m[1;31m(args)[0m
+    [31m~~~~~~~~[0m[1;31m^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m1237[0m, in [35mrun_cell[0m
+    [31mcheck_knee[0m[1;31m(knee_result, spec["slo_ms"])[0m  # after the file: the record survives
+    [31m~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m828[0m, in [35mcheck_knee[0m
+    raise RuntimeError(f"knee not usable: {'; '.join(result['invalid'])}. {KNEE_REMEDY}")
+[1;35mRuntimeError[0m: [35mknee not usable: loader node CPU 98% > 70% during the knee, through step 60000. raise the VU budget (--env PREALLOC_VUS=... --env MAX_VUS=...) or give the loader node group a bigger instance, then run the cell again[0m
+
+# java/x86-tuned: 20.4 min
+
+# Ledger 2026-09-24-cal-j-x86-tiered
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| java | x86-tuned | m8i.4xlarge | 1 | 20.4 | 0.29 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **9.95** |
+
+estimate_per_day_usd: 80.00 - OK
+

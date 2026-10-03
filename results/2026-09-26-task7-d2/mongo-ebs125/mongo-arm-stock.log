@@ -1,0 +1,352 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-26-task7-d2  mongo/arm-stock on node group aws-aad-mng-arm-stock (m9g.4xlarge x1) ===
+
+# budget: USD 21.59 committed today, estimate 80.00
+# kustomize overlay mongo/arm-stock with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "c08fe95c-bf3f-3783-8e30-116fd0e2bd3c",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-26T08:35:30.791000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+# kustomize overlay mongo/arm-stock with the own images of the day
+# apply overlay mongo/arm-stock
+$ <stdin> | kubectl apply -f -
+service/mongo unchanged
+statefulset.apps/mongo configured
+$ kubectl -n aad rollout status statefulset/mongo --timeout=900s
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/mongo -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.getSiblingDB("ycsb").usertable.estimatedDocumentCount()'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-warm0-c1, ycsb-run-arm-stock-warm0-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm0-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm0-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm0-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm0-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm0-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm0-c1 created
+# apply job/ycsb-run-arm-stock-warm0-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm0-c2 created
+# wait for job/ycsb-run-arm-stock-warm0-c1 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm0-c1
+# job/ycsb-run-arm-stock-warm0-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-warm0-c2 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm0-c2
+# job/ycsb-run-arm-stock-warm0-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-warm1-c1, ycsb-run-arm-stock-warm1-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm1-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm1-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm1-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm1-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm1-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm1-c1 created
+# apply job/ycsb-run-arm-stock-warm1-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm1-c2 created
+# wait for job/ycsb-run-arm-stock-warm1-c1 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm1-c1
+# job/ycsb-run-arm-stock-warm1-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-warm1-c2 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm1-c2
+# job/ycsb-run-arm-stock-warm1-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-warm2-c1, ycsb-run-arm-stock-warm2-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm2-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm2-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm2-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm2-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm2-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm2-c1 created
+# apply job/ycsb-run-arm-stock-warm2-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm2-c2 created
+# wait for job/ycsb-run-arm-stock-warm2-c1 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm2-c1
+# job/ycsb-run-arm-stock-warm2-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-warm2-c2 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm2-c2
+# job/ycsb-run-arm-stock-warm2-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-warm3-c1, ycsb-run-arm-stock-warm3-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm3-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm3-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm3-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm3-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm3-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm3-c1 created
+# apply job/ycsb-run-arm-stock-warm3-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm3-c2 created
+# wait for job/ycsb-run-arm-stock-warm3-c1 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm3-c1
+# job/ycsb-run-arm-stock-warm3-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-warm3-c2 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm3-c2
+# job/ycsb-run-arm-stock-warm3-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t16-knee-c1, ycsb-run-arm-stock-t16-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t16-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t16-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t16-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t16-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t16-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t16-knee-c1 created
+# apply job/ycsb-run-arm-stock-t16-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t16-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t16-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t16-knee-c1
+# job/ycsb-run-arm-stock-t16-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t16-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t16-knee-c2
+# job/ycsb-run-arm-stock-t16-knee-c2 -> Complete=True
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t32-knee-c1, ycsb-run-arm-stock-t32-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t32-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t32-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t32-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t32-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t32-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t32-knee-c1 created
+# apply job/ycsb-run-arm-stock-t32-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t32-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t32-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t32-knee-c1
+# job/ycsb-run-arm-stock-t32-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t32-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t32-knee-c2
+# job/ycsb-run-arm-stock-t32-knee-c2 -> Complete=True
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t64-knee-c1, ycsb-run-arm-stock-t64-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t64-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t64-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t64-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t64-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t64-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t64-knee-c1 created
+# apply job/ycsb-run-arm-stock-t64-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t64-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t64-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t64-knee-c1
+# job/ycsb-run-arm-stock-t64-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t64-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t64-knee-c2
+# job/ycsb-run-arm-stock-t64-knee-c2 -> Complete=True
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t128-knee-c1, ycsb-run-arm-stock-t128-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t128-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t128-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t128-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t128-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t128-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t128-knee-c1 created
+# apply job/ycsb-run-arm-stock-t128-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t128-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t128-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t128-knee-c1
+# job/ycsb-run-arm-stock-t128-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t128-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t128-knee-c2
+# job/ycsb-run-arm-stock-t128-knee-c2 -> Complete=True
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t256-knee-c1, ycsb-run-arm-stock-t256-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t256-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-knee-c1 created
+# apply job/ycsb-run-arm-stock-t256-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t256-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-knee-c1
+# job/ycsb-run-arm-stock-t256-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t256-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-knee-c2
+# job/ycsb-run-arm-stock-t256-knee-c2 -> Complete=True
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t512-knee-c1, ycsb-run-arm-stock-t512-knee-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t512-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t512-knee-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t512-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t512-knee-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t512-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t512-knee-c1 created
+# apply job/ycsb-run-arm-stock-t512-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t512-knee-c2 created
+# wait for job/ycsb-run-arm-stock-t512-knee-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t512-knee-c1
+# job/ycsb-run-arm-stock-t512-knee-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t512-knee-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t512-knee-c2
+# job/ycsb-run-arm-stock-t512-knee-c2 -> Complete=True
+
+--- run 1/3 ---
+$ kubectl aperf --node=ip-10-42-9-123.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/mongo/arm-stock/run-1/aperf
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t256-r1-c1, ycsb-run-arm-stock-t256-r1-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r1-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r1-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r1-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r1-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t256-r1-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r1-c1 created
+# apply job/ycsb-run-arm-stock-t256-r1-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r1-c2 created
+# wait for job/ycsb-run-arm-stock-t256-r1-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r1-c1
+# job/ycsb-run-arm-stock-t256-r1-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t256-r1-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r1-c2
+# job/ycsb-run-arm-stock-t256-r1-c2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 2/3 ---
+$ kubectl aperf --node=ip-10-42-9-123.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/mongo/arm-stock/run-2/aperf
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t256-r2-c1, ycsb-run-arm-stock-t256-r2-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r2-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r2-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r2-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r2-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t256-r2-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r2-c1 created
+# apply job/ycsb-run-arm-stock-t256-r2-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r2-c2 created
+# wait for job/ycsb-run-arm-stock-t256-r2-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r2-c1
+# job/ycsb-run-arm-stock-t256-r2-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t256-r2-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r2-c2
+# job/ycsb-run-arm-stock-t256-r2-c2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 3/3 ---
+$ kubectl aperf --node=ip-10-42-9-123.ec2.internal '--aperf_options=-i 1 -p 480' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/mongo/arm-stock/run-3/aperf
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-stock-t256-r3-c1, ycsb-run-arm-stock-t256-r3-c2
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r3-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r3-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-r3-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-r3-c2 --timeout=60s
+# apply job/ycsb-run-arm-stock-t256-r3-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r3-c1 created
+# apply job/ycsb-run-arm-stock-t256-r3-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-r3-c2 created
+# wait for job/ycsb-run-arm-stock-t256-r3-c1 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r3-c1
+# job/ycsb-run-arm-stock-t256-r3-c1 -> Complete=True
+# wait for job/ycsb-run-arm-stock-t256-r3-c2 (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-r3-c2
+# job/ycsb-run-arm-stock-t256-r3-c2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "b18196ef-2627-3981-b2f5-e81373701aba",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-26T09:29:10.209000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-stock --ignore-not-found
+job.batch "ycsb-run-arm-stock-t128-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t128-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-t16-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t16-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-t256-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t256-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-t256-r1-c1" deleted
+job.batch "ycsb-run-arm-stock-t256-r1-c2" deleted
+job.batch "ycsb-run-arm-stock-t256-r2-c1" deleted
+job.batch "ycsb-run-arm-stock-t256-r2-c2" deleted
+job.batch "ycsb-run-arm-stock-t256-r3-c1" deleted
+job.batch "ycsb-run-arm-stock-t256-r3-c2" deleted
+job.batch "ycsb-run-arm-stock-t32-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t32-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-t512-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t512-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-t64-knee-c1" deleted
+job.batch "ycsb-run-arm-stock-t64-knee-c2" deleted
+job.batch "ycsb-run-arm-stock-warm0-c1" deleted
+job.batch "ycsb-run-arm-stock-warm0-c2" deleted
+job.batch "ycsb-run-arm-stock-warm1-c1" deleted
+job.batch "ycsb-run-arm-stock-warm1-c2" deleted
+job.batch "ycsb-run-arm-stock-warm2-c1" deleted
+job.batch "ycsb-run-arm-stock-warm2-c2" deleted
+job.batch "ycsb-run-arm-stock-warm3-c1" deleted
+job.batch "ycsb-run-arm-stock-warm3-c2" deleted
+# mongo overlay kept: --teardown-day is what drops the sts and its PVC
+
+# mongo/arm-stock: 57.2 min
+
+# Ledger 2026-09-26-task7-d2
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| mongo | arm-stock | m9g.4xlarge | 1 | 57.2 | 0.75 |
+| net | amd-stock | m8a.4xlarge | 2 | 14.0 | 0.45 |
+| net | amd-tuned | m8a.4xlarge | 2 | 15.1 | 0.49 |
+| net | arm-stock | m9g.4xlarge | 2 | 13.6 | 0.35 |
+| net | arm-tuned | m9g.4xlarge | 2 | 14.8 | 0.39 |
+| net | x86-stock | m8i.4xlarge | 2 | 14.1 | 0.40 |
+| net | x86-tuned | m8i.4xlarge | 2 | 15.0 | 0.42 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **22.33** |
+
+estimate_per_day_usd: 80.00 - OK
+

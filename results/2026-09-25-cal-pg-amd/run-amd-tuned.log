@@ -1,0 +1,213 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-25-cal-pg-amd  postgres/amd-tuned on node group aws-aad-mng-amd-tuned (m8a.4xlarge x1) ===
+
+# budget: USD 19.32 committed today, estimate 80.00
+# kustomize overlay postgres/amd-tuned with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "00605c25-78e7-349f-9a40-cb99b6b168a2",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-25T12:15:09.409000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=amd-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay postgres/amd-tuned with the own images of the day
+# apply overlay postgres/amd-tuned
+$ <stdin> | kubectl apply -f -
+service/postgres unchanged
+statefulset.apps/postgres configured
+$ kubectl -n aad rollout status statefulset/postgres --timeout=900s
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/postgres -- cat /sys/fs/cgroup/cpuset.cpus.effective
+# wait for cstates knob Ready on ip-10-42-0-25.ec2.internal (timeout 300s, poll 10s)
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT to_regclass('"'"'pgbench_accounts_pkey'"'"') IS NOT NULL'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT count(*) FROM pgbench_branches'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'CREATE EXTENSION IF NOT EXISTS pg_prewarm'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_prewarm('"'"'pgbench_accounts'"'"', '"'"'read'"'"') + pg_prewarm('"'"'pgbench_accounts_pkey'"'"', '"'"'read'"'"')'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_database_size(current_database()), current_setting('"'"'shared_buffers'"'"'), current_setting('"'"'effective_cache_size'"'"'), current_setting('"'"'max_connections'"'"'), current_setting('"'"'huge_pages'"'"'), current_setting('"'"'huge_pages_status'"'"')'
+# postgres: {'prewarm_blocks': 1913539, 'shared_buffers': '16GB', 'effective_cache_size': '48GB', 'max_connections': '600', 'huge_pages': 'try', 'huge_pages_status': 'off', 'database_bytes': 15688160959}
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-warm0-c1, pgbench-run-amd-tuned-warm0-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-warm0-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-warm0-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-warm0-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-warm0-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-warm0-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-warm0-c1 created
+# apply job/pgbench-run-amd-tuned-warm0-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-warm0-c2 created
+# wait for job/pgbench-run-amd-tuned-warm0-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-warm0-c1
+# job/pgbench-run-amd-tuned-warm0-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-warm0-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-warm0-c2
+# job/pgbench-run-amd-tuned-warm0-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c16-knee-c1, pgbench-run-amd-tuned-c16-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c16-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c16-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c16-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c16-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c16-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c16-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c16-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c16-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c16-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c16-knee-c1
+# job/pgbench-run-amd-tuned-c16-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c16-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c16-knee-c2
+# job/pgbench-run-amd-tuned-c16-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c32-knee-c1, pgbench-run-amd-tuned-c32-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c32-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c32-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c32-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c32-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c32-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c32-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c32-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c32-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c32-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c32-knee-c1
+# job/pgbench-run-amd-tuned-c32-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c32-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c32-knee-c2
+# job/pgbench-run-amd-tuned-c32-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c64-knee-c1, pgbench-run-amd-tuned-c64-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c64-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c64-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c64-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c64-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c64-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c64-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c64-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c64-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c64-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c64-knee-c1
+# job/pgbench-run-amd-tuned-c64-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c64-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c64-knee-c2
+# job/pgbench-run-amd-tuned-c64-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c128-knee-c1, pgbench-run-amd-tuned-c128-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c128-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c128-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c128-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c128-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c128-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c128-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c128-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c128-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c128-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c128-knee-c1
+# job/pgbench-run-amd-tuned-c128-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c128-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c128-knee-c2
+# job/pgbench-run-amd-tuned-c128-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c256-knee-c1, pgbench-run-amd-tuned-c256-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c256-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c256-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c256-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c256-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c256-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c256-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c256-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c256-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c256-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c256-knee-c1
+# job/pgbench-run-amd-tuned-c256-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c256-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c256-knee-c2
+# job/pgbench-run-amd-tuned-c256-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-amd-tuned-c512-knee-c1, pgbench-run-amd-tuned-c512-knee-c2
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c512-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c512-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-amd-tuned-c512-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-amd-tuned-c512-knee-c2 --timeout=60s
+# apply job/pgbench-run-amd-tuned-c512-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c512-knee-c1 created
+# apply job/pgbench-run-amd-tuned-c512-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-amd-tuned-c512-knee-c2 created
+# wait for job/pgbench-run-amd-tuned-c512-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c512-knee-c1
+# job/pgbench-run-amd-tuned-c512-knee-c1 -> Complete=True
+# wait for job/pgbench-run-amd-tuned-c512-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-amd-tuned-c512-knee-c2
+# job/pgbench-run-amd-tuned-c512-knee-c2 -> Complete=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "9c63e527-2c11-363f-8245-8da227eebfd5",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-25T12:27:03.600000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=amd-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=amd-tuned --ignore-not-found
+job.batch "pgbench-run-amd-tuned-c128-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c128-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-c16-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c16-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-c256-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c256-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-c32-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c32-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-c512-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c512-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-c64-knee-c1" deleted
+job.batch "pgbench-run-amd-tuned-c64-knee-c2" deleted
+job.batch "pgbench-run-amd-tuned-warm0-c1" deleted
+job.batch "pgbench-run-amd-tuned-warm0-c2" deleted
+# postgres overlay kept: --teardown-day is what drops the sts and its PVC
+
+# postgres/amd-tuned: 15.2 min
+
+# Ledger 2026-09-25-cal-pg-amd
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| postgres | amd-stock | m8a.4xlarge | 1 | 14.6 | 0.24 |
+| postgres | amd-tuned | m8a.4xlarge | 1 | 15.2 | 0.25 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **19.57** |
+
+estimate_per_day_usd: 80.00 - OK
+

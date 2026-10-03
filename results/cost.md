@@ -36,6 +36,10 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 \
 | m6g.4xlarge | 0.616 | 2026-09-28, aws pricing get-products (us-east-1, Linux, Shared, Used); Task 8 arc |
 | m7g.4xlarge | 0.6528 | 2026-09-28, aws pricing get-products (us-east-1, Linux, Shared, Used); Task 8 arc |
 | m8g.4xlarge | 0.71808 | 2026-09-28, aws pricing get-products (us-east-1, Linux, Shared, Used); Task 8 arc |
+| t3.xlarge | 0.1664 | 2026-09-29, aws pricing get-products (us-east-1, Linux, Shared, Used); decision-guide estimates only |
+| t3.2xlarge | 0.3328 | 2026-09-29, aws pricing get-products (us-east-1, Linux, Shared, Used); decision-guide estimates only |
+| t2.xlarge | 0.1856 | 2026-09-29, aws pricing get-products (us-east-1, Linux, Shared, Used); decision-guide estimates only |
+| t2.2xlarge | 0.3712 | 2026-09-29, aws pricing get-products (us-east-1, Linux, Shared, Used); decision-guide estimates only |
 | c8i.16xlarge | 2.99872 | 2026-09-25, aws pricing get-products (us-east-1, Linux, Shared, Used) |
 | m7g.large | 0.0816 | 2026-09-04, aws pricing get-products (us-east-1, Linux, Shared, Used) |
 | eks-control-plane | 0.10 | 2026-09-04, https://aws.amazon.com/eks/pricing/ (standard support, por clúster-hora) |

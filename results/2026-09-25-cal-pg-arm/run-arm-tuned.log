@@ -1,0 +1,212 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-25-cal-pg-arm  postgres/arm-tuned on node group aws-aad-mng-arm-tuned (m9g.4xlarge x1) ===
+
+# budget: USD 19.38 committed today, estimate 80.00
+# kustomize overlay postgres/arm-tuned with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "e5ef14dc-f2c6-325d-8279-c284862631e4",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-25T12:00:15.764000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay postgres/arm-tuned with the own images of the day
+# apply overlay postgres/arm-tuned
+$ <stdin> | kubectl apply -f -
+service/postgres unchanged
+statefulset.apps/postgres configured
+$ kubectl -n aad rollout status statefulset/postgres --timeout=900s
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/postgres -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT to_regclass('"'"'pgbench_accounts_pkey'"'"') IS NOT NULL'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT count(*) FROM pgbench_branches'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'CREATE EXTENSION IF NOT EXISTS pg_prewarm'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_prewarm('"'"'pgbench_accounts'"'"', '"'"'read'"'"') + pg_prewarm('"'"'pgbench_accounts_pkey'"'"', '"'"'read'"'"')'
+$ kubectl -n aad exec statefulset/postgres -- psql -U postgres -tAX -c 'SELECT pg_database_size(current_database()), current_setting('"'"'shared_buffers'"'"'), current_setting('"'"'effective_cache_size'"'"'), current_setting('"'"'max_connections'"'"'), current_setting('"'"'huge_pages'"'"'), current_setting('"'"'huge_pages_status'"'"')'
+# postgres: {'prewarm_blocks': 1913539, 'shared_buffers': '16GB', 'effective_cache_size': '48GB', 'max_connections': '600', 'huge_pages': 'try', 'huge_pages_status': 'off', 'database_bytes': 15688160959}
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-warm0-c1, pgbench-run-arm-tuned-warm0-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-warm0-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-warm0-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-warm0-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-warm0-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-warm0-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-warm0-c1 created
+# apply job/pgbench-run-arm-tuned-warm0-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-warm0-c2 created
+# wait for job/pgbench-run-arm-tuned-warm0-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-warm0-c1
+# job/pgbench-run-arm-tuned-warm0-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-warm0-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-warm0-c2
+# job/pgbench-run-arm-tuned-warm0-c2 -> Complete=True
+$ kubectl -n aad exec statefulset/postgres -- sh -c 'cat /sys/fs/cgroup/io.stat && echo end'
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c16-knee-c1, pgbench-run-arm-tuned-c16-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c16-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c16-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c16-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c16-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c16-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c16-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c16-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c16-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c16-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c16-knee-c1
+# job/pgbench-run-arm-tuned-c16-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c16-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c16-knee-c2
+# job/pgbench-run-arm-tuned-c16-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c32-knee-c1, pgbench-run-arm-tuned-c32-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c32-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c32-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c32-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c32-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c32-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c32-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c32-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c32-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c32-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c32-knee-c1
+# job/pgbench-run-arm-tuned-c32-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c32-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c32-knee-c2
+# job/pgbench-run-arm-tuned-c32-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c64-knee-c1, pgbench-run-arm-tuned-c64-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c64-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c64-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c64-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c64-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c64-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c64-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c64-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c64-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c64-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c64-knee-c1
+# job/pgbench-run-arm-tuned-c64-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c64-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c64-knee-c2
+# job/pgbench-run-arm-tuned-c64-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c128-knee-c1, pgbench-run-arm-tuned-c128-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c128-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c128-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c128-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c128-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c128-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c128-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c128-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c128-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c128-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c128-knee-c1
+# job/pgbench-run-arm-tuned-c128-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c128-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c128-knee-c2
+# job/pgbench-run-arm-tuned-c128-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c256-knee-c1, pgbench-run-arm-tuned-c256-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c256-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c256-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c256-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c256-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c256-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c256-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c256-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c256-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c256-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c256-knee-c1
+# job/pgbench-run-arm-tuned-c256-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c256-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c256-knee-c2
+# job/pgbench-run-arm-tuned-c256-knee-c2 -> Complete=True
+# 2 pgbench clients, each with 1/2 of the sessions and of -R: pgbench-run-arm-tuned-c512-knee-c1, pgbench-run-arm-tuned-c512-knee-c2
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c512-knee-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c512-knee-c1 --timeout=60s
+$ kubectl -n aad delete job pgbench-run-arm-tuned-c512-knee-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/pgbench-run-arm-tuned-c512-knee-c2 --timeout=60s
+# apply job/pgbench-run-arm-tuned-c512-knee-c1
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c512-knee-c1 created
+# apply job/pgbench-run-arm-tuned-c512-knee-c2
+$ <stdin> | kubectl apply -f -
+job.batch/pgbench-run-arm-tuned-c512-knee-c2 created
+# wait for job/pgbench-run-arm-tuned-c512-knee-c1 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c512-knee-c1
+# job/pgbench-run-arm-tuned-c512-knee-c1 -> Complete=True
+# wait for job/pgbench-run-arm-tuned-c512-knee-c2 (timeout 960s, poll 10s)
+$ kubectl -n aad logs job/pgbench-run-arm-tuned-c512-knee-c2
+# job/pgbench-run-arm-tuned-c512-knee-c2 -> Complete=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "0504b0a4-43f5-3fcc-b26f-654d707d9a72",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-25T12:12:11.896000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-tuned --ignore-not-found
+job.batch "pgbench-run-arm-tuned-c128-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c128-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-c16-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c16-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-c256-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c256-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-c32-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c32-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-c512-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c512-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-c64-knee-c1" deleted
+job.batch "pgbench-run-arm-tuned-c64-knee-c2" deleted
+job.batch "pgbench-run-arm-tuned-warm0-c1" deleted
+job.batch "pgbench-run-arm-tuned-warm0-c2" deleted
+# postgres overlay kept: --teardown-day is what drops the sts and its PVC
+
+# postgres/arm-tuned: 14.9 min
+
+# Ledger 2026-09-25-cal-pg-arm
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| postgres | arm-stock | m9g.4xlarge | 1 | 23.1 | 0.30 |
+| postgres | arm-tuned | m9g.4xlarge | 1 | 14.9 | 0.19 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **19.58** |
+
+estimate_per_day_usd: 80.00 - OK
+

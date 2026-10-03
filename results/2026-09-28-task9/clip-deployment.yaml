@@ -1,0 +1,15 @@
+# Task 9 clip: a pod with no nodeSelector and no affinity. The only thing that
+# constrains the node is the NodePools' closed instance-family lists.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clip, namespace: aad}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: clip}}
+  template:
+    metadata: {labels: {app: clip}}
+    spec:
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.10
+          resources: {requests: {cpu: "8", memory: 8Gi}}

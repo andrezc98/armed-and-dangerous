@@ -1,0 +1,50 @@
+{
+ "date": "2026-09-26-cal-pg-thp",
+ "workload": "postgres",
+ "cell": "arm-tuned",
+ "instance_type": "m9g.4xlarge",
+ "nodes": 1,
+ "minutes": 14.8,
+ "runs": 0,
+ "invalid": [],
+ "app_env": {},
+ "llama_system_info": null,
+ "postgres": {
+  "prewarm_blocks": 1913539,
+  "shared_buffers": "16GB",
+  "effective_cache_size": "48GB",
+  "max_connections": "600",
+  "huge_pages": "try",
+  "huge_pages_status": "off",
+  "database_bytes": 15688177343,
+  "warmup_read_pages": [
+   66
+  ],
+  "io_stat_first": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15678767104 wbytes=401408 rios=119879 wios=12 dbytes=0 dios=0",
+  "io_stat_last": "259:0 rbytes=0 wbytes=20480 rios=0 wios=2 dbytes=0 dios=0\n259:15 rbytes=15679311872 wbytes=466944 rios=119919 wios=17 dbytes=0 dios=0",
+  "shmem_thp": true,
+  "shmem_enabled_before": "never",
+  "after_warmup": {
+   "shmem_enabled": "always",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 15701816,
+   "ShmemHugePages_kB": 15697920,
+   "ShmemPmdMapped_kB": 407552,
+   "raw": "shmem_enabled: [always] within_size advise never deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:          15701816 kB\nShmemHugePages: 15697920 kB\nShmemPmdMapped:   407552 kB\n",
+   "shmem_huge_share": 0.9357
+  },
+  "after_ladder": {
+   "shmem_enabled": "always",
+   "shmem_enabled_2048kB": "inherit",
+   "Shmem_kB": 15730484,
+   "ShmemHugePages_kB": 15724544,
+   "ShmemPmdMapped_kB": 409600,
+   "raw": "shmem_enabled: [always] within_size advise never deny force\nhugepages-2048kB: always [inherit] within_size advise never\nShmem:          15730484 kB\nShmemHugePages: 15724544 kB\nShmemPmdMapped:   409600 kB\n",
+   "shmem_huge_share": 0.9373
+  }
+ },
+ "invalid_before_rejudge": [
+  "knee not usable: ladder_never_crossed: the top step (256 clients) still met the SLO; raise the top of the ladder (--rate-max, --threads for mongo, --clients for postgres) and run the cell again. raise the VU budget (--env PREALLOC_VUS=... --env MAX_VUS=...) or give the loader node group a bigger instance, then run the cell again"
+ ],
+ "rejudged": "2026-09-26 b3094f3: peak at 256 inside the ladder (512 at 95.3 %), not the top step"
+}

@@ -1,0 +1,36 @@
+Using request distribution 'uniform' a keyrange of [0 19999999]
+Connected to MongoDB!
+***************** properties *****************
+"workload"="core"
+"readallfields"="true"
+"table"="usertable"
+"command"="run"
+"insertproportion"="0"
+"mongodb.url"="mongodb://mongo.aad.svc:27017/ycsb?w=1"
+"threadcount"="64"
+"updateproportion"="0.05"
+"recordcount"="20000000"
+"dotransactions"="true"
+"scanproportion"="0"
+"requestdistribution"="uniform"
+"target"="0"
+"readproportion"="0.95"
+"operationcount"="5000000"
+**********************************************
+READ   - Takes(s): 10.0, Count: 1024893, OPS: 102487.9, Avg(us): 582, Min(us): 231, Max(us): 120063, 50th(us): 398, 90th(us): 1181, 95th(us): 1509, 99th(us): 2011, 99.9th(us): 3105, 99.99th(us): 25727
+TOTAL  - Takes(s): 10.0, Count: 1079001, OPS: 107897.5, Avg(us): 581, Min(us): 231, Max(us): 120063, 50th(us): 398, 90th(us): 1179, 95th(us): 1505, 99th(us): 2008, 99.9th(us): 3095, 99.99th(us): 25695
+UPDATE - Takes(s): 10.0, Count: 54108, OPS: 5413.8, Avg(us): 574, Min(us): 254, Max(us): 119295, 50th(us): 413, 90th(us): 1135, 95th(us): 1415, 99th(us): 1942, 99.9th(us): 3033, 99.99th(us): 21807
+READ   - Takes(s): 20.0, Count: 2041908, OPS: 102090.4, Avg(us): 583, Min(us): 231, Max(us): 120063, 50th(us): 401, 90th(us): 1181, 95th(us): 1507, 99th(us): 2015, 99.9th(us): 3185, 99.99th(us): 25807
+TOTAL  - Takes(s): 20.0, Count: 2149250, OPS: 107456.5, Avg(us): 583, Min(us): 231, Max(us): 120063, 50th(us): 402, 90th(us): 1179, 95th(us): 1502, 99th(us): 2012, 99.9th(us): 3183, 99.99th(us): 25855
+UPDATE - Takes(s): 20.0, Count: 107343, OPS: 5368.6, Avg(us): 582, Min(us): 250, Max(us): 119295, 50th(us): 417, 90th(us): 1136, 95th(us): 1413, 99th(us): 1958, 99.9th(us): 3119, 99.99th(us): 37439
+READ   - Takes(s): 30.0, Count: 3052120, OPS: 101736.2, Avg(us): 585, Min(us): 231, Max(us): 120063, 50th(us): 402, 90th(us): 1180, 95th(us): 1508, 99th(us): 2021, 99.9th(us): 3301, 99.99th(us): 32703
+TOTAL  - Takes(s): 30.0, Count: 3212626, OPS: 107087.7, Avg(us): 586, Min(us): 231, Max(us): 120063, 50th(us): 403, 90th(us): 1178, 95th(us): 1503, 99th(us): 2019, 99.9th(us): 3301, 99.99th(us): 32831
+UPDATE - Takes(s): 30.0, Count: 160506, OPS: 5351.2, Avg(us): 587, Min(us): 250, Max(us): 119295, 50th(us): 418, 90th(us): 1136, 95th(us): 1415, 99th(us): 1970, 99.9th(us): 3321, 99.99th(us): 39839
+READ   - Takes(s): 40.0, Count: 4073354, OPS: 101834.0, Avg(us): 585, Min(us): 231, Max(us): 120063, 50th(us): 402, 90th(us): 1180, 95th(us): 1510, 99th(us): 2024, 99.9th(us): 3283, 99.99th(us): 32367
+TOTAL  - Takes(s): 40.0, Count: 4287097, OPS: 107177.2, Avg(us): 585, Min(us): 231, Max(us): 120063, 50th(us): 403, 90th(us): 1178, 95th(us): 1506, 99th(us): 2022, 99.9th(us): 3285, 99.99th(us): 32479
+UPDATE - Takes(s): 40.0, Count: 213744, OPS: 5344.3, Avg(us): 587, Min(us): 250, Max(us): 119295, 50th(us): 418, 90th(us): 1135, 95th(us): 1419, 99th(us): 1984, 99.9th(us): 3359, 99.99th(us): 37439
+**********************************************
+Run finished, takes 46.815408505s
+READ   - Takes(s): 46.8, Count: 4750602, OPS: 101475.7, Avg(us): 586, Min(us): 231, Max(us): 120063, 50th(us): 402, 90th(us): 1180, 95th(us): 1511, 99th(us): 2027, 99.9th(us): 3333, 99.99th(us): 28495
+TOTAL  - Takes(s): 46.8, Count: 5000000, OPS: 106802.6, Avg(us): 586, Min(us): 231, Max(us): 120063, 50th(us): 403, 90th(us): 1177, 95th(us): 1507, 99th(us): 2026, 99.9th(us): 3337, 99.99th(us): 28559
+UPDATE - Takes(s): 46.8, Count: 249398, OPS: 5327.9, Avg(us): 587, Min(us): 250, Max(us): 119295, 50th(us): 418, 90th(us): 1135, 95th(us): 1418, 99th(us): 1989, 99.9th(us): 3445, 99.99th(us): 33151

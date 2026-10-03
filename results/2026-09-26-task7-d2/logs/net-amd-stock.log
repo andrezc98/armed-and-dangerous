@@ -1,0 +1,155 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-26-task7-d2  net/amd-stock on node group aws-aad-mng-amd-stock (m8a.4xlarge x2) ===
+
+# budget: USD 19.82 committed today, estimate 80.00
+# kustomize overlay net/amd-stock with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-stock --scaling-config desiredSize=2
+{
+    "update": {
+        "id": "eb6014d9-9a5b-354c-9af2-b05c55395adf",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "2"
+            }
+        ],
+        "createdAt": "2026-09-26T07:37:04.718000-05:00",
+        "errors": []
+    }
+}
+# wait for 2 Ready node(s) with aad/cell=amd-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl apply -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/net-tuned-daemonset.yaml
+daemonset.apps/net-tuned created
+$ kubectl -n aad rollout status daemonset/net-tuned --timeout=300s
+daemon set "net-tuned" successfully rolled out
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+# kustomize overlay net/amd-stock with the own images of the day
+# apply overlay net/amd-stock
+$ <stdin> | kubectl apply -f -
+service/iperf3-server created
+deployment.apps/iperf3-server created
+$ kubectl -n aad rollout status deploy/iperf3-server --timeout=900s
+Waiting for deployment "iperf3-server" rollout to finish: 0 of 1 updated replicas are available...
+deployment "iperf3-server" successfully rolled out
+$ kubectl -n aad get pod -l app=iperf3-server -o 'jsonpath={.items[0].spec.nodeName}'
+$ kubectl -n aad exec deploy/iperf3-server -- cat /sys/fs/cgroup/cpuset.cpus.effective
+
+--- run 1/3 ---
+$ kubectl aperf --node=ip-10-42-15-14.ec2.internal '--aperf_options=-i 1 -p 120' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/net/amd-stock/run-1/aperf
+$ kubectl -n aad delete job iperf3-client-amd-stock-fwd-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-fwd-r1 --timeout=60s
+# apply job/iperf3-client-amd-stock-fwd-r1
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-fwd-r1 created
+# wait for job/iperf3-client-amd-stock-fwd-r1 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-fwd-r1
+# job/iperf3-client-amd-stock-fwd-r1 -> Complete=True
+$ kubectl -n aad delete job iperf3-client-amd-stock-rev-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-rev-r1 --timeout=60s
+# apply job/iperf3-client-amd-stock-rev-r1
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-rev-r1 created
+# wait for job/iperf3-client-amd-stock-rev-r1 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-rev-r1
+# job/iperf3-client-amd-stock-rev-r1 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 2/3 ---
+$ kubectl aperf --node=ip-10-42-15-14.ec2.internal '--aperf_options=-i 1 -p 120' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/net/amd-stock/run-2/aperf
+$ kubectl -n aad delete job iperf3-client-amd-stock-fwd-r2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-fwd-r2 --timeout=60s
+# apply job/iperf3-client-amd-stock-fwd-r2
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-fwd-r2 created
+# wait for job/iperf3-client-amd-stock-fwd-r2 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-fwd-r2
+# job/iperf3-client-amd-stock-fwd-r2 -> Complete=True
+$ kubectl -n aad delete job iperf3-client-amd-stock-rev-r2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-rev-r2 --timeout=60s
+# apply job/iperf3-client-amd-stock-rev-r2
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-rev-r2 created
+# wait for job/iperf3-client-amd-stock-rev-r2 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-rev-r2
+# job/iperf3-client-amd-stock-rev-r2 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+
+--- run 3/3 ---
+$ kubectl aperf --node=ip-10-42-15-14.ec2.internal '--aperf_options=-i 1 -p 120' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-26-task7-d2/net/amd-stock/run-3/aperf
+$ kubectl -n aad delete job iperf3-client-amd-stock-fwd-r3 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-fwd-r3 --timeout=60s
+# apply job/iperf3-client-amd-stock-fwd-r3
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-fwd-r3 created
+# wait for job/iperf3-client-amd-stock-fwd-r3 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-fwd-r3
+# job/iperf3-client-amd-stock-fwd-r3 -> Complete=True
+$ kubectl -n aad delete job iperf3-client-amd-stock-rev-r3 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/iperf3-client-amd-stock-rev-r3 --timeout=60s
+# apply job/iperf3-client-amd-stock-rev-r3
+$ <stdin> | kubectl apply -f -
+job.batch/iperf3-client-amd-stock-rev-r3 created
+# wait for job/iperf3-client-amd-stock-rev-r3 (timeout 300s, poll 10s)
+$ kubectl -n aad logs job/iperf3-client-amd-stock-rev-r3
+# job/iperf3-client-amd-stock-rev-r3 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Unable to listen on port 4040: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:4040: bind: address already in use unable to create listener: Error listen tcp6 [::1]:4040: bind: address already in use]
+error: unable to listen on any of the requested ports: [{4040 4040}]
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-amd-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "0801a16d-e000-35fa-b05b-19b565d94e02",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-26T07:48:04.977000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=amd-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=amd-stock --ignore-not-found
+job.batch "iperf3-client-amd-stock-fwd-r1" deleted
+job.batch "iperf3-client-amd-stock-fwd-r2" deleted
+job.batch "iperf3-client-amd-stock-fwd-r3" deleted
+job.batch "iperf3-client-amd-stock-rev-r1" deleted
+job.batch "iperf3-client-amd-stock-rev-r2" deleted
+job.batch "iperf3-client-amd-stock-rev-r3" deleted
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/net-tuned-daemonset.yaml --ignore-not-found
+daemonset.apps "net-tuned" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/net/overlays/amd-stock --ignore-not-found
+service "iperf3-server" deleted
+deployment.apps "iperf3-server" deleted
+
+# net/amd-stock: 14.0 min
+
+# Ledger 2026-09-26-task7-d2
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| net | amd-stock | m8a.4xlarge | 2 | 14.0 | 0.45 |
+| net | arm-stock | m9g.4xlarge | 2 | 13.6 | 0.35 |
+| net | arm-tuned | m9g.4xlarge | 2 | 14.8 | 0.39 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **20.28** |
+
+estimate_per_day_usd: 80.00 - OK
+

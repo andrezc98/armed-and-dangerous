@@ -1,0 +1,98 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:2026-09-24
+
+=== 2026-09-24-cal-llama-x86t15  inference/x86-t15 on node group aws-aad-mng-x86-tuned (m8i.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay inference/x86-t15 with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "c3bd9a62-b787-3a4e-a38c-75b139779fb5",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-24T21:13:51.170000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=x86-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay inference/x86-t15 with the own images of the day
+# apply overlay inference/x86-t15
+$ <stdin> | kubectl apply -f -
+service/llama created
+deployment.apps/llama created
+$ kubectl -n aad rollout status deploy/llama --timeout=900s
+Waiting for deployment "llama" rollout to finish: 0 of 1 updated replicas are available...
+deployment "llama" successfully rolled out
+$ kubectl -n aad --request-timeout=45s exec deploy/llama -c llama -- timeout 30 /app/llama-server -m /nonexistent.gguf --port 18080 -lv 4
+# llama.cpp system_info: ['system_info: n_threads = 8 (n_threads_batch = 8) / 16 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | AMX_INT8 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |']
+$ kubectl -n aad exec deploy/llama -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl create configmap k6-scripts -n aad --from-file=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/k6 --dry-run=client -o yaml
+# apply configmap/k6-scripts
+$ <stdin> | kubectl apply -f -
+configmap/k6-scripts configured
+$ kubectl -n aad delete job k6-inference-x86-t15-warmup --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-t15-warmup --timeout=60s
+# apply job/k6-inference-x86-t15-warmup
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-t15-warmup created
+# wait for job/k6-inference-x86-t15-warmup (timeout 360s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-t15-warmup
+# job/k6-inference-x86-t15-warmup -> Complete=True
+
+--- run 1/1 ---
+$ kubectl aperf --node=ip-10-42-9-59.ec2.internal '--aperf_options=-i 1 -p 360' --namespace=aad --aperf_image=public.ecr.aws/aperf/aperf:v1.2.3 --open-report=false &    # cwd=/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/results/2026-09-24-cal-llama-x86t15/inference/x86-t15/run-1/aperf
+$ kubectl -n aad delete job k6-inference-x86-t15-r1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/k6-inference-x86-t15-r1 --timeout=60s
+# apply job/k6-inference-x86-t15-r1
+$ <stdin> | kubectl apply -f -
+job.batch/k6-inference-x86-t15-r1 created
+# wait for job/k6-inference-x86-t15-r1 (timeout 660s, poll 10s)
+$ kubectl -n aad logs job/k6-inference-x86-t15-r1
+# job/k6-inference-x86-t15-r1 -> Complete=True
+$ kubectl port-forward -n aad svc/pyroscope 4040:4040 &
+Forwarding from 127.0.0.1:4040 -> 4040
+Forwarding from [::1]:4040 -> 4040
+Handling connection for 4040
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-x86-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "5249dfde-5476-3cf2-81c8-dd7b10667d16",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-24T21:25:09.751000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=x86-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=x86-t15 --ignore-not-found
+job.batch "k6-inference-x86-t15-r1" deleted
+job.batch "k6-inference-x86-t15-warmup" deleted
+$ kubectl delete -k /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/workloads/inference/overlays/x86-t15 --ignore-not-found
+service "llama" deleted
+deployment.apps "llama" deleted
+
+# inference/x86-t15: 14.7 min
+
+# Ledger 2026-09-24-cal-llama-x86t15
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| inference | x86-t15 | m8i.4xlarge | 1 | 14.7 | 0.21 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **9.87** |
+
+estimate_per_day_usd: 80.00 - OK
+

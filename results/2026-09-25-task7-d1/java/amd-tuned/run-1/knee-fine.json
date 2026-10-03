@@ -1,0 +1,188 @@
+{
+ "unit": "rps",
+ "knee": null,
+ "slo_ms": 10,
+ "series": [
+  [
+   92000,
+   10.86422151
+  ],
+  [
+   94000,
+   11.786927880000022
+  ],
+  [
+   96000,
+   14.009525590000003
+  ],
+  [
+   98000,
+   17.283415520000002
+  ],
+  [
+   100000,
+   23.65177239
+  ]
+ ],
+ "ended_by": {
+  "step": 92000,
+  "p99_ms": 10.86422151,
+  "kind": "crossing",
+  "reason": "p99 10.86 ms > SLO 10 ms"
+ },
+ "invalid_steps": {},
+ "windows": {
+  "92000": [
+   1790381776.0,
+   1790381826.0
+  ],
+  "94000": [
+   1790381821.0,
+   1790381871.0
+  ],
+  "96000": [
+   1790381866.0,
+   1790381916.0
+  ],
+  "98000": [
+   1790381911.0,
+   1790381961.0
+  ],
+  "100000": [
+   1790381956.0,
+   1790382006.0
+  ]
+ },
+ "invalid": [],
+ "coarse_knee": 90000,
+ "ladder": {
+  "RATE_START": 92000,
+  "RATE_STEP": 2000,
+  "RATE_MAX": 100000,
+  "STAGE_SECONDS": 45
+ },
+ "notes": [],
+ "loader_peak_by_step": {
+  "92000": 33,
+  "94000": 31,
+  "96000": 25,
+  "98000": 25,
+  "100000": 24
+ },
+ "actuator_by_step": {
+  "92000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 3
+   },
+   "hikaricp.connections.active": {
+    "max": 4.0,
+    "median": 3.0,
+    "samples": 3
+   },
+   "tomcat.threads.busy": {
+    "max": 14.0,
+    "median": 14.0,
+    "samples": 3
+   }
+  },
+  "94000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 4.0,
+    "median": 3.0,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 32.0,
+    "median": 13.0,
+    "samples": 4
+   }
+  },
+  "96000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 3.5,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 32.0,
+    "median": 21.5,
+    "samples": 4
+   }
+  },
+  "98000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 6.0,
+    "median": 3.5,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 14.0,
+    "median": 12.0,
+    "samples": 4
+   }
+  },
+  "100000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 2.5,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 16.0,
+    "median": 14.0,
+    "samples": 4
+   }
+  }
+ },
+ "sut_cpu_cores_by_step": {
+  "92000": {
+   "max": 11.494,
+   "median": 11.3595,
+   "samples": 6
+  },
+  "94000": {
+   "max": 11.719,
+   "median": 11.5255,
+   "samples": 4
+  },
+  "96000": {
+   "max": 11.837,
+   "median": 11.743,
+   "samples": 6
+  },
+  "98000": {
+   "max": 12.132,
+   "median": 11.837,
+   "samples": 5
+  },
+  "100000": {
+   "max": 12.248,
+   "median": 12.172,
+   "samples": 4
+  }
+ },
+ "loader_peak_percent": 33,
+ "run_knee": 90000
+}

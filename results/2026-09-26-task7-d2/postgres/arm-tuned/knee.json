@@ -1,0 +1,229 @@
+{
+ "unit": "clients",
+ "knee": 256,
+ "ops": 338423.1,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.521
+  ],
+  [
+   32,
+   0.525
+  ],
+  [
+   64,
+   0.523
+  ],
+  [
+   128,
+   0.657
+  ],
+  [
+   256,
+   1.625
+  ],
+  [
+   512,
+   4.075
+  ]
+ ],
+ "ended_by": {
+  "step": 512,
+  "p99_ms": 4.075,
+  "kind": "throughput_drop",
+  "reason": "287388 ops/s < 95% of 338423 at step 256"
+ },
+ "windows": {
+  "16": [
+   1790457482.0,
+   1790457543.0
+  ],
+  "32": [
+   1790457555.0,
+   1790457617.0
+  ],
+  "64": [
+   1790457629.0,
+   1790457690.0
+  ],
+  "128": [
+   1790457702.0,
+   1790457763.0
+  ],
+  "256": [
+   1790457775.0,
+   1790457837.0
+  ],
+  "512": [
+   1790457849.0,
+   1790457910.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-arm-tuned-c16-knee-c1",
+   "pgbench-run-arm-tuned-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-arm-tuned-c32-knee-c1",
+   "pgbench-run-arm-tuned-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-arm-tuned-c64-knee-c1",
+   "pgbench-run-arm-tuned-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-arm-tuned-c128-knee-c1",
+   "pgbench-run-arm-tuned-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-arm-tuned-c256-knee-c1",
+   "pgbench-run-arm-tuned-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-arm-tuned-c512-knee-c1",
+   "pgbench-run-arm-tuned-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 287,
+    "NoWait": 17
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 557,
+    "NoWait": 51
+   }
+  },
+  "64": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1045,
+    "NoWait": 171
+   }
+  },
+  "128": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 2180,
+    "NoWait": 252
+   }
+  },
+  "256": {
+   "samples": 17,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 4107,
+    "NoWait": 245
+   }
+  },
+  "512": {
+   "samples": 15,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 7404,
+    "NoWait": 276
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 4,
+  "64": 7,
+  "128": 9,
+  "256": 9,
+  "512": 9
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 1.613,
+   "median": 1.189,
+   "samples": 7
+  },
+  "32": {
+   "max": 4.202,
+   "median": 3.79,
+   "samples": 7
+  },
+  "64": {
+   "max": 8.907,
+   "median": 8.78,
+   "samples": 7
+  },
+  "128": {
+   "max": 14.191,
+   "median": 13.949,
+   "samples": 6
+  },
+  "256": {
+   "max": 15.222,
+   "median": 15.215,
+   "samples": 6
+  },
+  "512": {
+   "max": 15.204,
+   "median": 15.197,
+   "samples": 5
+  }
+ },
+ "loader_guard_waived": {
+  "step": 512,
+  "sut_cores_max": 15.204,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 9,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-arm-tuned-c16-knee-c1-6cnjv": 0.501,
+   "pgbench-run-arm-tuned-c16-knee-c2-2lv4b": 0.512
+  },
+  "32": {
+   "pgbench-run-arm-tuned-c32-knee-c1-hgw7z": 0.958,
+   "pgbench-run-arm-tuned-c32-knee-c2-hwtr5": 0.981
+  },
+  "64": {
+   "pgbench-run-arm-tuned-c64-knee-c1-mmrfk": 1.611,
+   "pgbench-run-arm-tuned-c64-knee-c2-wj75v": 1.589
+  },
+  "128": {
+   "pgbench-run-arm-tuned-c128-knee-c1-bjplm": 2.313,
+   "pgbench-run-arm-tuned-c128-knee-c2-lrwgn": 2.293
+  },
+  "256": {
+   "pgbench-run-arm-tuned-c256-knee-c1-dgnr2": 2.6,
+   "pgbench-run-arm-tuned-c256-knee-c2-2vsg8": 2.539
+  },
+  "512": {
+   "pgbench-run-arm-tuned-c512-knee-c1-k595t": 2.599,
+   "pgbench-run-arm-tuned-c512-knee-c2-879w8": 2.348
+  }
+ }
+}

@@ -1,0 +1,15 @@
+# Only to get one amd64 node next to the arm64 ones for the DaemonSet scene.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clip-amd64, namespace: aad}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: clip-amd64}}
+  template:
+    metadata: {labels: {app: clip-amd64}}
+    spec:
+      nodeSelector: {kubernetes.io/arch: amd64}
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.10
+          resources: {requests: {cpu: "8", memory: 8Gi}}

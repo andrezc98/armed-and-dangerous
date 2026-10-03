@@ -1,0 +1,122 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-26-task7-d2  mongo/arm-tuned on node group aws-aad-mng-arm-tuned (m9g.4xlarge x1) ===
+
+# budget: USD 22.33 committed today, estimate 80.00
+# kustomize overlay mongo/arm-tuned with the own images of the day
+$ kubectl delete -f /Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/manifests/base/pg-shmem-thp-daemonset.yaml --ignore-not-found --wait
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "d6325c35-ccca-3d56-8091-2351a3274124",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-26T09:32:45.127000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-tuned (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+$ kubectl -n aad scale statefulset/postgres --replicas=0
+statefulset.apps/postgres scaled
+$ kubectl -n aad wait --for=delete pod/postgres-0 --timeout=300s
+$ kubectl -n aad scale statefulset/mongo --replicas=0
+statefulset.apps/mongo scaled
+$ kubectl -n aad wait --for=delete pod/mongo-0 --timeout=300s
+# kustomize overlay mongo/arm-tuned with the own images of the day
+# apply overlay mongo/arm-tuned
+$ <stdin> | kubectl apply -f -
+service/mongo unchanged
+statefulset.apps/mongo configured
+$ kubectl -n aad rollout status statefulset/mongo --timeout=900s
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/mongo -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.getSiblingDB("ycsb").usertable.estimatedDocumentCount()'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+# 2 go-ycsb clients, each with 1/2 of the threads and ops: ycsb-run-arm-tuned-warm0-c1, ycsb-run-arm-tuned-warm0-c2
+$ kubectl -n aad delete job ycsb-run-arm-tuned-warm0-c1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-tuned-warm0-c1 --timeout=60s
+$ kubectl -n aad delete job ycsb-run-arm-tuned-warm0-c2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-tuned-warm0-c2 --timeout=60s
+# apply job/ycsb-run-arm-tuned-warm0-c1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-tuned-warm0-c1 created
+# apply job/ycsb-run-arm-tuned-warm0-c2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-tuned-warm0-c2 created
+# wait for job/ycsb-run-arm-tuned-warm0-c1 (timeout 1200s, poll 10s)
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-tuned --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "09cba6c4-9525-395a-b4e2-6ebe0312f5d9",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-26T09:34:38.070000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-tuned (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-tuned --ignore-not-found
+job.batch "ycsb-run-arm-tuned-warm0-c1" deleted
+job.batch "ycsb-run-arm-tuned-warm0-c2" deleted
+# mongo overlay kept: --teardown-day is what drops the sts and its PVC
+
+# mongo/arm-tuned: 4.8 min
+
+# Ledger 2026-09-26-task7-d2
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| mongo | arm-stock | m9g.4xlarge | 1 | 57.2 | 0.75 |
+| mongo | arm-tuned | m9g.4xlarge | 1 | 4.8 | 0.06 |
+| net | amd-stock | m8a.4xlarge | 2 | 14.0 | 0.45 |
+| net | amd-tuned | m8a.4xlarge | 2 | 15.1 | 0.49 |
+| net | arm-stock | m9g.4xlarge | 2 | 13.6 | 0.35 |
+| net | arm-tuned | m9g.4xlarge | 2 | 14.8 | 0.39 |
+| net | x86-stock | m8i.4xlarge | 2 | 14.1 | 0.40 |
+| net | x86-tuned | m8i.4xlarge | 2 | 15.0 | 0.42 |
+| (fijo) | loader + tools + control plane | c8i.16xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 19.08 |
+| **total** | | | | | **22.40** |
+
+estimate_per_day_usd: 80.00 - OK
+
+Traceback (most recent call last):
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m2474[0m, in [35m<module>[0m
+    sys.exit([31mmain[0m[1;31m()[0m)
+             [31m~~~~[0m[1;31m^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m2469[0m, in [35mmain[0m
+    [31mrun_cell[0m[1;31m(args)[0m
+    [31m~~~~~~~~[0m[1;31m^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m2038[0m, in [35mrun_cell[0m
+    [31mmongo_prepare[0m[1;31m(spec, cell, meta, date, reload=args.reload)[0m
+    [31m~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m1221[0m, in [35mmongo_prepare[0m
+    [31mrun_ycsb[0m[1;31m(spec, name, cell, YCSB_WARM_THREADS, 0, spec["warm_operationcount"],[0m
+    [31m~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+             [1;31mspec["warmup_seconds"] + 900)[0m
+             [1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m1064[0m, in [35mrun_ycsb[0m
+    return names, [31mrun_jobs[0m[1;31m(jobs, timeout)[0m
+                  [31m~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m580[0m, in [35mrun_jobs[0m
+    return [[31mfinish_job[0m[1;31m(name, timeout)[0m for name, _ in jobs]
+            [31m~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^[0m
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m607[0m, in [35mfinish_job[0m
+    status = wait_until(finished, timeout, f"job/{name}")
+  File [35m"/Users/andreszeballoscarbajal/Documents/personal/charlas/armed-and-dangerous/runner/cell.py"[0m, line [35m177[0m, in [35mwait_until[0m
+    [31mtime.sleep[0m[1;31m(POLL_SECONDS)[0m
+    [31m~~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^[0m
+[1;35mKeyboardInterrupt[0m

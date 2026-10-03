@@ -1,0 +1,229 @@
+{
+ "unit": "clients",
+ "knee": 256,
+ "ops": 604736.9,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.517
+  ],
+  [
+   32,
+   0.496
+  ],
+  [
+   64,
+   0.525
+  ],
+  [
+   128,
+   0.459
+  ],
+  [
+   256,
+   0.63
+  ],
+  [
+   512,
+   2.461
+  ]
+ ],
+ "ended_by": {
+  "step": 512,
+  "p99_ms": 2.461,
+  "kind": "throughput_drop",
+  "reason": "571586 ops/s < 95% of 604737 at step 256"
+ },
+ "windows": {
+  "16": [
+   1790462321.0,
+   1790462382.0
+  ],
+  "32": [
+   1790462394.0,
+   1790462456.0
+  ],
+  "64": [
+   1790462469.0,
+   1790462531.0
+  ],
+  "128": [
+   1790462543.0,
+   1790462605.0
+  ],
+  "256": [
+   1790462617.0,
+   1790462678.0
+  ],
+  "512": [
+   1790462690.0,
+   1790462752.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-amd-tuned-c16-knee-c1",
+   "pgbench-run-amd-tuned-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-amd-tuned-c32-knee-c1",
+   "pgbench-run-amd-tuned-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-amd-tuned-c64-knee-c1",
+   "pgbench-run-amd-tuned-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-amd-tuned-c128-knee-c1",
+   "pgbench-run-amd-tuned-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-amd-tuned-c256-knee-c1",
+   "pgbench-run-amd-tuned-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-amd-tuned-c512-knee-c1",
+   "pgbench-run-amd-tuned-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 294,
+    "NoWait": 10
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 575,
+    "NoWait": 33
+   }
+  },
+  "64": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1084,
+    "NoWait": 68
+   }
+  },
+  "128": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 2281,
+    "NoWait": 151
+   }
+  },
+  "256": {
+   "samples": 18,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 4373,
+    "NoWait": 235
+   }
+  },
+  "512": {
+   "samples": 16,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 7918,
+    "NoWait": 274
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 4,
+  "64": 6,
+  "128": 10,
+  "256": 16,
+  "512": 16
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 1.229,
+   "median": 1.202,
+   "samples": 6
+  },
+  "32": {
+   "max": 2.262,
+   "median": 2.152,
+   "samples": 6
+  },
+  "64": {
+   "max": 4.56,
+   "median": 4.473,
+   "samples": 6
+  },
+  "128": {
+   "max": 9.142,
+   "median": 4.716,
+   "samples": 7
+  },
+  "256": {
+   "max": 14.574,
+   "median": 14.476,
+   "samples": 6
+  },
+  "512": {
+   "max": 15.048,
+   "median": 15.042,
+   "samples": 4
+  }
+ },
+ "loader_guard_waived": {
+  "step": 512,
+  "sut_cores_max": 15.048,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 16,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-amd-tuned-c16-knee-c1-sj7p8": 0.459,
+   "pgbench-run-amd-tuned-c16-knee-c2-dzljd": 0.481
+  },
+  "32": {
+   "pgbench-run-amd-tuned-c32-knee-c1-6qlgj": 0.905,
+   "pgbench-run-amd-tuned-c32-knee-c2-2qz47": 0.865
+  },
+  "64": {
+   "pgbench-run-amd-tuned-c64-knee-c1-8nxzc": 1.577,
+   "pgbench-run-amd-tuned-c64-knee-c2-rjbms": 1.541
+  },
+  "128": {
+   "pgbench-run-amd-tuned-c128-knee-c1-vqrxb": 2.746,
+   "pgbench-run-amd-tuned-c128-knee-c2-rhdws": 2.726
+  },
+  "256": {
+   "pgbench-run-amd-tuned-c256-knee-c1-zcx59": 4.296,
+   "pgbench-run-amd-tuned-c256-knee-c2-ksmvd": 4.313
+  },
+  "512": {
+   "pgbench-run-amd-tuned-c512-knee-c1-lrdmr": 4.229,
+   "pgbench-run-amd-tuned-c512-knee-c2-4d9q7": 4.32
+  }
+ }
+}

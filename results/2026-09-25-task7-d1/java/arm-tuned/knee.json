@@ -1,0 +1,396 @@
+{
+ "unit": "rps",
+ "knee": 80000,
+ "slo_ms": 10,
+ "series": [
+  [
+   10000,
+   0.8780845300000004
+  ],
+  [
+   20000,
+   1.1346963
+  ],
+  [
+   30000,
+   1.317948
+  ],
+  [
+   40000,
+   1.39819
+  ],
+  [
+   50000,
+   1.8580886300000006
+  ],
+  [
+   60000,
+   4.714766940000002
+  ],
+  [
+   70000,
+   5.961486100000002
+  ],
+  [
+   80000,
+   7.02058352
+  ],
+  [
+   90000,
+   10.92456209
+  ],
+  [
+   100000,
+   19.467994539999996
+  ],
+  [
+   110000,
+   130.82236751999986
+  ],
+  [
+   120000,
+   145.09294580000002
+  ]
+ ],
+ "ended_by": {
+  "step": 90000,
+  "p99_ms": 10.92456209,
+  "kind": "crossing",
+  "reason": "p99 10.92 ms > SLO 10 ms"
+ },
+ "invalid_steps": {},
+ "windows": {
+  "10000": [
+   1790373987.0,
+   1790374052.0
+  ],
+  "20000": [
+   1790374047.0,
+   1790374112.0
+  ],
+  "30000": [
+   1790374107.0,
+   1790374172.0
+  ],
+  "40000": [
+   1790374167.0,
+   1790374232.0
+  ],
+  "50000": [
+   1790374227.0,
+   1790374292.0
+  ],
+  "60000": [
+   1790374287.0,
+   1790374352.0
+  ],
+  "70000": [
+   1790374347.0,
+   1790374412.0
+  ],
+  "80000": [
+   1790374407.0,
+   1790374472.0
+  ],
+  "90000": [
+   1790374467.0,
+   1790374532.0
+  ],
+  "100000": [
+   1790374527.0,
+   1790374592.0
+  ],
+  "110000": [
+   1790374587.0,
+   1790374652.0
+  ],
+  "120000": [
+   1790374647.0,
+   1790374712.0
+  ]
+ },
+ "invalid": [],
+ "loader_peak_by_step": {
+  "10000": 9,
+  "20000": 12,
+  "30000": 13,
+  "40000": 15,
+  "50000": 15,
+  "60000": 17,
+  "70000": 17,
+  "80000": 19,
+  "90000": 21,
+  "100000": 23,
+  "110000": 37,
+  "120000": 37
+ },
+ "actuator_by_step": {
+  "10000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 4.0,
+    "median": 1.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 3.0,
+    "median": 3.0,
+    "samples": 5
+   }
+  },
+  "20000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 4.0,
+    "median": 1.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 4.0,
+    "median": 3.0,
+    "samples": 5
+   }
+  },
+  "30000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 3.0,
+    "median": 2.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 10.0,
+    "median": 5.0,
+    "samples": 5
+   }
+  },
+  "40000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 3.0,
+    "median": 2.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 13.0,
+    "median": 6.0,
+    "samples": 5
+   }
+  },
+  "50000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 2.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 10.0,
+    "median": 9.0,
+    "samples": 5
+   }
+  },
+  "60000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 4.0,
+    "median": 2.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 14.0,
+    "median": 11.0,
+    "samples": 5
+   }
+  },
+  "70000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 4.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 18.0,
+    "median": 14.0,
+    "samples": 5
+   }
+  },
+  "80000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 6.0,
+    "median": 4.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 16.0,
+    "median": 14.0,
+    "samples": 5
+   }
+  },
+  "90000": {
+   "hikaricp.connections.pending": {
+    "max": 0.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 5.0,
+    "median": 5.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 20.0,
+    "median": 11.0,
+    "samples": 5
+   }
+  },
+  "100000": {
+   "hikaricp.connections.pending": {
+    "max": 76.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 9.0,
+    "median": 3.0,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 26.0,
+    "median": 21.0,
+    "samples": 4
+   }
+  },
+  "110000": {
+   "hikaricp.connections.pending": {
+    "max": 161.0,
+    "median": 0.0,
+    "samples": 5
+   },
+   "hikaricp.connections.active": {
+    "max": 10.0,
+    "median": 7.0,
+    "samples": 5
+   },
+   "tomcat.threads.busy": {
+    "max": 200.0,
+    "median": 199.0,
+    "samples": 5
+   }
+  },
+  "120000": {
+   "hikaricp.connections.pending": {
+    "max": 3.0,
+    "median": 0.0,
+    "samples": 4
+   },
+   "hikaricp.connections.active": {
+    "max": 7.0,
+    "median": 6.0,
+    "samples": 4
+   },
+   "tomcat.threads.busy": {
+    "max": 200.0,
+    "median": 200.0,
+    "samples": 4
+   }
+  }
+ },
+ "sut_cpu_cores_by_step": {
+  "10000": {
+   "max": 1.677,
+   "median": 1.3135,
+   "samples": 6
+  },
+  "20000": {
+   "max": 3.095,
+   "median": 2.963,
+   "samples": 6
+  },
+  "30000": {
+   "max": 4.53,
+   "median": 4.271,
+   "samples": 6
+  },
+  "40000": {
+   "max": 6.081,
+   "median": 5.7295,
+   "samples": 6
+  },
+  "50000": {
+   "max": 7.489,
+   "median": 7.271,
+   "samples": 5
+  },
+  "60000": {
+   "max": 8.028,
+   "median": 7.9795,
+   "samples": 6
+  },
+  "70000": {
+   "max": 8.377,
+   "median": 8.036,
+   "samples": 5
+  },
+  "80000": {
+   "max": 9.52,
+   "median": 9.34,
+   "samples": 6
+  },
+  "90000": {
+   "max": 11.14,
+   "median": 10.834,
+   "samples": 5
+  },
+  "100000": {
+   "max": 13.196,
+   "median": 12.821,
+   "samples": 6
+  },
+  "110000": {
+   "max": 15.067,
+   "median": 15.052,
+   "samples": 5
+  },
+  "120000": {
+   "max": 15.08,
+   "median": 15.065,
+   "samples": 6
+  }
+ },
+ "loader_peak_percent": 21
+}

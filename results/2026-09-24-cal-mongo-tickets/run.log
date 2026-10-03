@@ -1,0 +1,168 @@
+# own images: <account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<tag> (aad-go=2026-09-24, aad-iperf3=2026-09-24, aad-java=2026-09-24, aad-llama=b10775-kleidiai, aad-ycsb=2026-09-24)
+
+=== 2026-09-24-cal-mongo-tickets  mongo/arm-stock on node group aws-aad-mng-arm-stock (m9g.4xlarge x1) ===
+
+# budget: USD 9.66 committed today, estimate 80.00
+# kustomize overlay mongo/arm-stock with the own images of the day
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=1
+{
+    "update": {
+        "id": "a51db9d2-65d8-3f99-bba8-e6dfb4798577",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-09-24T22:55:49.954000-05:00",
+        "errors": []
+    }
+}
+# wait for 1 Ready node(s) with aad/cell=arm-stock (timeout 900s, poll 10s)
+# wait for 1 Ready node(s) with aad/role=loader (timeout 900s, poll 10s)
+# kustomize overlay mongo/arm-stock with the own images of the day
+# apply overlay mongo/arm-stock
+$ <stdin> | kubectl apply -f -
+service/mongo unchanged
+statefulset.apps/mongo configured
+$ kubectl -n aad rollout status statefulset/mongo --timeout=900s
+Waiting for 1 pods to be ready...
+Waiting for partitioned roll out to finish: 0 out of 1 new pods have been updated...
+Waiting for 1 pods to be ready...
+Waiting for 1 pods to be ready...
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+$ kubectl -n aad exec statefulset/mongo -- cat /sys/fs/cgroup/cpuset.cpus.effective
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.getSiblingDB("ycsb").usertable.estimatedDocumentCount()'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm0 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm0 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm0
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm0 created
+# wait for job/ycsb-run-arm-stock-warm0 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm0
+# job/ycsb-run-arm-stock-warm0 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm1 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm1 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm1
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm1 created
+# wait for job/ycsb-run-arm-stock-warm1 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm1
+# job/ycsb-run-arm-stock-warm1 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm2 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm2 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm2
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm2 created
+# wait for job/ycsb-run-arm-stock-warm2 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm2
+# job/ycsb-run-arm-stock-warm2 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad delete job ycsb-run-arm-stock-warm3 --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-warm3 --timeout=60s
+# apply job/ycsb-run-arm-stock-warm3
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-warm3 created
+# wait for job/ycsb-run-arm-stock-warm3 (timeout 1200s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-warm3
+# job/ycsb-run-arm-stock-warm3 -> Complete=True
+$ kubectl -n aad exec statefulset/mongo -- mongosh --quiet --eval 'db.serverStatus().wiredTiger.cache["pages read into cache"]'
+$ kubectl -n aad delete job ycsb-run-arm-stock-t16-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t16-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t16-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t16-knee created
+# wait for job/ycsb-run-arm-stock-t16-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t16-knee
+# job/ycsb-run-arm-stock-t16-knee -> Complete=True
+$ kubectl -n aad delete job ycsb-run-arm-stock-t32-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t32-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t32-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t32-knee created
+# wait for job/ycsb-run-arm-stock-t32-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t32-knee
+# job/ycsb-run-arm-stock-t32-knee -> Complete=True
+$ kubectl -n aad delete job ycsb-run-arm-stock-t64-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t64-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t64-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t64-knee created
+# wait for job/ycsb-run-arm-stock-t64-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t64-knee
+# job/ycsb-run-arm-stock-t64-knee -> Complete=True
+$ kubectl -n aad delete job ycsb-run-arm-stock-t128-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t128-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t128-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t128-knee created
+# wait for job/ycsb-run-arm-stock-t128-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t128-knee
+# job/ycsb-run-arm-stock-t128-knee -> Complete=True
+$ kubectl -n aad delete job ycsb-run-arm-stock-t256-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t256-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t256-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t256-knee created
+# wait for job/ycsb-run-arm-stock-t256-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t256-knee
+# job/ycsb-run-arm-stock-t256-knee -> Complete=True
+$ kubectl -n aad delete job ycsb-run-arm-stock-t512-knee --ignore-not-found
+$ kubectl -n aad wait --for=delete job/ycsb-run-arm-stock-t512-knee --timeout=60s
+# apply job/ycsb-run-arm-stock-t512-knee
+$ <stdin> | kubectl apply -f -
+job.batch/ycsb-run-arm-stock-t512-knee created
+# wait for job/ycsb-run-arm-stock-t512-knee (timeout 1380s, poll 10s)
+$ kubectl -n aad logs job/ycsb-run-arm-stock-t512-knee
+# job/ycsb-run-arm-stock-t512-knee -> Complete=True
+$ aws eks update-nodegroup-config --region us-east-1 --cluster-name aws-aad-eks-lab --nodegroup-name aws-aad-mng-arm-stock --scaling-config desiredSize=0
+{
+    "update": {
+        "id": "6c1bde05-0012-3674-8e33-e7ec7e2fffa7",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "DesiredSize",
+                "value": "0"
+            }
+        ],
+        "createdAt": "2026-09-24T23:11:35.356000-05:00",
+        "errors": []
+    }
+}
+# wait for no node with aad/cell=arm-stock (timeout 600s, poll 10s)
+$ kubectl -n aad delete jobs -l aad/cell=arm-stock --ignore-not-found
+job.batch "ycsb-run-arm-stock-t128-knee" deleted
+job.batch "ycsb-run-arm-stock-t16-knee" deleted
+job.batch "ycsb-run-arm-stock-t256-knee" deleted
+job.batch "ycsb-run-arm-stock-t32-knee" deleted
+job.batch "ycsb-run-arm-stock-t512-knee" deleted
+job.batch "ycsb-run-arm-stock-t64-knee" deleted
+job.batch "ycsb-run-arm-stock-warm0" deleted
+job.batch "ycsb-run-arm-stock-warm1" deleted
+job.batch "ycsb-run-arm-stock-warm2" deleted
+job.batch "ycsb-run-arm-stock-warm3" deleted
+# mongo overlay kept: --teardown-day is what drops the sts and its PVC
+
+# mongo/arm-stock: 18.7 min
+
+# Ledger 2026-09-24-cal-mongo-tickets
+
+| workload | cell | instancia | nodos | minutos | USD |
+|---|---|---|---|---|---|
+| mongo | arm-stock | m9g.4xlarge | 1 | 18.7 | 0.24 |
+| (fijo) | loader + tools + control plane | c7i.8xlarge, m7g.large, eks-control-plane | 1 | 360.0 | 9.66 |
+| **total** | | | | | **9.90** |
+
+estimate_per_day_usd: 80.00 - OK
+

@@ -1,0 +1,150 @@
+{
+ "unit": "clients",
+ "knee": 128,
+ "ops": 299797.9,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.466
+  ],
+  [
+   32,
+   0.518
+  ],
+  [
+   64,
+   0.544
+  ],
+  [
+   128,
+   0.728
+  ],
+  [
+   256,
+   1.913
+  ]
+ ],
+ "ended_by": {
+  "step": 256,
+  "p99_ms": 1.913,
+  "kind": "throughput_drop",
+  "reason": "280799 ops/s < 95% of 299798 at step 128"
+ },
+ "windows": {
+  "16": [
+   1790357704.0,
+   1790357765.0
+  ],
+  "32": [
+   1790357778.0,
+   1790357839.0
+  ],
+  "64": [
+   1790357852.0,
+   1790357913.0
+  ],
+  "128": [
+   1790357925.0,
+   1790357987.0
+  ],
+  "256": [
+   1790357999.0,
+   1790358061.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-x86-tuned-c16-knee-c1",
+   "pgbench-run-x86-tuned-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-x86-tuned-c32-knee-c1",
+   "pgbench-run-x86-tuned-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-x86-tuned-c64-knee-c1",
+   "pgbench-run-x86-tuned-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-x86-tuned-c128-knee-c1",
+   "pgbench-run-x86-tuned-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-x86-tuned-c256-knee-c1",
+   "pgbench-run-x86-tuned-c256-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 4,
+  "64": 6,
+  "128": 9,
+  "256": 8
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 2.334,
+   "median": 2.1755,
+   "samples": 6
+  },
+  "32": {
+   "max": 4.381,
+   "median": 3.139,
+   "samples": 7
+  },
+  "64": {
+   "max": 9.492,
+   "median": 8.859,
+   "samples": 8
+  },
+  "128": {
+   "max": 14.98,
+   "median": 14.871,
+   "samples": 6
+  },
+  "256": {
+   "max": 15.05,
+   "median": 15.041,
+   "samples": 5
+  }
+ },
+ "loader_guard_waived": {
+  "step": 256,
+  "sut_cores_max": 15.05,
+  "sut_cpus": 15,
+  "why": "SUT CPU saturated at the step that ended the walk: the loader reacted to it"
+ },
+ "loader_peak_percent": 9,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-x86-tuned-c16-knee-c1-7fdwz": 0.497,
+   "pgbench-run-x86-tuned-c16-knee-c2-q2ldm": 0.518
+  },
+  "32": {
+   "pgbench-run-x86-tuned-c32-knee-c1-grbmh": 0.882,
+   "pgbench-run-x86-tuned-c32-knee-c2-zdnf4": 0.882
+  },
+  "64": {
+   "pgbench-run-x86-tuned-c64-knee-c1-7vjcl": 1.485,
+   "pgbench-run-x86-tuned-c64-knee-c2-gb25m": 1.48
+  },
+  "128": {
+   "pgbench-run-x86-tuned-c128-knee-c1-qjz64": 2.265,
+   "pgbench-run-x86-tuned-c128-knee-c2-hcf8l": 2.265
+  },
+  "256": {
+   "pgbench-run-x86-tuned-c256-knee-c1-hsqbw": 2.229,
+   "pgbench-run-x86-tuned-c256-knee-c2-2hfvf": 2.217
+  }
+ }
+}

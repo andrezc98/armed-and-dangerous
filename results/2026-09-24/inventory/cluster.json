@@ -1,0 +1,134 @@
+{
+    "cluster": {
+        "name": "aws-aad-eks-lab",
+        "arn": "arn:aws:eks:us-east-1:<account>:cluster/aws-aad-eks-lab",
+        "createdAt": "2026-09-24T17:48:22.540000-05:00",
+        "version": "1.36",
+        "endpoint": "https://<cluster-endpoint>",
+        "roleArn": "arn:aws:iam::<account>:role/aws-aad-eks-lab-cluster-c85fe9bd2cffdc38ec60888ab6",
+        "resourcesVpcConfig": {
+            "subnetIds": [
+                "subnet-0e9204d632602e6be",
+                "subnet-0ec8c2b805673a45f"
+            ],
+            "securityGroupIds": [
+                "sg-065382a64ba5cc5d8"
+            ],
+            "clusterSecurityGroupId": "sg-06dbcb0ac1973a9c8",
+            "vpcId": "vpc-0910ced8b2da97c0f",
+            "endpointPublicAccess": true,
+            "endpointPrivateAccess": true,
+            "publicAccessCidrs": [
+                "<admin-cidr>/32"
+            ],
+            "controlPlaneEgressMode": "AWS_MANAGED"
+        },
+        "kubernetesNetworkConfig": {
+            "serviceIpv4Cidr": "172.20.0.0/16",
+            "ipFamily": "ipv4",
+            "elasticLoadBalancing": {
+                "enabled": false
+            }
+        },
+        "logging": {
+            "clusterLogging": [
+                {
+                    "types": [
+                        "api",
+                        "audit",
+                        "authenticator"
+                    ],
+                    "enabled": true
+                },
+                {
+                    "types": [
+                        "controllerManager",
+                        "scheduler"
+                    ],
+                    "enabled": false
+                }
+            ]
+        },
+        "identity": {
+            "oidc": {
+                "issuer": "https://oidc.eks.us-east-1.amazonaws.com/id/<oidc-id>"
+            }
+        },
+        "status": "ACTIVE",
+        "certificateAuthority": {
+            "data": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURNakNDQWhxZ0F3SUJBZ0lSQUpXbU5JMUFYa2xEZFdGMlcyTGg5dm93RFFZSktvWklodmNOQVFFTEJRQXcKSnpFUU1BNEdBMVVFQ2hNSFFWZFRJRVZMVXpFVE1CRUdBMVVFQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TmpBNQpNalF5TWpRNU16TmFGdzB6TVRBNU1qTXlNalE1TXpOYU1DY3hFREFPQmdOVkJBb1RCMEZYVXlCRlMxTXhFekFSCkJnTlZCQU1UQ210MVltVnlibVYwWlhNd2dnRWlNQTBHQ1NxR1NJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUIKQVFDK0RNYmhJN0U0TXJueEZvTjNQU3VtQkUxMEJwc1BoT0plSkpFR2dsSDhDMnVScFpUcUVLZWFhWDFzblZNbQp0VHIvS2tuQ0t0TGVYSlNyQmYrTFlPL3ZTQlQ1RVkxbTc1RlpoMWNtck9TbG5rTU42YVAxeXVCVkFqUFM2a1JXCk1vS1BWSWNQTnZtV2pUR0Z5QUJkTHNiY3B1MVdVc2VzUnFrY2dzS2pKVmJnUTYvOXl4ZmtSK0JzZ1NNQnlHRksKSlJURFRwQmZYTjNCbmJ2cWd3Mkl3Z0VQZEpLV1NtRkc2RkU5RDBxSVhXVFBLU0RSenhsSnoxaTFZTWR3bXJidwptMWc1cENITithNWtFWUJHSlpSVWRnZUh6MmFjYmJJRGRnWEtzS25HQ3J5QjlkV1lkRjFXVTRORi9yNlhJMFRKClVKeUxtcmpNNlZjOVU1OEs2RWV4RXVCSkFnTUJBQUdqV1RCWE1BNEdBMVVkRHdFQi93UUVBd0lDcERBUEJnTlYKSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCUlVQaXAzT1N3R2liaWlHMEhBQUV6R0NrWlkvakFWQmdOVgpIUkVFRGpBTWdncHJkV0psY201bGRHVnpNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUJQQzAzdmZjYTV6aUoyCkg4MWc2YktyZS92S01RWm1uR1ZTYzRSeHMrRkFIVkpVQkN1dU5SWndTY3BPbnJiWnprSGs2Q1d4WE5EL0RoeG4KV2V1TFJ3MFhHYnFWZEljNW5GR3ZYdmE1TXdRbVg4V0t6ZUhJdEwvdlVhVXdzWXRSVDZ4K0Q3VzY4MjBkaWlocgpRYmdYYThncmpoVXlpTGE2alFjYkgvbTArZU1JUVJjY1l6Z3FnR0lzbDUyU0ZId2VsMDFlNFBscXhTM2cybkFUCjJGam1aeDRIVm94NFlnZE9IeEFiM1FONDlDSkZLdHZBcktQbHUzWDVMQU9lNFpveGNEc1BMU3BKV09WclhiUE0KbnNGUG1BSEZHYnpIRU9Rd3VyZlRkclF0TmhHRVhuRFVFS2M1azRkZnpXS0Y4czJUazBDa0M3dUJvUy9oM1pycQpUZFpPL0E1SgotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==",
+            "active": {
+                "id": "173398ca-81e8-3ec1-8ef4-7998dbf41bfd",
+                "activatedBy": "EKS"
+            }
+        },
+        "platformVersion": "eks.14",
+        "tags": {
+            "Project": "armed-and-dangerous",
+            "Environment": "lab",
+            "Owner": "andres-zeballos",
+            "ManagedBy": "terraform"
+        },
+        "encryptionConfig": [
+            {
+                "resources": [
+                    "secrets"
+                ],
+                "provider": {
+                    "keyArn": "arn:aws:kms:us-east-1:<account>:key/773f1bc9-7fb3-4cc3-b2bf-fe8029f428e6"
+                }
+            }
+        ],
+        "accessConfig": {
+            "authenticationMode": "API"
+        },
+        "upgradePolicy": {
+            "supportType": "EXTENDED"
+        },
+        "computeConfig": {
+            "enabled": false,
+            "nodePools": []
+        },
+        "storageConfig": {
+            "blockStorage": {
+                "enabled": false
+            }
+        },
+        "deletionProtection": false,
+        "controlPlaneScalingConfig": {
+            "tier": "standard"
+        },
+        "kubeApiServerConfig": {
+            "eventTtl": "60m",
+            "serviceNodePortRange": {
+                "minPort": 30000,
+                "maxPort": 32767
+            }
+        },
+        "kubeSchedulerConfig": {
+            "nodeResourcesFit": {
+                "scoringStrategy": {
+                    "type": "LeastAllocated",
+                    "resources": [
+                        {
+                            "name": "cpu",
+                            "weight": 1
+                        },
+                        {
+                            "name": "memory",
+                            "weight": 1
+                        }
+                    ]
+                }
+            }
+        },
+        "kubeControllerManagerConfig": {
+            "podGcControllerConfig": {
+                "terminatedPodGcThreshold": 12500
+            },
+            "horizontalPodAutoscalerControllerConfig": {
+                "horizontalPodAutoscalerSyncPeriod": "15s"
+            }
+        }
+    }
+}

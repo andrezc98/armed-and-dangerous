@@ -1,0 +1,104 @@
+{
+    "Images": [
+        {
+            "PlatformDetails": "Linux/UNIX",
+            "UsageOperation": "RunInstances",
+            "BlockDeviceMappings": [
+                {
+                    "Ebs": {
+                        "DeleteOnTermination": true,
+                        "SnapshotId": "snap-00e56f812164d362f",
+                        "VolumeSize": 2,
+                        "VolumeType": "gp3",
+                        "Encrypted": false
+                    },
+                    "DeviceName": "/dev/xvda"
+                },
+                {
+                    "Ebs": {
+                        "DeleteOnTermination": true,
+                        "SnapshotId": "snap-0e046f8b7a101de81",
+                        "VolumeSize": 20,
+                        "VolumeType": "gp3",
+                        "Encrypted": false
+                    },
+                    "DeviceName": "/dev/xvdb"
+                }
+            ],
+            "Description": "bottlerocket-aws-k8s-1.36-aarch64-v1.66.0-1ad6b4a4",
+            "EnaSupport": true,
+            "Hypervisor": "xen",
+            "ImageOwnerAlias": "amazon",
+            "Name": "bottlerocket-aws-k8s-1.36-aarch64-v1.66.0-1ad6b4a4",
+            "RootDeviceName": "/dev/xvda",
+            "RootDeviceType": "ebs",
+            "SriovNetSupport": "simple",
+            "VirtualizationType": "hvm",
+            "BootMode": "uefi-preferred",
+            "DeprecationTime": "2028-09-19T07:49:09.000Z",
+            "ImdsSupport": "v2.0",
+            "SourceImageId": "ami-0421b5e8b2f76874a",
+            "SourceImageRegion": "us-west-2",
+            "FreeTierEligible": true,
+            "PublicSsmParameterName": "aws/service/bottlerocket/aws-k8s-1.36/arm64/latest/image_id",
+            "ImageId": "ami-0544ec61ea6c856ad",
+            "ImageLocation": "amazon/bottlerocket-aws-k8s-1.36-aarch64-v1.66.0-1ad6b4a4",
+            "State": "available",
+            "OwnerId": "<aws-account>",
+            "CreationDate": "2026-09-19T07:49:09.000Z",
+            "Public": true,
+            "Architecture": "arm64",
+            "ImageType": "machine"
+        },
+        {
+            "PlatformDetails": "Linux/UNIX",
+            "UsageOperation": "RunInstances",
+            "BlockDeviceMappings": [
+                {
+                    "Ebs": {
+                        "DeleteOnTermination": true,
+                        "SnapshotId": "snap-0acdfaa24c420b1d0",
+                        "VolumeSize": 2,
+                        "VolumeType": "gp3",
+                        "Encrypted": false
+                    },
+                    "DeviceName": "/dev/xvda"
+                },
+                {
+                    "Ebs": {
+                        "DeleteOnTermination": true,
+                        "SnapshotId": "snap-0c2a31f040e84db70",
+                        "VolumeSize": 20,
+                        "VolumeType": "gp3",
+                        "Encrypted": false
+                    },
+                    "DeviceName": "/dev/xvdb"
+                }
+            ],
+            "Description": "bottlerocket-aws-k8s-1.36-x86_64-v1.66.0-1ad6b4a4",
+            "EnaSupport": true,
+            "Hypervisor": "xen",
+            "ImageOwnerAlias": "amazon",
+            "Name": "bottlerocket-aws-k8s-1.36-x86_64-v1.66.0-1ad6b4a4",
+            "RootDeviceName": "/dev/xvda",
+            "RootDeviceType": "ebs",
+            "SriovNetSupport": "simple",
+            "VirtualizationType": "hvm",
+            "BootMode": "uefi-preferred",
+            "DeprecationTime": "2028-09-19T07:48:46.000Z",
+            "ImdsSupport": "v2.0",
+            "SourceImageId": "ami-0b4d5ae3a80db7df4",
+            "SourceImageRegion": "us-west-2",
+            "FreeTierEligible": true,
+            "PublicSsmParameterName": "aws/service/bottlerocket/aws-k8s-1.36/x86_64/latest/image_id",
+            "ImageId": "ami-04a25f2596ecd9129",
+            "ImageLocation": "amazon/bottlerocket-aws-k8s-1.36-x86_64-v1.66.0-1ad6b4a4",
+            "State": "available",
+            "OwnerId": "<aws-account>",
+            "CreationDate": "2026-09-19T07:48:46.000Z",
+            "Public": true,
+            "Architecture": "x86_64",
+            "ImageType": "machine"
+        }
+    ]
+}

@@ -1,0 +1,222 @@
+{
+ "unit": "clients",
+ "knee": 256,
+ "ops": 337182.7,
+ "slo_ms": 5,
+ "series": [
+  [
+   16,
+   0.6
+  ],
+  [
+   32,
+   0.642
+  ],
+  [
+   64,
+   0.625
+  ],
+  [
+   128,
+   0.68
+  ],
+  [
+   256,
+   1.568
+  ],
+  [
+   512,
+   3.215
+  ]
+ ],
+ "ended_by": null,
+ "windows": {
+  "16": [
+   1790408067.0,
+   1790408129.0
+  ],
+  "32": [
+   1790408141.0,
+   1790408202.0
+  ],
+  "64": [
+   1790408214.0,
+   1790408275.0
+  ],
+  "128": [
+   1790408287.0,
+   1790408349.0
+  ],
+  "256": [
+   1790408360.0,
+   1790408422.0
+  ],
+  "512": [
+   1790408434.0,
+   1790408495.0
+  ]
+ },
+ "jobs": {
+  "16": [
+   "pgbench-run-arm-tuned-c16-knee-c1",
+   "pgbench-run-arm-tuned-c16-knee-c2"
+  ],
+  "32": [
+   "pgbench-run-arm-tuned-c32-knee-c1",
+   "pgbench-run-arm-tuned-c32-knee-c2"
+  ],
+  "64": [
+   "pgbench-run-arm-tuned-c64-knee-c1",
+   "pgbench-run-arm-tuned-c64-knee-c2"
+  ],
+  "128": [
+   "pgbench-run-arm-tuned-c128-knee-c1",
+   "pgbench-run-arm-tuned-c128-knee-c2"
+  ],
+  "256": [
+   "pgbench-run-arm-tuned-c256-knee-c1",
+   "pgbench-run-arm-tuned-c256-knee-c2"
+  ],
+  "512": [
+   "pgbench-run-arm-tuned-c512-knee-c1",
+   "pgbench-run-arm-tuned-c512-knee-c2"
+  ]
+ },
+ "threads": {
+  "16": 8,
+  "32": 16,
+  "64": 16,
+  "128": 16,
+  "256": 16,
+  "512": 16
+ },
+ "wait_events_by_step": {
+  "16": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 275,
+    "NoWait": 29
+   }
+  },
+  "32": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 549,
+    "NoWait": 59
+   }
+  },
+  "64": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 1108,
+    "NoWait": 108
+   }
+  },
+  "128": {
+   "samples": 19,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 2207,
+    "NoWait": 225
+   }
+  },
+  "256": {
+   "samples": 18,
+   "dropped": 4,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 4342,
+    "NoWait": 266
+   }
+  },
+  "512": {
+   "samples": 15,
+   "dropped": 5,
+   "errors": 0,
+   "backends": {
+    "Client:ClientRead": 7443,
+    "NoWait": 237
+   }
+  }
+ },
+ "invalid_steps": {},
+ "invalid": [],
+ "loader_peak_by_step": {
+  "16": 2,
+  "32": 3,
+  "64": 5,
+  "128": 8,
+  "256": 10,
+  "512": 10
+ },
+ "sut_cpu_cores_by_step": {
+  "16": {
+   "max": 1.377,
+   "median": 1.2335,
+   "samples": 6
+  },
+  "32": {
+   "max": 3.533,
+   "median": 3.202,
+   "samples": 6
+  },
+  "64": {
+   "max": 7.765,
+   "median": 6.6695,
+   "samples": 6
+  },
+  "128": {
+   "max": 12.793,
+   "median": 6.81,
+   "samples": 7
+  },
+  "256": {
+   "max": 15.175,
+   "median": 15.173,
+   "samples": 6
+  },
+  "512": {
+   "max": 15.194,
+   "median": 15.17,
+   "samples": 4
+  }
+ },
+ "loader_peak_percent": 10,
+ "pgbench_pod_cores_by_step": {
+  "16": {
+   "pgbench-run-arm-tuned-c16-knee-c1-q96k4": 0.453,
+   "pgbench-run-arm-tuned-c16-knee-c2-ngrxn": 0.422
+  },
+  "32": {
+   "pgbench-run-arm-tuned-c32-knee-c1-r5drr": 0.812,
+   "pgbench-run-arm-tuned-c32-knee-c2-jmmpp": 0.836
+  },
+  "64": {
+   "pgbench-run-arm-tuned-c64-knee-c1-5s2j9": 1.354,
+   "pgbench-run-arm-tuned-c64-knee-c2-rsjs6": 1.31
+  },
+  "128": {
+   "pgbench-run-arm-tuned-c128-knee-c1-grtkk": 2.115,
+   "pgbench-run-arm-tuned-c128-knee-c2-6n6hz": 2.125
+  },
+  "256": {
+   "pgbench-run-arm-tuned-c256-knee-c1-p6vzw": 2.575,
+   "pgbench-run-arm-tuned-c256-knee-c2-rtqfg": 2.538
+  },
+  "512": {
+   "pgbench-run-arm-tuned-c512-knee-c1-dc6lx": 2.57,
+   "pgbench-run-arm-tuned-c512-knee-c2-kkhml": 2.511
+  }
+ },
+ "invalid_before_rejudge": [
+  "ladder_never_crossed: the top step (256 clients) still met the SLO; raise the top of the ladder (--rate-max, --threads for mongo, --clients for postgres) and run the cell again"
+ ],
+ "rejudged": "2026-09-26 b3094f3: peak at 256 inside the ladder (512 at 95.3 %), not the top step"
+}

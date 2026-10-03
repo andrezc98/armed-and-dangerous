@@ -1,0 +1,31 @@
+{
+ "cpuset": "1-15",
+ "cpuset_count": 15,
+ "cstates_ready": true,
+ "run_knee": 108000,
+ "rate": 86400,
+ "loader_peak_percent": 26,
+ "actuator": {
+  "hikaricp.connections.pending": {
+   "max": 0.0,
+   "median": 0.0,
+   "samples": 39
+  },
+  "hikaricp.connections.active": {
+   "max": 7.0,
+   "median": 2.0,
+   "samples": 39
+  },
+  "tomcat.threads.busy": {
+   "max": -1.0,
+   "median": -1.0,
+   "samples": 39
+  }
+ },
+ "aperf": "ok",
+ "flamegraph": "ok",
+ "invalid_before_rejudge": [
+  "dropped_iterations 51220 = 0.0012 of the offered iterations > 0.001"
+ ],
+ "rejudged": "2026-09-26 dropped_iterations rule 0.001 -> 0.0025 (R3, b9207f3)"
+}
