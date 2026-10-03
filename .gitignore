@@ -43,3 +43,10 @@ results/*/inventory-raw/
 
 # demo/sanitize-check.sh client/codename word list: holds the names it guards, never commit
 .sanitize-extra
+
+# APerf HTML reports (~330 MB): regenerate from results/ tarballs, see slides/assets/README.md
+slides/assets/aperf/
+
+# APerf raw tarballs (~1.36 GB, 231 files): published as the GitHub Release `aperf-raw-2026-09`,
+# see README. The four from the 2026-09-04 gate were committed before this rule and stay tracked.
+results/**/aperf/*.tar.gz

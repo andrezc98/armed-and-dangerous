@@ -258,6 +258,9 @@ manifests/   base/ (Pyroscope, profiler eBPF, DaemonSets de perillas: C-states y
              workloads/<java|mongo|postgres|inference|net|go>/ (kustomize base + overlays por celda)
 runner/      Python 3.13 + uv: cell.py (orquestador), knee.py, capture.py, cost.py, analysis/, k6/*.js, tests/
 results/     JSONs crudos (n≥3 por celda), tarballs/HTML APerf, flame graphs PNG, cost.md, profiler-gate.md
+             (los tarballs APerf, ~1.4 GB, están en el release `aperf-raw-2026-09`:
+              https://github.com/andrezc98/armed-and-dangerous/releases/tag/aperf-raw-2026-09;
+              `tar -xf aperf-raw-2026-09.tar` desde la raíz del repo los deja en su lugar)
 slides/      contenido.md + fuentes.md + assets/ (entregable para la plantilla oficial)
 demo/        record.md (plan B grabado) + sanitize-check.sh
 docs/        superpowers/{specs,plans}/ (spec y plan v2)
