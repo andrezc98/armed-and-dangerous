@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif">
+<title>¿Compatibilidad? Lo que se rompe está fuera de tu app</title>
+<defs>
+<linearGradient id="tv-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<linearGradient id="tv-grad-h" gradientUnits="userSpaceOnUse" x1="96" y1="0" x2="1824" y2="0"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<radialGradient id="tv-glow-a"><stop offset="0" stop-color="#A78BFA" stop-opacity=".16"/><stop offset=".45" stop-color="#6D4AE8" stop-opacity=".08"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<radialGradient id="tv-glow-b"><stop offset="0" stop-color="#6D4AE8" stop-opacity=".10"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#15123C" flood-opacity=".07"/></filter>
+</defs>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Montserrat:wght@600;700&amp;family=JetBrains+Mono&amp;display=block');
+.k{font:26px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.h{font-family:Montserrat,Inter,sans-serif;font-size:52px;font-weight:700;fill:#15123C}
+.sub{font-size:26px;fill:#5E5A80}
+.t{font-size:30px;font-weight:600;fill:#15123C}
+.c{font-size:24px;fill:#5E5A80}
+.m{font:24px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.card{fill:#fff;stroke:#DCD6F7;stroke-width:1.5;filter:url(#sh)}
+.act{fill:none;stroke:url(#tv-grad);stroke-width:3;filter:drop-shadow(0 0 18px rgb(109 74 232 / .35))}
+.idle{fill:none;stroke:#DCD6F7;stroke-width:3;stroke-dasharray:6 6}
+.on{fill:none;stroke:#6D4AE8;stroke-width:3}
+.dot{fill:#6D4AE8;stroke:#fff;stroke-width:3;filter:drop-shadow(0 0 8px rgb(109 74 232 / .6))}
+.gl{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.hero{font-family:Montserrat,Inter,sans-serif;font-weight:700;fill:url(#tv-grad-h)}.cap{font-size:32px;fill:#15123C}.src{font-size:24px;fill:#5E5A80}.tag{font:24px 'JetBrains Mono',Menlo,monospace;fill:#6D4AE8}.tm{font:24px 'JetBrains Mono',Menlo,monospace;fill:#e6e9ef;white-space:pre;font-variant-ligatures:none}.pc{fill:none;stroke:#d97706;stroke-width:3;stroke-dasharray:12 8}.pct{font:600 24px 'JetBrains Mono',Menlo,monospace;fill:#d97706}@media (prefers-reduced-motion: no-preference){.a{animation:in .7s cubic-bezier(.2,.7,.2,1) both}.ty{animation:ty .01s linear both}@keyframes in{from{opacity:0;transform:translateY(24px)}}@keyframes ty{from{opacity:0}}}
+</style>
+<rect width="1920" height="1080" fill="#fff"/><circle cx="1860" cy="40" r="820" fill="url(#tv-glow-a)"/><circle cx="60" cy="1060" r="760" fill="url(#tv-glow-b)"/>
+<text x="96" y="74" class="k"><tspan fill="#6D4AE8">[</tspan>¿COMPATIBILIDAD?<tspan fill="#6D4AE8">]</tspan></text>
+<text x="96" y="140" class="h">¿Compatibilidad? Lo que se rompe está fuera de tu app</text>
+<text x="96" y="192" class="sub">Un DaemonSet con imagen solo amd64, en un clúster con nodos x86 y Graviton</text>
+<rect x="96" y="230" width="1040" height="392" rx="18" fill="#15123C" filter="url(#sh)"/>
+<rect x="96" y="230" width="1040" height="48" rx="18" fill="#232b36"/><rect x="96" y="260" width="1040" height="18" fill="#232b36"/>
+<circle cx="126" cy="254" r="8" fill="#f87171"/>
+<circle cx="152" cy="254" r="8" fill="#fbbf24"/>
+<circle cx="178" cy="254" r="8" fill="#34d399"/>
+<g class="ty" style="animation-delay:0.40s"><text x="128" y="320" class="tm"><tspan fill="#a78bfa">$ </tspan><tspan fill="#e6e9ef">kubectl apply -f legacy-agent-daemonset.yaml</tspan></text></g>
+
+<g class="ty" style="animation-delay:0.72s"><text x="128" y="358" class="tm"><tspan fill="#a78bfa">$ </tspan><tspan fill="#e6e9ef">kubectl get pods -l app=legacy-agent</tspan></text></g>
+
+<g class="ty" style="animation-delay:1.04s"><text x="128" y="396" class="tm"><tspan fill="#8b95a7">NAME                READY  STATUS   RESTARTS</tspan></text></g>
+
+<g class="ty" style="animation-delay:1.36s"><text x="128" y="434" class="tm"><tspan fill="#e6e9ef">legacy-agent-6xcqj  0/1    </tspan><tspan fill="#f87171">Error  </tspan><tspan fill="#e6e9ef">  3   </tspan><tspan fill="#8b95a7"># arm64 · m6g</tspan></text></g>
+
+<g class="ty" style="animation-delay:1.68s"><text x="128" y="472" class="tm"><tspan fill="#e6e9ef">legacy-agent-8tglw  1/1    </tspan><tspan fill="#34d399">Running</tspan><tspan fill="#e6e9ef">  0   </tspan><tspan fill="#8b95a7"># amd64 · m6i</tspan></text></g>
+
+<g class="ty" style="animation-delay:2.00s"><text x="128" y="510" class="tm"><tspan fill="#e6e9ef">legacy-agent-d62ht  0/1    </tspan><tspan fill="#f87171">Error  </tspan><tspan fill="#e6e9ef">  3   </tspan><tspan fill="#8b95a7"># arm64 · m7g</tspan></text></g>
+
+<g class="ty" style="animation-delay:2.32s"><text x="128" y="548" class="tm"><tspan fill="#a78bfa">$ </tspan><tspan fill="#e6e9ef">kubectl logs legacy-agent-6xcqj</tspan></text></g>
+
+<g class="ty" style="animation-delay:2.64s"><text x="128" y="586" class="tm"><tspan fill="#f87171">exec /bin/sh: exec format error</tspan></text></g>
+
+<g class="a" style="animation-delay:3.16s"><text x="96" y="678" font-size="30" fill="#15123C">La imagen se descargó sin error;</text><text x="96" y="718" font-size="30" fill="#15123C">el fallo apareció al arrancar el contenedor.</text></g>
+<g class="a" style="animation-delay:3.36s"><rect x="1176" y="230" width="648" height="174" rx="20" class="card"/><text x="1204" y="270" class="tag" style="font-size:20px">[EN ESTA ESCENA]</text><text x="1204" y="308" font-size="27" font-weight="600" fill="#15123C">Agentes y DaemonSets</text><text x="1204" y="342" class="c">monitoreo, seguridad, logs: si uno</text><text x="1204" y="374" class="c">es solo amd64, falla en cada nodo arm</text></g>
+<g class="a" style="animation-delay:3.66s"><rect x="1176" y="424" width="648" height="174" rx="20" class="card"/><text x="1204" y="464" class="tag" style="font-size:20px">[EN EL LAB]</text><text x="1204" y="502" font-size="27" font-weight="600" fill="#15123C">El generador de carga</text><text x="1204" y="536" class="c">construimos go-ycsb solo para amd64:</text><text x="1204" y="568" class="c">el loader se quedó en x86</text></g>
+<g class="a" style="animation-delay:3.96s"><rect x="1176" y="618" width="648" height="174" rx="20" class="card"/><text x="1204" y="658" class="tag" style="font-size:20px">[OPCIONAL]</text><text x="1204" y="696" font-size="27" font-weight="600" fill="#15123C">Optimizaciones por chip</text><text x="1204" y="730" class="c">para activar KleidiAI compilamos otra</text><text x="1204" y="762" class="c">imagen; en calibración, sin ganancia</text></g>
+<g class="a" style="animation-delay:4.36s"><rect x="96" y="868" width="1728" height="72" rx="36" fill="url(#tv-grad-h)"/><text x="132" y="914" font-size="26" font-weight="600" fill="#fff">Antes de migrar</text><text x="360" y="914" class="tm" style="fill:#fff">docker buildx imagetools inspect &lt;imagen&gt;</text><text x="1060" y="914" font-size="24" fill="#fff">lista las plataformas de cada imagen</text></g>
+<text x="96" y="1000" class="src">Fuente: escena medida en el lab, Task 9, 2026-09-28 (salida real de kubectl, columnas acortadas); buildx: Docker Docs</text>
+
+</svg>

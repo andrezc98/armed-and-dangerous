@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif">
+<title>Lo que aprendimos midiendo CPUs en Kubernetes</title>
+<defs>
+<linearGradient id="tv-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<linearGradient id="tv-grad-h" gradientUnits="userSpaceOnUse" x1="96" y1="0" x2="1824" y2="0"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<radialGradient id="tv-glow-a"><stop offset="0" stop-color="#A78BFA" stop-opacity=".16"/><stop offset=".45" stop-color="#6D4AE8" stop-opacity=".08"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<radialGradient id="tv-glow-b"><stop offset="0" stop-color="#6D4AE8" stop-opacity=".10"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#15123C" flood-opacity=".07"/></filter>
+</defs>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Montserrat:wght@600;700&amp;family=JetBrains+Mono&amp;display=block');
+.k{font:26px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.h{font-family:Montserrat,Inter,sans-serif;font-size:52px;font-weight:700;fill:#15123C}
+.sub{font-size:26px;fill:#5E5A80}
+.t{font-size:30px;font-weight:600;fill:#15123C}
+.c{font-size:24px;fill:#5E5A80}
+.m{font:24px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.card{fill:#fff;stroke:#DCD6F7;stroke-width:1.5;filter:url(#sh)}
+.act{fill:none;stroke:url(#tv-grad);stroke-width:3;filter:drop-shadow(0 0 18px rgb(109 74 232 / .35))}
+.idle{fill:none;stroke:#DCD6F7;stroke-width:3;stroke-dasharray:6 6}
+.on{fill:none;stroke:#6D4AE8;stroke-width:3}
+.dot{fill:#6D4AE8;stroke:#fff;stroke-width:3;filter:drop-shadow(0 0 8px rgb(109 74 232 / .6))}
+.gl{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.hero{font-family:Montserrat,Inter,sans-serif;font-weight:700;fill:url(#tv-grad-h)}.cap{font-size:32px;fill:#15123C}.src{font-size:24px;fill:#5E5A80}.tag{font:24px 'JetBrains Mono',Menlo,monospace;fill:#6D4AE8}.tm{font:24px 'JetBrains Mono',Menlo,monospace;fill:#e6e9ef;white-space:pre;font-variant-ligatures:none}.pc{fill:none;stroke:#d97706;stroke-width:3;stroke-dasharray:12 8}.pct{font:600 24px 'JetBrains Mono',Menlo,monospace;fill:#d97706}@media (prefers-reduced-motion: no-preference){.a{animation:in .7s cubic-bezier(.2,.7,.2,1) both}.ty{animation:ty .01s linear both}@keyframes in{from{opacity:0;transform:translateY(24px)}}@keyframes ty{from{opacity:0}}}
+</style>
+<rect width="1920" height="1080" fill="#fff"/><circle cx="1860" cy="40" r="820" fill="url(#tv-glow-a)"/><circle cx="60" cy="1060" r="760" fill="url(#tv-glow-b)"/>
+<text x="96" y="74" class="k"><tspan fill="#6D4AE8">[</tspan>APRENDIZAJES<tspan fill="#6D4AE8">]</tspan></text>
+<text x="96" y="140" class="h">Lo que aprendimos midiendo CPUs en Kubernetes</text>
+<text x="96" y="192" class="sub">Sirve para cualquier benchmark que hagas en tu clúster</text>
+<g class="a" style="animation-delay:0.30s"><g transform="translate(96 232) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><path d="M16 30 H58 M48 20 L58 30 L48 40 M64 52 H22 M32 42 L22 52 L32 62"/></g></g><text x="190" y="260" font-size="30" font-weight="600" fill="#15123C">El loader es el primer sospechoso</text><text x="190" y="296" class="tag" style="fill:#5E5A80;font-size:21px">si pasa del 70 % de CPU, el run no cuenta; un cliente YCSB topaba en 191 mil ops/s, dos llegaron a 242 mil</text></g>
+<g class="a" style="animation-delay:0.60s"><g transform="translate(96 336) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><path d="M18 24 H62 M18 40 H62 M18 56 H62"/><circle cx="30" cy="24" r="6"/><circle cx="50" cy="40" r="6"/><circle cx="36" cy="56" r="6"/></g></g><text x="190" y="364" font-size="30" font-weight="600" fill="#15123C">«Sin ajustes» no es neutral: los defaults ya eligen por ti</text><text x="190" y="400" class="tag" style="fill:#5E5A80;font-size:21px">llama.cpp sin -t usó 8 hilos en el Xeon y 16 en Graviton5 y EPYC</text></g>
+<g class="a" style="animation-delay:0.90s"><g transform="translate(96 440) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><ellipse cx="40" cy="22" rx="22" ry="8"/><path d="M18 22 V58 A22 8 0 0 0 62 58 V22 M18 40 A22 8 0 0 0 62 40"/></g></g><text x="190" y="468" font-size="30" font-weight="600" fill="#15123C">Revisa el disco antes de culpar al chip</text><text x="190" y="504" class="tag" style="fill:#5E5A80;font-size:21px">MongoDB en gp3 de 125 MiB/s dio 134 mil de 194 mil ops/s; con 1000 MiB/s, los runs se sostuvieron</text></g>
+<g class="a" style="animation-delay:1.20s"><g transform="translate(96 544) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><circle cx="40" cy="42" r="20"/><path d="M40 42 L52 28 M40 14 V18 M18 26 L21 29 M62 26 L59 29"/></g></g><text x="190" y="572" font-size="30" font-weight="600" fill="#15123C">Mide la perilla en tu carga</text><text x="190" y="608" class="tag" style="fill:#5E5A80;font-size:21px">la de red de un runbook de latencia costó 2.2× CPU por Gbps en Graviton5 (1 día)</text></g>
+<g class="a" style="animation-delay:1.50s"><g transform="translate(96 648) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><rect x="12" y="16" width="56" height="48" rx="4"/><path d="M22 32 L32 40 L22 48 M38 50 H56"/></g></g><text x="190" y="676" font-size="30" font-weight="600" fill="#15123C">El kernel también es parte del benchmark</text><text x="190" y="712" class="tag" style="fill:#5E5A80;font-size:21px">Phoronix: Linux 7.0 mejoró PostgreSQL (lectura/escritura) en otro EPYC frente a 6.19; aquí: 6.18, solo lecturas</text></g>
+<g class="a" style="animation-delay:1.80s"><g transform="translate(96 752) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><path d="M16 16 V62 H66"/><path d="M20 58 C38 56 48 48 54 34 L60 18"/><path d="M44 18 V62" stroke-dasharray="4 5"/></g></g><text x="190" y="780" font-size="30" font-weight="600" fill="#15123C">Define el punto de quiebre antes de mirar los datos</text><text x="190" y="816" class="tag" style="fill:#5E5A80;font-size:21px">el mayor rendimiento que cumple el SLO de p99: 10 ms Java, 20 ms Go, 5 ms las bases</text></g>
+<g class="a" style="animation-delay:2.10s"><g transform="translate(96 856) scale(0.8)"><rect width="80" height="80" fill="url(#tv-grad)"/><g class="gl"><rect x="12" y="22" width="26" height="36" rx="3"/><rect x="42" y="22" width="26" height="36" rx="3"/><path d="M18 32 H32 M48 32 H62"/></g></g><text x="190" y="884" font-size="30" font-weight="600" fill="#15123C">Dos instancias en días distintos deciden los empates</text><text x="190" y="920" class="tag" style="fill:#5E5A80;font-size:21px">de un día a otro, 0–8 %; Java con ajustes m9g contra m8a: 0.98×, dentro del ruido</text></g>
+<text x="96" y="1000" class="src">Fuente: medido en el lab (Task 7 y calibración; guardas del runner); kernel: Phoronix, «Linux 7.0 … PostgreSQL … AMD EPYC»</text>
+
+</svg>

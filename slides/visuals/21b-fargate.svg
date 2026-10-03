@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif">
+<title>¿Y si corro en Fargate? No eliges la generación</title>
+<defs>
+<linearGradient id="tv-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<linearGradient id="tv-grad-h" gradientUnits="userSpaceOnUse" x1="96" y1="0" x2="1824" y2="0"><stop offset="0" stop-color="#4C2FC9"/><stop offset=".5" stop-color="#6D4AE8"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+<radialGradient id="tv-glow-a"><stop offset="0" stop-color="#A78BFA" stop-opacity=".16"/><stop offset=".45" stop-color="#6D4AE8" stop-opacity=".08"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<radialGradient id="tv-glow-b"><stop offset="0" stop-color="#6D4AE8" stop-opacity=".10"/><stop offset="1" stop-color="#6D4AE8" stop-opacity="0"/></radialGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#15123C" flood-opacity=".07"/></filter>
+</defs>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Montserrat:wght@600;700&amp;family=JetBrains+Mono&amp;display=block');
+.k{font:26px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.h{font-family:Montserrat,Inter,sans-serif;font-size:52px;font-weight:700;fill:#15123C}
+.sub{font-size:26px;fill:#5E5A80}
+.t{font-size:30px;font-weight:600;fill:#15123C}
+.c{font-size:24px;fill:#5E5A80}
+.m{font:24px 'JetBrains Mono',Menlo,monospace;fill:#15123C}
+.card{fill:#fff;stroke:#DCD6F7;stroke-width:1.5;filter:url(#sh)}
+.act{fill:none;stroke:url(#tv-grad);stroke-width:3;filter:drop-shadow(0 0 18px rgb(109 74 232 / .35))}
+.idle{fill:none;stroke:#DCD6F7;stroke-width:3;stroke-dasharray:6 6}
+.on{fill:none;stroke:#6D4AE8;stroke-width:3}
+.dot{fill:#6D4AE8;stroke:#fff;stroke-width:3;filter:drop-shadow(0 0 8px rgb(109 74 232 / .6))}
+.gl{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.hero{font-family:Montserrat,Inter,sans-serif;font-weight:700;fill:url(#tv-grad-h)}.cap{font-size:32px;fill:#15123C}.src{font-size:24px;fill:#5E5A80}.tag{font:24px 'JetBrains Mono',Menlo,monospace;fill:#6D4AE8}.tm{font:24px 'JetBrains Mono',Menlo,monospace;fill:#e6e9ef;white-space:pre;font-variant-ligatures:none}.pc{fill:none;stroke:#d97706;stroke-width:3;stroke-dasharray:12 8}.pct{font:600 24px 'JetBrains Mono',Menlo,monospace;fill:#d97706}@media (prefers-reduced-motion: no-preference){.a{animation:in .7s cubic-bezier(.2,.7,.2,1) both}.ty{animation:ty .01s linear both}@keyframes in{from{opacity:0;transform:translateY(24px)}}@keyframes ty{from{opacity:0}}}
+</style>
+<rect width="1920" height="1080" fill="#fff"/><circle cx="1860" cy="40" r="820" fill="url(#tv-glow-a)"/><circle cx="60" cy="1060" r="760" fill="url(#tv-glow-b)"/>
+<text x="96" y="74" class="k"><tspan fill="#6D4AE8">[</tspan>¿Y FARGATE?<tspan fill="#6D4AE8">]</tspan></text>
+<text x="96" y="140" class="h">¿Y si corro en Fargate? No eliges la generación</text>
+<text x="96" y="192" class="sub">Lo medido aquí es EC2. En ECS Fargate eliges x86 o Arm, pero AWS elige la generación</text>
+<g class="a" style="animation-delay:0.30s"><rect x="96" y="230" width="828" height="330" rx="20" class="card"/><rect x="96" y="230" width="828" height="10" rx="5" fill="#d97706"/><text x="132" y="292" class="k" style="fill:#d97706">[EKS + FARGATE]</text><text x="132" y="346" font-size="36" font-weight="700" fill="#15123C">Sin Arm</text><text x="132" y="400" class="c" style="font-size:26px">La tabla de EKS dice: «Arm processors: No».</text><text x="132" y="438" class="c" style="font-size:26px">Tampoco DaemonSets ni Fargate Spot.</text><text x="132" y="476" class="c" style="font-size:26px">Para Graviton en EKS: nodos EC2,</text><text x="132" y="514" class="c" style="font-size:26px">como en este lab.</text></g>
+<g class="a" style="animation-delay:0.65s"><rect x="996" y="230" width="828" height="330" rx="20" class="card"/><rect x="996" y="230" width="828" height="10" rx="5" fill="#6D4AE8"/><text x="1032" y="292" class="k" style="fill:#6D4AE8">[ECS + FARGATE]</text><text x="1032" y="346" font-size="36" font-weight="700" fill="#15123C">Arm sí: cpuArchitecture ARM64</text><text x="1032" y="400" class="c" style="font-size:26px">20 % menos por vCPU y GB que x86;</text><text x="1032" y="438" class="c" style="font-size:26px">AWS dice «hasta 40 %» mejor precio-</text><text x="1032" y="476" class="c" style="font-size:26px">rendimiento (cifra de AWS, no medida aquí).</text><text x="1032" y="514" class="c" style="font-size:26px">Spot con Graviton: sí.</text></g>
+<g class="a" style="animation-delay:1.10s"><rect x="96" y="590" width="1728" height="230" rx="20" class="card"/><rect x="96" y="590" width="10" height="230" rx="5" fill="#6D4AE8"/><text x="136" y="640" class="tag" style="font-size:20px">[EL HARDWARE ES DINÁMICO · GITHUB aws/containers-roadmap #2230]</text><text x="136" y="690" font-size="28" font-weight="600" fill="#15123C">AWS anunció la incorporación de Graviton3 a Fargate en 2024: «We added Graviton 3 to Fargate fleet»</text><text x="136" y="734" class="c" style="font-size:26px">En pruebas pequeñas de octubre de 2024, un usuario observó Graviton2 y Graviton3 en ECS Fargate</text><text x="136" y="774" class="c" style="font-size:26px">Un usuario identificó la instancia con:</text><text x="590" y="774" class="m" style="fill:#6D4AE8">cat /sys/class/dmi/id/product_name</text><text x="1100" y="774" class="c" style="font-size:26px">(sin garantía de AWS)</text></g>
+<g class="a" style="animation-delay:1.50s"><rect x="96" y="850" width="1728" height="72" rx="36" fill="url(#tv-grad-h)"/><text x="132" y="896" font-size="26" font-weight="600" fill="#fff">¿Necesitas elegir generación? EKS con nodos EC2 o ECS Managed Instances (tipo y fabricante)</text></g>
+<text x="96" y="990" class="src">Fuente: docs de EKS y ECS sobre Fargate, FAQ y precios de Fargate (30-09-2026); GitHub aws/containers-roadmap #2230, #1030, #2019</text>
+
+</svg>
